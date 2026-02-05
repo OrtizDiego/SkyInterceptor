@@ -1,0 +1,51 @@
+# Git
+.git
+.gitignore
+.gitattributes
+
+# Docker
+Dockerfile
+docker-compose.yml
+.dockerignore
+# Note: docker/ directory is needed for entrypoint.sh
+
+# Build artifacts
+interceptor_ws/build/
+interceptor_ws/install/
+interceptor_ws/log/
+*.pyc
+__pycache__/
+*.so
+*.a
+*.o
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs and bags (keep the directory structure but not contents)
+bags/*
+logs/*
+test-results/*
+*.log
+*.bag
+
+# Scripts (needed for build monitoring)
+!scripts/
+
+# Documentation build
+docs/_build/
+docs/api/
+*.html.pdf
+
+# Temporary files
+tmp/
+temp/
+*.tmp

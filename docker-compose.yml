@@ -1,0 +1,50 @@
+version: '3.8'
+
+services:
+  # Unified Interceptor Drone Environment
+  interceptor:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: interceptor-drone:latest
+    container_name: interceptor
+    
+    # Privileged mode for Hardware/GPU access
+    privileged: true
+    runtime: nvidia
+    network_mode: host
+    
+    environment:
+      - DISPLAY=${DISPLAY}
+      - QT_X11_NO_MITSHM=1
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=all
+      - ROS_DOMAIN_ID=0
+      - GAZEBO_MODEL_PATH=/usr/share/gazebo-11/models
+      - WORKSPACE=/workspace/interceptor_ws
+    
+    volumes:
+      # Source Code (Live Edit)
+      - ./interceptor_ws/src:/workspace/interceptor_ws/src:rw
+      # Build Artifacts (Persistent & Fast)
+      - build_cache:/workspace/interceptor_ws/build
+      - install_cache:/workspace/interceptor_ws/install
+      - log_cache:/workspace/interceptor_ws/log
+      # GUI Support
+      - /tmp/.X11-unix:/tmp/.X11-unix:rw
+      # Data sharing
+      - ./bags:/workspace/bags:rw
+      - ./logs:/workspace/logs:rw
+      # Host Configs
+      - ~/.ssh:/root/.ssh:ro
+      - ~/.gitconfig:/root/.gitconfig:ro
+    
+    stdin_open: true
+    tty: true
+    working_dir: /workspace/interceptor_ws
+    restart: unless-stopped
+
+volumes:
+  build_cache:
+  install_cache:
+  log_cache:

@@ -1,0 +1,23 @@
+# Stereo camera calibration parameters
+stereo:
+  baseline: 0.12  # meters (12cm)
+  fx: 535.4       # focal length x (pixels)
+  fy: 535.4       # focal length y (pixels)
+  cx: 320.5       # principal point x (pixels)
+  cy: 240.5       # principal point y (pixels)
+
+# Disparity calculation parameters
+num_disparities: 128  # Must be divisible by 16
+block_size: 11        # Block matching window size
+
+# Preprocessing
+use_cuda: true
+filter_depth: true
+
+# Detection classes
+# 0: person
+# 1: car  
+# 2: truck
+target_classes: [0, 1, 2]
+confidence_threshold: 0.5
+nms_threshold: 0.4

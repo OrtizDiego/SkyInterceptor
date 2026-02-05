@@ -1,0 +1,26 @@
+# Controller Parameters
+controller:
+  # Position loop PID gains
+  kp_pos: 1.0
+  ki_pos: 0.0
+  kd_pos: 0.5
+  
+  # Velocity loop PID gains
+  kp_vel: 2.0
+  ki_vel: 0.1
+  kd_vel: 0.5
+  
+  # Limits
+  max_velocity: 41.7      # m/s (150 km/h)
+  max_acceleration: 20.0  # m/s^2
+  max_altitude: 200.0     # meters
+  min_altitude: 2.0       # meters
+  
+  # Integral windup prevention
+  max_pos_integral: 10.0
+  max_vel_integral: 5.0
+  
+  # Trajectory generation
+  trajectory:
+    use_bang_bang: true
+    jerk_limit: 50.0  # m/s^3

@@ -1,0 +1,24 @@
+# EKF Parameters
+ekf:
+  process_noise_pos: 0.1    # Position process noise (m^2)
+  process_noise_vel: 0.5    # Velocity process noise ((m/s)^2)
+  process_noise_acc: 1.0    # Acceleration process noise ((m/s^2)^2)
+  measurement_noise_pos: 0.1  # Position measurement noise (m^2)
+
+# IMM Model Parameters
+imm:
+  model_transition:
+    cv_to_cv: 0.9
+    cv_to_ca: 0.05
+    cv_to_ct: 0.05
+    ca_to_cv: 0.1
+    ca_to_ca: 0.85
+    ca_to_ct: 0.05
+    ct_to_cv: 0.1
+    ct_to_ca: 0.1
+    ct_to_ct: 0.8
+
+# Gating
+gate_threshold: 3.0  # Number of standard deviations
+max_missed_frames: 10  # Maximum consecutive misses before track deletion
+min_detections: 3      # Minimum detections to create track

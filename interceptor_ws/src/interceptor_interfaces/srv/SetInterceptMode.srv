@@ -1,0 +1,10 @@
+# Service to change guidance mode
+uint8 mode
+uint8 MODE_AUTO=0      # Automatic phase selection
+uint8 MODE_PN=1        # Proportional navigation only
+uint8 MODE_APN=2       # Augmented PN
+uint8 MODE_PURSUIT=3   # Pure pursuit
+
+---
+bool success
+string message

@@ -1,0 +1,18 @@
+# Guidance Parameters
+guidance:
+  # Navigation constants for different phases
+  nav_constant_far: 4.0     # Far range (> 50m)
+  nav_constant_mid: 5.0     # Mid range (10-50m)
+  nav_constant_terminal: 6.0  # Terminal phase (< 10m)
+  
+  # Phase ranges (meters)
+  terminal_range: 10.0
+  mid_range: 50.0
+  
+  # Acceleration limits
+  max_acceleration: 20.0  # m/s^2
+  max_lateral_accel: 15.0  # m/s^2
+  
+  # Collision parameters
+  collision_tolerance: 0.5  # meters (acceptable miss distance)
+  min_time_to_go: 1.0      # seconds (minimum intercept time)
