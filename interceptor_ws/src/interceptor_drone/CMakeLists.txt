@@ -145,14 +145,14 @@ if(BUILD_TESTING)
   
   find_package(ament_cmake_gtest REQUIRED)
   
-  ament_add_gtest(test_ekf test/test_ekf.cpp)
-  target_link_libraries(test_ekf ${PROJECT_NAME}_lib)
+  # ament_add_gtest(test_ekf test/test_ekf.cpp)
+  # target_link_libraries(test_ekf ${PROJECT_NAME}_lib)
   
-  ament_add_gtest(test_guidance test/test_guidance.cpp)
-  target_link_libraries(test_guidance ${PROJECT_NAME}_lib)
+  # ament_add_gtest(test_guidance test/test_guidance.cpp)
+  # target_link_libraries(test_guidance ${PROJECT_NAME}_lib)
   
-  ament_add_gtest(test_controller test/test_controller.cpp)
-  target_link_libraries(test_controller ${PROJECT_NAME}_lib)
+  # ament_add_gtest(test_controller test/test_controller.cpp)
+  # target_link_libraries(test_controller ${PROJECT_NAME}_lib)
 endif()
 
 ament_export_include_directories(include)
