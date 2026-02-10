@@ -35,6 +35,7 @@ services:
       # Data sharing
       - ./bags:/workspace/bags:rw
       - ./logs:/workspace/logs:rw
+      - ./scripts:/workspace/interceptor_ws/scripts:rw
       # Host Configs
       - ~/.ssh:/root/.ssh:ro
       - ~/.gitconfig:/root/.gitconfig:ro

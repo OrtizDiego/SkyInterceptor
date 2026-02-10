@@ -1,4 +1,5 @@
 import os
+import xacro
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
@@ -16,6 +17,11 @@ def generate_launch_description():
     world_file = LaunchConfiguration('world_file', default=os.path.join(
         pkg_interceptor, 'worlds', 'intercept_scenario.world'))
     
+    # Process xacro file
+    xacro_file = os.path.join(pkg_interceptor, 'urdf', 'interceptor_quadrotor.urdf.xacro')
+    robot_description_config = xacro.process_file(xacro_file)
+    robot_desc = robot_description_config.toxml()
+    
     # Gazebo launch
     gazebo = IncludeLaunchDescription(
         PythonLaunchDescriptionSource([
@@ -32,7 +38,7 @@ def generate_launch_description():
         package='gazebo_ros',
         executable='spawn_entity.py',
         arguments=[
-            '-file', os.path.join(pkg_interceptor, 'urdf', 'interceptor_quadrotor.urdf.xacro'),
+            '-topic', 'robot_description',
             '-entity', 'interceptor',
             '-x', '0',
             '-y', '0',
@@ -57,8 +63,7 @@ def generate_launch_description():
         name='robot_state_publisher',
         output='screen',
         parameters=[{
-            'robot_description': open(os.path.join(
-                pkg_interceptor, 'urdf', 'interceptor_quadrotor.urdf.xacro')).read(),
+            'robot_description': robot_desc,
             'use_sim_time': use_sim_time
         }]
     )

@@ -25,6 +25,7 @@ find_package(OpenCV REQUIRED)
 find_package(Eigen3 REQUIRED)
 find_package(interceptor_interfaces REQUIRED)
 find_package(visualization_msgs REQUIRED)
+find_package(message_filters REQUIRED)
 
 # Include directories
 include_directories(
@@ -61,7 +62,7 @@ ament_target_dependencies(${PROJECT_NAME}_lib
 # Perception nodes
 add_executable(stereo_sync_node src/perception/stereo_sync_node.cpp)
 target_link_libraries(stereo_sync_node ${PROJECT_NAME}_lib)
-ament_target_dependencies(stereo_sync_node rclcpp sensor_msgs cv_bridge image_transport)
+ament_target_dependencies(stereo_sync_node rclcpp sensor_msgs cv_bridge image_transport message_filters interceptor_interfaces)
 
 add_executable(stereo_depth_processor src/perception/stereo_depth_processor.cpp)
 target_link_libraries(stereo_depth_processor ${PROJECT_NAME}_lib)

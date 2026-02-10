@@ -1,0 +1,20 @@
+# Stereo Synchronization Node Configuration
+stereo_sync_node:
+  ros__parameters:
+    # Synchronization tolerance (seconds)
+    # Images within this time window will be considered synchronized
+    sync_slop: 0.005  # 5 milliseconds
+    
+    # Queue size for message filters
+    # Larger = more tolerant to timing jitter but more latency
+    queue_size: 10
+    
+    # Input topics
+    left_image_topic: "/stereo/left/image_raw"
+    right_image_topic: "/stereo/right/image_raw"
+    left_info_topic: "/stereo/left/camera_info"
+    right_info_topic: "/stereo/right/camera_info"
+    
+    # Output topic
+    # Publishes: interceptor_interfaces/msg/StereoImagePair
+    output_topic: "/stereo/synced"
