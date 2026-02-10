@@ -91,6 +91,7 @@ private:
     }
 
     void synced_callback(const interceptor_interfaces::msg::StereoImagePair::SharedPtr msg) {
+        RCLCPP_INFO_ONCE(get_logger(), "Received first synchronized stereo pair!");
         auto start_time = std::chrono::steady_clock::now();
 
         try {
@@ -143,8 +144,10 @@ private:
             pub_depth_->publish(*depth_msg);
             
             auto end_time = std::chrono::steady_clock::now();
-            auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
-            RCLCPP_DEBUG(get_logger(), "Depth processed in %ld ms", duration.count());
+                        auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
+                        
+                        RCLCPP_INFO(get_logger(), "Depth processed in %ld ms", duration.count());
+            
 
         } catch (const std::exception& e) {
             RCLCPP_ERROR(get_logger(), "Depth Processor Error: %s", e.what());

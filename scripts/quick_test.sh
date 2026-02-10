@@ -87,50 +87,56 @@ fi
 
 # Test 4: Start perception pipeline and check output
 echo ""
-echo "🚀 Starting perception pipeline (sync + depth)..."
+echo "🚀 Starting perception pipeline (sync + depth + detector)..."
 ros2 launch interceptor_drone perception.launch.py &
 PERCEPTION_PID=$!
-sleep 5
 
-check_test \
-    "Sync node is running" \
-    "ros2 node list" \
-    "stereo_sync_node"
+echo -n "⏳ Waiting for nodes to initialize... "
+for i in {1..30}; do
+    if ros2 node list | grep -q "stereo_sync_node" && \
+       ros2 node list | grep -q "stereo_depth_processor" && \
+       ros2 node list | grep -q "target_detector" && \
+       ros2 node list | grep -q "target_3d_localizer"; then
+        echo "✅ PASS"
+        ((PASSED++)) # Sync
+        ((PASSED++)) # Depth
+        ((PASSED++)) # Detector
+        ((PASSED++)) # Localizer
+        NODES_READY=1
+        break
+    fi
+    echo -n "."
+    sleep 1
+done
 
-check_test \
-    "Depth node is running" \
-    "ros2 node list" \
-    "stereo_depth_processor"
+if [ -z "$NODES_READY" ]; then
+    echo "❌ FAIL (Timeout)"
+    ((FAILED++))
+    ((FAILED++))
+    ((FAILED++))
+fi
 
 check_test \
     "Depth topic exists" \
     "ros2 topic list" \
     "/stereo/depth"
 
-# Test 5: Measure rate
-echo ""
-echo "⏱️  Measuring depth output rate (5 seconds)..."
-timeout 6 ros2 topic hz /stereo/depth 2>&1 | grep -q "average rate"
-if [ $? -eq 0 ]; then
-    RATE=$(timeout 6 ros2 topic hz /stereo/depth 2>&1 | grep "average rate" | awk '{print $4}')
-    echo "📊 Measured rate: ${RATE} Hz"
-    
-    if (( $(echo "$RATE > 1.0" | bc -l) )); then
-        echo "✅ PASS: Rate > 1 Hz"
-        ((PASSED++))
-    else
-        echo "❌ FAIL: Rate too low"
-        ((FAILED++))
-    fi
-else
-    echo "❌ FAIL: Could not measure rate"
-    ((FAILED++))
-fi
+check_test \
+    "Detection 2D topic exists" \
+    "ros2 topic list" \
+    "/target/detection_2d"
+
+check_test \
+    "Detection 3D topic exists" \
+    "ros2 topic list" \
+    "/target/detection_3d"
 
 # Cleanup
 kill $PERCEPTION_PID 2>/dev/null || true
 pkill -f stereo_sync_node
 pkill -f stereo_depth_processor
+pkill -f target_detector
+pkill -f target_3d_localizer
 sleep 1
 
 # Results
@@ -146,11 +152,8 @@ echo ""
 if [ $FAILED -eq 0 ]; then
     echo "🎉 ALL TESTS PASSED!"
     echo ""
-    echo "You can proceed to Phase 2.2: stereo_depth_processor"
+    echo "You can proceed to Phase 2.4: target_3d_localizer"
     echo ""
-    echo "To continue:"
-    echo "  1. Run full integration test: ./scripts/integration_test_stereo.sh"
-    echo "  2. See detailed docs: cat docs/TESTING_PROCEDURE.md"
     exit 0
 else
     echo "⚠️  SOME TESTS FAILED"

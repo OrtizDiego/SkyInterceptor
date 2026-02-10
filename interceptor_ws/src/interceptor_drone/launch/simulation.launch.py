@@ -42,8 +42,23 @@ def generate_launch_description():
             '-entity', 'interceptor',
             '-x', '0',
             '-y', '0',
-            '-z', '0.5',
+            '-z', '1.0',
             '-Y', '0'
+        ],
+        output='screen'
+    )
+    
+    # Spawn target (person)
+    spawn_target = Node(
+        package='gazebo_ros',
+        executable='spawn_entity.py',
+        arguments=[
+            '-database', 'person_standing',
+            '-entity', 'target_person',
+            '-x', '2.0',
+            '-y', '0.0',
+            '-z', '0.0',
+            '-Y', '3.14'
         ],
         output='screen'
     )
@@ -81,6 +96,7 @@ def generate_launch_description():
         ),
         gazebo,
         spawn_drone,
+        spawn_target,
         static_tf,
         robot_state_publisher,
     ])

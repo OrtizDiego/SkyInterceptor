@@ -46,6 +46,32 @@ def generate_launch_description():
         }]
     )
     
+    # YOLO Target Detector
+    target_detector = Node(
+        package='interceptor_drone',
+        executable='target_detector.py',
+        name='target_detector',
+        output='screen',
+        parameters=[{
+            'use_sim_time': use_sim_time,
+            'model_path': 'yolov8n.pt',
+            'confidence_threshold': 0.3,
+            'device': 'cpu',
+        }]
+    )
+    
+    # Target 3D Localizer
+    target_3d_localizer = Node(
+        package='interceptor_drone',
+        executable='target_3d_localizer',
+        name='target_3d_localizer',
+        output='screen',
+        parameters=[{
+            'use_sim_time': use_sim_time,
+            'target_frame': 'map',
+        }]
+    )
+    
     return LaunchDescription([
         DeclareLaunchArgument(
             'use_sim_time',
@@ -54,4 +80,6 @@ def generate_launch_description():
         ),
         stereo_sync_node,
         stereo_depth_processor,
+        target_detector,
+        target_3d_localizer,
     ])

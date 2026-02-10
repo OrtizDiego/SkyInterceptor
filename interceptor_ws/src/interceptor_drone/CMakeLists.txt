@@ -109,6 +109,11 @@ install(TARGETS
   DESTINATION lib/${PROJECT_NAME}
 )
 
+install(PROGRAMS
+  src/perception/target_detector.py
+  DESTINATION lib/${PROJECT_NAME}
+)
+
 # Install headers
 install(DIRECTORY include/
   DESTINATION include
