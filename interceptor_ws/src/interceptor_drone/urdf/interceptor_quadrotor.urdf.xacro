@@ -7,28 +7,97 @@
   <xacro:property name="camera_width" value="0.1"/>
   <xacro:property name="camera_height" value="0.04"/>
   <xacro:property name="camera_depth" value="0.03"/>
-  
-  <!-- Base link (simplified quadrotor) -->
+  <xacro:property name="arm_length" value="0.28"/>
+
+  <!--
+    Arm macro: thin box extending arm_length along the local +X axis.
+    Joint rotation (yaw) orients the arm in the X-config layout.
+  -->
+  <xacro:macro name="quad_arm" params="name yaw">
+    <link name="arm_${name}">
+      <inertial>
+        <mass value="0.025"/>
+        <inertia ixx="1e-5" ixy="0" ixz="0" iyy="1e-5" iyz="0" izz="1e-5"/>
+      </inertial>
+      <visual>
+        <origin xyz="${arm_length/2} 0 0" rpy="0 0 0"/>
+        <geometry>
+          <box size="${arm_length} 0.022 0.022"/>
+        </geometry>
+        <material name="arm_dark">
+          <color rgba="0.18 0.18 0.18 1"/>
+        </material>
+      </visual>
+    </link>
+    <joint name="arm_${name}_joint" type="fixed">
+      <parent link="base_link"/>
+      <child link="arm_${name}"/>
+      <origin xyz="0 0 0" rpy="0 0 ${yaw}"/>
+    </joint>
+  </xacro:macro>
+
+  <!-- X-configuration: FR=-45°, FL=+45°, RL=+135°, RR=-135° -->
+  <xacro:quad_arm name="fr" yaw="${-pi/4}"/>
+  <xacro:quad_arm name="fl" yaw="${pi/4}"/>
+  <xacro:quad_arm name="rl" yaw="${3*pi/4}"/>
+  <xacro:quad_arm name="rr" yaw="${-3*pi/4}"/>
+
+  <!--
+    Rotor macro: flat disc cylinder above the arm tip.
+    x/y are the arm tip positions in base_link frame (arm_length * cos/sin(45°) = 0.198).
+  -->
+  <xacro:macro name="quad_rotor" params="name x y">
+    <link name="rotor_${name}">
+      <inertial>
+        <mass value="0.01"/>
+        <inertia ixx="1e-5" ixy="0" ixz="0" iyy="1e-5" iyz="0" izz="1e-5"/>
+      </inertial>
+      <visual>
+        <origin xyz="0 0 0" rpy="0 0 0"/>
+        <geometry>
+          <cylinder radius="0.12" length="0.005"/>
+        </geometry>
+        <material name="rotor_gray">
+          <color rgba="0.6 0.6 0.6 0.85"/>
+        </material>
+      </visual>
+    </link>
+    <joint name="rotor_${name}_joint" type="fixed">
+      <parent link="base_link"/>
+      <child link="rotor_${name}"/>
+      <origin xyz="${x} ${y} 0.03" rpy="0 0 0"/>
+    </joint>
+  </xacro:macro>
+
+  <!-- arm_length * cos(45°) = 0.28 * 0.7071 = 0.198 -->
+  <xacro:quad_rotor name="fr" x=" 0.198" y="-0.198"/>
+  <xacro:quad_rotor name="fl" x=" 0.198" y=" 0.198"/>
+  <xacro:quad_rotor name="rl" x="-0.198" y=" 0.198"/>
+  <xacro:quad_rotor name="rr" x="-0.198" y="-0.198"/>
+
+  <!-- Base link: central hub (inertia and collision unchanged for physics) -->
   <link name="base_link">
     <inertial>
       <mass value="1.5"/>
       <inertia ixx="0.0343" ixy="0.0" ixz="0.0" iyy="0.0343" iyz="0.0" izz="0.0667"/>
     </inertial>
     <visual>
+      <!-- Small central hub — arms provide the full quad silhouette -->
       <geometry>
-        <box size="0.4 0.4 0.1"/>
+        <box size="0.18 0.18 0.06"/>
       </geometry>
-      <material name="black">
-        <color rgba="0.1 0.1 0.1 1"/>
+      <material name="body_dark">
+        <color rgba="0.12 0.12 0.12 1"/>
       </material>
     </visual>
     <collision>
+      <!-- Keep original bounding box for physics accuracy -->
       <geometry>
         <box size="0.4 0.4 0.1"/>
       </geometry>
     </collision>
   </link>
-  
+
   <!-- IMU link -->
   <link name="imu_link">
     <inertial>
@@ -41,7 +110,7 @@
     <child link="imu_link"/>
     <origin xyz="0 0 0"/>
   </joint>
-  
+
   <!-- Stereo camera mount link -->
   <link name="stereo_camera_link">
     <inertial>
@@ -62,14 +131,14 @@
       </geometry>
     </collision>
   </link>
-  
+
   <!-- Camera mount joint -->
   <joint name="camera_mount_joint" type="fixed">
     <parent link="base_link"/>
     <child link="stereo_camera_link"/>
     <origin xyz="0.2 0 0.05" rpy="0 0 0"/>
   </joint>
-  
+
   <!-- Left camera optical frame -->
   <link name="stereo_left_camera_frame"/>
   <joint name="stereo_left_camera_joint" type="fixed">
@@ -77,7 +146,7 @@
     <child link="stereo_left_camera_frame"/>
     <origin xyz="0 ${-baseline/2} 0" rpy="0 0 0"/>
   </joint>
-  
+
   <!-- Right camera optical frame -->
   <link name="stereo_right_camera_frame"/>
   <joint name="stereo_right_camera_joint" type="fixed">
@@ -85,15 +154,15 @@
     <child link="stereo_right_camera_frame"/>
     <origin xyz="0 ${baseline/2} 0" rpy="0 0 0"/>
   </joint>
-  
-  <!-- Left camera optical link (for ROS conventions) -->
+
+  <!-- Left camera optical link (ROS convention: Z forward, X right, Y down) -->
   <link name="stereo_left_camera_optical_frame"/>
   <joint name="stereo_left_camera_optical_joint" type="fixed">
     <parent link="stereo_left_camera_frame"/>
     <child link="stereo_left_camera_optical_frame"/>
     <origin xyz="0 0 0" rpy="${-pi/2} 0 ${-pi/2}"/>
   </joint>
-  
+
   <!-- Right camera optical link -->
   <link name="stereo_right_camera_optical_frame"/>
   <joint name="stereo_right_camera_optical_joint" type="fixed">
@@ -101,12 +170,12 @@
     <child link="stereo_right_camera_optical_frame"/>
     <origin xyz="0 0 0" rpy="${-pi/2} 0 ${-pi/2}"/>
   </joint>
-  
+
   <!-- Gazebo plugins -->
   <gazebo reference="base_link">
     <material>Gazebo/Black</material>
   </gazebo>
-  
+
   <!-- Left camera sensor -->
   <gazebo reference="stereo_left_camera_frame">
     <sensor type="camera" name="stereo_left_camera">
@@ -141,7 +210,7 @@
       </plugin>
     </sensor>
   </gazebo>
-  
+
   <!-- Right camera sensor -->
   <gazebo reference="stereo_right_camera_frame">
     <sensor type="camera" name="stereo_right_camera">
@@ -176,7 +245,7 @@
       </plugin>
     </sensor>
   </gazebo>
-  
+
   <!-- IMU plugin -->
   <gazebo reference="imu_link">
     <sensor name="imu_sensor" type="imu">
