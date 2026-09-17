@@ -39,6 +39,17 @@ fi
 export GAZEBO_MODEL_PATH=/usr/share/gazebo-11/models:${GAZEBO_MODEL_PATH}
 export GAZEBO_RESOURCE_PATH=/usr/share/gazebo-11:${GAZEBO_RESOURCE_PATH}
 
+# WSL2 GPU rendering: make sure the WSL driver libraries (libd3d12.so etc.)
+# stay on the loader path even after ROS has manipulated LD_LIBRARY_PATH, and
+# prefer the NVIDIA GPU for Mesa's D3D12 driver instead of CPU (llvmpipe).
+if [ -d /usr/lib/wsl/lib ]; then
+    case ":${LD_LIBRARY_PATH}:" in
+        *":/usr/lib/wsl/lib:"*) ;;
+        *) export LD_LIBRARY_PATH="${LD_LIBRARY_PATH:+${LD_LIBRARY_PATH}:}/usr/lib/wsl/lib" ;;
+    esac
+    export MESA_D3D12_DEFAULT_ADAPTER_NAME="${MESA_D3D12_DEFAULT_ADAPTER_NAME:-NVIDIA}"
+fi
+
 # Print welcome message
 echo "========================================================================"
 echo "  Interceptor Drone Development Environment"
@@ -47,6 +58,8 @@ echo ""
 echo "ROS2 Version: $(ros2 --version 2>/dev/null || echo 'Humble')"
 echo "OpenCV Version: $(pkg-config --modversion opencv4 2>/dev/null || echo '4.x')"
 echo "CUDA Available: $(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | head -1 || echo 'No GPU')"
+echo "OpenGL Renderer: $(glxinfo -B 2>/dev/null | sed -n 's/^\s*Device: //p' | head -1 || glxinfo 2>/dev/null | sed -n 's/^OpenGL renderer string: //p' | head -1 || echo 'unknown (install mesa-utils / no display)')"
+echo "  (If this shows 'llvmpipe' or 'softpipe', Gazebo is rendering on the CPU.)"
 echo ""
 echo "Workspace: /workspace/interceptor_ws"
 echo ""
