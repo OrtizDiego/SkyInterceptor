@@ -15,14 +15,31 @@ services:
     network_mode: host
     
     environment:
-      - DISPLAY=${DISPLAY}
+      - DISPLAY=${DISPLAY:-:0}
       - QT_X11_NO_MITSHM=1
       - NVIDIA_VISIBLE_DEVICES=all
       - NVIDIA_DRIVER_CAPABILITIES=all
       - ROS_DOMAIN_ID=0
       - GAZEBO_MODEL_PATH=/usr/share/gazebo-11/models
       - WORKSPACE=/workspace/interceptor_ws
-    
+      # --- WSL2 GPU rendering ---------------------------------------------
+      # On WSL2, hardware OpenGL for Gazebo/RViz is provided by Mesa's D3D12
+      # (Gallium) driver, which reaches the GPU via the WSL driver libraries
+      # in /usr/lib/wsl/lib and the /dev/dxg device (mounted below). These
+      # vars point the loader/driver at that path and select the NVIDIA GPU
+      # instead of falling back to CPU software rendering (llvmpipe).
+      - LD_LIBRARY_PATH=/usr/lib/wsl/lib
+      - MESA_D3D12_DEFAULT_ADAPTER_NAME=NVIDIA
+      - LIBGL_ALWAYS_SOFTWARE=0
+      # WSLg display integration (X11 + Wayland provided by the host)
+      - WAYLAND_DISPLAY=${WAYLAND_DISPLAY:-wayland-0}
+      - XDG_RUNTIME_DIR=/mnt/wslg/runtime-dir
+      - PULSE_SERVER=/mnt/wslg/PulseServer
+
+    # WSL GPU compute device (DirectX kernel interface used by the D3D12 driver)
+    devices:
+      - /dev/dxg:/dev/dxg
+
     volumes:
       # Source Code (Live Edit)
       - ./interceptor_ws/src:/workspace/interceptor_ws/src:rw
@@ -32,6 +49,10 @@ services:
       - log_cache:/workspace/interceptor_ws/log
       # GUI Support
       - /tmp/.X11-unix:/tmp/.X11-unix:rw
+      # WSL2 GPU rendering: WSL driver libraries (libd3d12.so, libdxcore.so,
+      # libnvwgf2umx.so, ...) and the WSLg X11/Wayland sockets.
+      - /usr/lib/wsl:/usr/lib/wsl:ro
+      - /mnt/wslg:/mnt/wslg:rw
       # Data sharing
       - ./bags:/workspace/bags:rw
       - ./logs:/workspace/logs:rw
@@ -39,7 +60,7 @@ services:
       # Host Configs
       - ~/.ssh:/root/.ssh:ro
       - ~/.gitconfig:/root/.gitconfig:ro
-    
+
     stdin_open: true
     tty: true
     working_dir: /workspace/interceptor_ws

@@ -50,6 +50,20 @@ RUN apt-get update && apt-get install -y \
     libopencv-dev libeigen3-dev \
     && rm -rf /var/lib/apt/lists/*
 
+# 4b. Up-to-date Mesa for WSL2 GPU rendering
+# On WSL2 the GPU is driven through Mesa's D3D12 (Gallium) driver, which needs
+# a recent Mesa. Ubuntu 22.04's stock Mesa predates reliable D3D12 support, so
+# pull a current build from the kisak-mesa PPA. mesa-utils provides glxinfo for
+# verifying that the NVIDIA GPU (not llvmpipe) is the active OpenGL renderer.
+RUN add-apt-repository -y ppa:kisak/kisak-mesa && \
+    apt-get update && apt-get install -y \
+    mesa-utils \
+    libgl1-mesa-dri \
+    libglx-mesa0 \
+    libglu1-mesa \
+    mesa-vulkan-drivers \
+    && rm -rf /var/lib/apt/lists/*
+
 # 5. Install Python packages for YOLO and development
 RUN pip3 install --no-cache-dir \
     ultralytics onnxruntime-gpu \
