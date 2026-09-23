@@ -10,14 +10,17 @@
 #include <rclcpp/rclcpp.hpp>
 #include <sensor_msgs/msg/image.hpp>
 #include <sensor_msgs/msg/camera_info.hpp>
-#include <message_filters/subscriber.hpp>
-#include <message_filters/synchronizer.hpp>
-#include <message_filters/sync_policies/approximate_time.hpp>
+#include <message_filters/subscriber.h>
+#include <message_filters/synchronizer.h>
+#include <message_filters/sync_policies/approximate_time.h>
 #include <interceptor_interfaces/msg/stereo_image_pair.hpp>
 
+#include <atomic>
 #include <chrono>
+#include <cmath>
 #include <deque>
 #include <mutex>
+#include <numeric>
 
 namespace interceptor {
 
@@ -178,9 +181,14 @@ private:
             return;
         }
         
-        // Create synchronized message
+        // Create synchronized message.
+        // Preserve the original capture timestamp (from the left image) so that
+        // downstream nodes — the depth processor and the 3D localizer's
+        // ApproximateTime sync against YOLO detections — share a common timebase.
+        // Overwriting this with the processing-time "now" desynchronizes the
+        // detection/depth association downstream.
         StereoImagePair stereo_pair;
-        stereo_pair.header.stamp = now;
+        stereo_pair.header.stamp = left_img->header.stamp;
         stereo_pair.header.frame_id = left_img->header.frame_id;
         
         // Copy images
