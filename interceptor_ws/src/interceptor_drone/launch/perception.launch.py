@@ -1,15 +1,12 @@
-import os
-from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 
+
 def generate_launch_description():
-    pkg_interceptor = get_package_share_directory('interceptor_drone')
-    
     use_sim_time = LaunchConfiguration('use_sim_time', default='true')
-    
+
     # Stereo sync node
     stereo_sync_node = Node(
         package='interceptor_drone',
@@ -27,7 +24,7 @@ def generate_launch_description():
             ('/stereo/right/camera_info', '/stereo/right/camera_info'),
         ]
     )
-    
+
     # Stereo depth processor
     stereo_depth_processor = Node(
         package='interceptor_drone',
@@ -45,7 +42,7 @@ def generate_launch_description():
             'block_size': 11,
         }]
     )
-    
+
     # YOLO Target Detector
     target_detector = Node(
         package='interceptor_drone',
@@ -59,7 +56,7 @@ def generate_launch_description():
             'device': 'cpu',
         }]
     )
-    
+
     # Target 3D Localizer
     target_3d_localizer = Node(
         package='interceptor_drone',
@@ -71,7 +68,7 @@ def generate_launch_description():
             'target_frame': 'map',
         }]
     )
-    
+
     return LaunchDescription([
         DeclareLaunchArgument(
             'use_sim_time',

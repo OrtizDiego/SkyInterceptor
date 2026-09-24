@@ -8,12 +8,12 @@ services:
       dockerfile: Dockerfile
     image: interceptor-drone:latest
     container_name: interceptor
-    
+
     # Privileged mode for Hardware/GPU access
     privileged: true
     runtime: nvidia
     network_mode: host
-    
+
     environment:
       - DISPLAY=${DISPLAY:-:0}
       - QT_X11_NO_MITSHM=1

@@ -1,0 +1,12 @@
+extends: default
+
+rules:
+  line-length:
+    max: 120
+  # ROS parameter files and GitHub workflows don't use a leading `---`.
+  document-start: disable
+  # `on:` in GitHub workflows is a key, not a boolean.
+  truthy:
+    check-keys: false
+  comments:
+    min-spaces-from-content: 1

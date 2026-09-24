@@ -16,7 +16,7 @@ filter_depth: true
 
 # Detection classes
 # 0: person
-# 1: car  
+# 1: car
 # 2: truck
 target_classes: [0, 1, 2]
 confidence_threshold: 0.5

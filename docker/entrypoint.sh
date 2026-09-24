@@ -20,8 +20,8 @@ if [ -d /workspace/interceptor_ws/src ] && [ "$(ls -A /workspace/interceptor_ws/
     echo "Installing ROS dependencies..."
     cd /workspace/interceptor_ws
     rosdep install --from-paths src --ignore-src -y --skip-keys "
-        gazebo_ros 
-        gazebo_ros_pkgs 
+        gazebo_ros
+        gazebo_ros_pkgs
         gazebo_plugins
         hector_quadrotor
         hector_quadrotor_description
