@@ -147,16 +147,28 @@ install(DIRECTORY rviz
 # Testing
 if(BUILD_TESTING)
   find_package(ament_lint_auto REQUIRED)
+  # No license headers in the sources yet: skip ament_copyright and run cpplint
+  # manually below with its copyright check filtered out.
+  set(AMENT_LINT_AUTO_EXCLUDE ament_cmake_copyright ament_cmake_cpplint)
   ament_lint_auto_find_test_dependencies()
-  
+
+  find_package(ament_cmake_cpplint REQUIRED)
+  ament_cpplint(FILTERS "-legal/copyright")
+
   find_package(ament_cmake_gtest REQUIRED)
-  
+
+  ament_add_gtest(test_math_utils test/test_math_utils.cpp)
+  target_link_libraries(test_math_utils ${PROJECT_NAME}_lib)
+
+  ament_add_gtest(test_parameters test/test_parameters.cpp)
+  target_link_libraries(test_parameters ${PROJECT_NAME}_lib)
+
   # ament_add_gtest(test_ekf test/test_ekf.cpp)
   # target_link_libraries(test_ekf ${PROJECT_NAME}_lib)
-  
+
   # ament_add_gtest(test_guidance test/test_guidance.cpp)
   # target_link_libraries(test_guidance ${PROJECT_NAME}_lib)
-  
+
   # ament_add_gtest(test_controller test/test_controller.cpp)
   # target_link_libraries(test_controller ${PROJECT_NAME}_lib)
 endif()

@@ -15,9 +15,9 @@ check_test() {
     local test_name="$1"
     local test_cmd="$2"
     local expected_pattern="$3"
-    
+
     echo -n "⏳ $test_name... "
-    
+
     if eval "$test_cmd" 2>&1 | grep -q "$expected_pattern"; then
         echo "✅ PASS"
         ((PASSED++))
@@ -38,7 +38,7 @@ echo "  □ You're inside Docker container (make shell)"
 echo "  □ Workspace is built (make build-ws)"
 echo "  □ Simulation is running (make sim in another terminal)"
 echo ""
-read -p "Press ENTER when ready..."
+read -r -p "Press ENTER when ready..."
 echo ""
 
 # Source workspace
@@ -66,7 +66,7 @@ check_test \
 
 # Test 3: Camera topics present
 echo -n "⏳ Waiting for camera topics (up to 30s)... "
-for i in {1..30}; do
+for _ in {1..30}; do
     if ros2 topic list | grep -q "/stereo/left/image_raw" && \
        ros2 topic list | grep -q "/stereo/right/image_raw"; then
         echo "✅ PASS"
@@ -92,7 +92,7 @@ ros2 launch interceptor_drone perception.launch.py &
 PERCEPTION_PID=$!
 
 echo -n "⏳ Waiting for nodes to initialize... "
-for i in {1..30}; do
+for _ in {1..30}; do
     if ros2 node list | grep -q "stereo_sync_node" && \
        ros2 node list | grep -q "stereo_depth_processor" && \
        ros2 node list | grep -q "target_detector" && \

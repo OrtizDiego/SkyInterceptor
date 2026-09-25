@@ -1,0 +1,88 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  # Fast checks that don't need ROS: fail within a minute on broken YAML,
+  # shell scripts or Python syntax before the full build finishes.
+  static-checks:
+    name: Static checks
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Install linters
+        run: pip install yamllint shellcheck-py
+
+      - name: yamllint
+        run: yamllint --strict .
+
+      - name: shellcheck
+        run: git ls-files '*.sh' | xargs shellcheck --severity=warning
+
+      - name: Python syntax
+        run: git ls-files '*.py' | xargs python -m py_compile
+
+  # Builds the ROS 2 workspace and runs `colcon test`, which covers the GTest
+  # unit tests plus the ament linters (uncrustify, cpplint, cppcheck, flake8,
+  # pep257, lint_cmake, xmllint).
+  build-and-test:
+    name: Build & test (ROS 2 Humble)
+    runs-on: ubuntu-22.04
+    timeout-minutes: 45
+    container:
+      image: ros:humble-perception
+    defaults:
+      run:
+        shell: bash
+        working-directory: interceptor_ws
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          apt-get update
+          rosdep update --rosdistro humble
+          rosdep install --from-paths src --ignore-src --rosdistro humble -y
+
+      - name: Build
+        run: |
+          source /opt/ros/humble/setup.bash
+          colcon build \
+            --event-handlers console_cohesion+ \
+            --cmake-args -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_FLAGS=-Werror
+
+      - name: Test
+        run: |
+          source install/setup.bash
+          colcon test --event-handlers console_cohesion+ --return-code-on-test-failure
+
+      - name: Test results
+        if: always()
+        run: colcon test-result --verbose
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: |
+            interceptor_ws/build/*/test_results/
+            interceptor_ws/log/
+          if-no-files-found: ignore

@@ -6,11 +6,12 @@ from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 
+
 def generate_launch_description():
     pkg_interceptor = get_package_share_directory('interceptor_drone')
-    
+
     use_sim_time = LaunchConfiguration('use_sim_time', default='true')
-    
+
     # Include simulation launch
     simulation = IncludeLaunchDescription(
         PythonLaunchDescriptionSource([
@@ -18,7 +19,7 @@ def generate_launch_description():
         ]),
         launch_arguments={'use_sim_time': use_sim_time}.items()
     )
-    
+
     # Include perception launch
     perception = IncludeLaunchDescription(
         PythonLaunchDescriptionSource([
@@ -26,7 +27,7 @@ def generate_launch_description():
         ]),
         launch_arguments={'use_sim_time': use_sim_time}.items()
     )
-    
+
     # Include guidance launch
     guidance = IncludeLaunchDescription(
         PythonLaunchDescriptionSource([
@@ -34,7 +35,7 @@ def generate_launch_description():
         ]),
         launch_arguments={'use_sim_time': use_sim_time}.items()
     )
-    
+
     # Trajectory controller
     trajectory_controller = Node(
         package='interceptor_drone',
@@ -54,7 +55,7 @@ def generate_launch_description():
             'controller.min_altitude': 2.0,
         }]
     )
-    
+
     # Hector interface
     hector_interface = Node(
         package='interceptor_drone',
@@ -65,7 +66,7 @@ def generate_launch_description():
             'use_sim_time': use_sim_time,
         }]
     )
-    
+
     # RViz
     rviz = Node(
         package='rviz2',
@@ -75,7 +76,7 @@ def generate_launch_description():
         parameters=[{'use_sim_time': use_sim_time}],
         output='screen'
     )
-    
+
     return LaunchDescription([
         DeclareLaunchArgument(
             'use_sim_time',

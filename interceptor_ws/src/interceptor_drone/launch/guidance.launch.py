@@ -1,15 +1,12 @@
-import os
-from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 
+
 def generate_launch_description():
-    pkg_interceptor = get_package_share_directory('interceptor_drone')
-    
     use_sim_time = LaunchConfiguration('use_sim_time', default='true')
-    
+
     # Target tracker
     target_tracker = Node(
         package='interceptor_drone',
@@ -24,7 +21,7 @@ def generate_launch_description():
             'ekf.measurement_noise_pos': 0.1,
         }]
     )
-    
+
     # Guidance controller
     guidance_controller = Node(
         package='interceptor_drone',
@@ -40,7 +37,7 @@ def generate_launch_description():
             'guidance.mid_range': 50.0,
         }]
     )
-    
+
     return LaunchDescription([
         DeclareLaunchArgument(
             'use_sim_time',
