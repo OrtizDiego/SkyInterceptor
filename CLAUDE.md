@@ -123,7 +123,8 @@ interceptor_ws/
         evasion/                # evasion_controller_node
       config/                   # YAML parameter files
       launch/                   # Python launch files
-      urdf/                     # Robot model
+      urdf/                     # Robot model (Holybro X500 V2 look)
+      meshes/                   # Visual meshes used by the URDF (from PX4, BSD-3)
       worlds/                   # Gazebo world files
       rviz/                     # RViz configs
     interceptor_interfaces/     # Custom msg/srv definitions

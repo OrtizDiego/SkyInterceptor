@@ -1,94 +1,37 @@
 <?xml version="1.0"?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="interceptor_quadrotor">
 
+  <!--
+    Visual model: Holybro X500 V2 quadrotor (500 mm wheelbase, carbon-fibre
+    frame), meshes from PX4-gazebo-models (BSD-3-Clause), see meshes/x500/README.md.
+    Inertia, total mass, main collision box, IMU and the stereo baseline are
+    unchanged. Landing-gear collisions let the drone rest on its skids, and the
+    stereo camera hangs under the payload rails so it clears the propellers.
+  -->
+
   <!-- Property definitions -->
+  <xacro:property name="mesh_dir" value="package://interceptor_drone/meshes/x500"/>
   <xacro:property name="camera_mass" value="0.1"/>
   <xacro:property name="baseline" value="0.12"/>
-  <xacro:property name="camera_width" value="0.1"/>
-  <xacro:property name="camera_height" value="0.04"/>
-  <xacro:property name="camera_depth" value="0.03"/>
-  <xacro:property name="arm_length" value="0.28"/>
+  <!-- Stereo camera housing (ZED 2 class: 175 mm wide for a 120 mm baseline) -->
+  <xacro:property name="camera_width" value="0.175"/>
+  <xacro:property name="camera_height" value="0.03"/>
+  <xacro:property name="camera_depth" value="0.033"/>
+  <xacro:property name="motor_offset" value="0.174"/>
+  <!-- Upstream x500 props are 13" meshes scaled to 11" -->
+  <xacro:property name="prop_scale" value="0.8461538461538461"/>
 
-  <!--
-    Arm macro: thin box extending arm_length along the local +X axis.
-    Joint rotation (yaw) orients the arm in the X-config layout.
-  -->
-  <xacro:macro name="quad_arm" params="name yaw">
-    <link name="arm_${name}">
-      <inertial>
-        <mass value="0.025"/>
-        <inertia ixx="1e-5" ixy="0" ixz="0" iyy="1e-5" iyz="0" izz="1e-5"/>
-      </inertial>
-      <visual>
-        <origin xyz="${arm_length/2} 0 0" rpy="0 0 0"/>
-        <geometry>
-          <box size="${arm_length} 0.022 0.022"/>
-        </geometry>
-        <material name="arm_dark">
-          <color rgba="0.18 0.18 0.18 1"/>
-        </material>
-      </visual>
-    </link>
-    <joint name="arm_${name}_joint" type="fixed">
-      <parent link="base_link"/>
-      <child link="arm_${name}"/>
-      <origin xyz="0 0 0" rpy="0 0 ${yaw}"/>
-    </joint>
-  </xacro:macro>
-
-  <!-- X-configuration: FR=-45°, FL=+45°, RL=+135°, RR=-135° -->
-  <xacro:quad_arm name="fr" yaw="${-pi/4}"/>
-  <xacro:quad_arm name="fl" yaw="${pi/4}"/>
-  <xacro:quad_arm name="rl" yaw="${3*pi/4}"/>
-  <xacro:quad_arm name="rr" yaw="${-3*pi/4}"/>
-
-  <!--
-    Rotor macro: flat disc cylinder above the arm tip.
-    x/y are the arm tip positions in base_link frame (arm_length * cos/sin(45°) = 0.198).
-  -->
-  <xacro:macro name="quad_rotor" params="name x y">
-    <link name="rotor_${name}">
-      <inertial>
-        <mass value="0.01"/>
-        <inertia ixx="1e-5" ixy="0" ixz="0" iyy="1e-5" iyz="0" izz="1e-5"/>
-      </inertial>
-      <visual>
-        <origin xyz="0 0 0" rpy="0 0 0"/>
-        <geometry>
-          <cylinder radius="0.12" length="0.005"/>
-        </geometry>
-        <material name="rotor_gray">
-          <color rgba="0.6 0.6 0.6 0.85"/>
-        </material>
-      </visual>
-    </link>
-    <joint name="rotor_${name}_joint" type="fixed">
-      <parent link="base_link"/>
-      <child link="rotor_${name}"/>
-      <origin xyz="${x} ${y} 0.03" rpy="0 0 0"/>
-    </joint>
-  </xacro:macro>
-
-  <!-- arm_length * cos(45°) = 0.28 * 0.7071 = 0.198 -->
-  <xacro:quad_rotor name="fr" x=" 0.198" y="-0.198"/>
-  <xacro:quad_rotor name="fl" x=" 0.198" y=" 0.198"/>
-  <xacro:quad_rotor name="rl" x="-0.198" y=" 0.198"/>
-  <xacro:quad_rotor name="rr" x="-0.198" y="-0.198"/>
-
-  <!-- Base link: central hub (inertia and collision unchanged for physics) -->
+  <!-- Base link: frame mesh (inertia and main collision unchanged for physics) -->
   <link name="base_link">
     <inertial>
       <mass value="1.5"/>
       <inertia ixx="0.0343" ixy="0.0" ixz="0.0" iyy="0.0343" iyz="0.0" izz="0.0667"/>
     </inertial>
     <visual>
-      <!-- Small central hub — arms provide the full quad silhouette -->
+      <origin xyz="0 0 0.025" rpy="0 0 ${pi}"/>
       <geometry>
-        <box size="0.18 0.18 0.06"/>
+        <mesh filename="${mesh_dir}/x500_frame.dae"/>
       </geometry>
-      <material name="body_dark">
-        <color rgba="0.12 0.12 0.12 1"/>
-      </material>
     </visual>
     <collision>
       <!-- Keep original bounding box for physics accuracy -->
@@ -96,7 +39,95 @@
         <box size="0.4 0.4 0.1"/>
       </geometry>
     </collision>
+    <!-- Landing gear: two inclined legs and two skids (from the x500 model) -->
+    <collision>
+      <origin xyz="0 -0.098 -0.123" rpy="-0.35 0 0"/>
+      <geometry>
+        <box size="0.015 0.015 0.21"/>
+      </geometry>
+    </collision>
+    <collision>
+      <origin xyz="0 0.098 -0.123" rpy="0.35 0 0"/>
+      <geometry>
+        <box size="0.015 0.015 0.21"/>
+      </geometry>
+    </collision>
+    <collision>
+      <origin xyz="0 -0.132 -0.2195" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.25 0.015 0.015"/>
+      </geometry>
+    </collision>
+    <collision>
+      <origin xyz="0 0.132 -0.2195" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.25 0.015 0.015"/>
+      </geometry>
+    </collision>
   </link>
+
+  <!--
+    Motor + propeller macro (X configuration). The motor stator is a visual of
+    the rotor link, the propeller its own link so Gazebo can colour it.
+    Visuals stay unnamed: Gazebo Classic only applies <gazebo reference>
+    materials to visuals lumped through fixed joints when they keep their
+    default names.
+    Rotors are fixed: the drone is moved kinematically, see IMPLEMENTATION_PLAN.md.
+  -->
+  <xacro:macro name="quad_rotor" params="name x y prop">
+    <link name="rotor_${name}">
+      <inertial>
+        <!-- 4 x 0.035 kg keeps the total mass of the previous model -->
+        <mass value="0.035"/>
+        <inertia ixx="1e-5" ixy="0" ixz="0" iyy="1e-5" iyz="0" izz="1e-5"/>
+      </inertial>
+      <visual>
+        <origin xyz="0 0 -0.028" rpy="0 0 -0.45"/>
+        <geometry>
+          <mesh filename="${mesh_dir}/5010Base.dae"/>
+        </geometry>
+      </visual>
+      <visual>
+        <origin xyz="0 0 -0.032" rpy="0 0 0"/>
+        <geometry>
+          <mesh filename="${mesh_dir}/5010Bell.dae"/>
+        </geometry>
+      </visual>
+    </link>
+    <joint name="rotor_${name}_joint" type="fixed">
+      <parent link="base_link"/>
+      <child link="rotor_${name}"/>
+      <origin xyz="${x} ${y} 0.06" rpy="0 0 0"/>
+    </joint>
+
+    <link name="prop_${name}">
+      <visual>
+        <!-- The prop mesh origin is at its tip, this centres the hub on the motor -->
+        <origin xyz="-0.022 -0.14638461538461536 -0.016" rpy="0 0 0"/>
+        <geometry>
+          <mesh filename="${mesh_dir}/1345_prop_${prop}.stl"
+            scale="${prop_scale} ${prop_scale} ${prop_scale}"/>
+        </geometry>
+        <material name="prop_dark_grey">
+          <color rgba="0.175 0.175 0.175 1"/>
+        </material>
+      </visual>
+    </link>
+    <joint name="prop_${name}_joint" type="fixed">
+      <parent link="rotor_${name}"/>
+      <child link="prop_${name}"/>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+    </joint>
+    <gazebo reference="prop_${name}">
+      <material>Gazebo/DarkGrey</material>
+    </gazebo>
+  </xacro:macro>
+
+  <!-- PX4 quad-X numbering: FR and RL spin CCW, FL and RR spin CW -->
+  <xacro:quad_rotor name="fr" x="${motor_offset}" y="${-motor_offset}" prop="ccw"/>
+  <xacro:quad_rotor name="fl" x="${motor_offset}" y="${motor_offset}" prop="cw"/>
+  <xacro:quad_rotor name="rl" x="${-motor_offset}" y="${motor_offset}" prop="ccw"/>
+  <xacro:quad_rotor name="rr" x="${-motor_offset}" y="${-motor_offset}" prop="cw"/>
 
   <!-- IMU link -->
   <link name="imu_link">
@@ -111,7 +142,10 @@
     <origin xyz="0 0 0"/>
   </joint>
 
-  <!-- Stereo camera mount link -->
+  <!--
+    Stereo camera mount link: housing hung from the front of the payload rails
+    (underside z = -0.026, front end x = 0.15), below the propeller discs.
+  -->
   <link name="stereo_camera_link">
     <inertial>
       <mass value="${camera_mass}"/>
@@ -119,7 +153,17 @@
     </inertial>
     <visual>
       <geometry>
-        <box size="${camera_width} ${camera_height} ${camera_depth}"/>
+        <box size="${camera_depth} ${camera_width} ${camera_height}"/>
+      </geometry>
+      <material name="dark_gray">
+        <color rgba="0.2 0.2 0.2 1"/>
+      </material>
+    </visual>
+    <visual>
+      <!-- Bracket plate between the rails and the housing -->
+      <origin xyz="-0.0375 0 0.0135" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.085 0.05 0.003"/>
       </geometry>
       <material name="dark_gray">
         <color rgba="0.2 0.2 0.2 1"/>
@@ -127,16 +171,44 @@
     </visual>
     <collision>
       <geometry>
-        <box size="${camera_width} ${camera_height} ${camera_depth}"/>
+        <box size="${camera_depth} ${camera_width} ${camera_height}"/>
       </geometry>
     </collision>
   </link>
+  <gazebo reference="stereo_camera_link">
+    <material>Gazebo/DarkGrey</material>
+  </gazebo>
+
+  <!-- Lens macro: glass disc on the front face, in front of each camera frame -->
+  <xacro:macro name="stereo_lens" params="side">
+    <link name="stereo_${side}_lens_link">
+      <visual>
+        <origin xyz="0 0 0" rpy="0 ${pi/2} 0"/>
+        <geometry>
+          <cylinder radius="0.009" length="0.004"/>
+        </geometry>
+        <material name="lens_black">
+          <color rgba="0.02 0.02 0.03 1"/>
+        </material>
+      </visual>
+    </link>
+    <joint name="stereo_${side}_lens_joint" type="fixed">
+      <parent link="stereo_${side}_camera_frame"/>
+      <child link="stereo_${side}_lens_link"/>
+      <origin xyz="${camera_depth/2} 0 0" rpy="0 0 0"/>
+    </joint>
+    <gazebo reference="stereo_${side}_lens_link">
+      <material>Gazebo/Black</material>
+    </gazebo>
+  </xacro:macro>
+  <xacro:stereo_lens side="left"/>
+  <xacro:stereo_lens side="right"/>
 
   <!-- Camera mount joint -->
   <joint name="camera_mount_joint" type="fixed">
     <parent link="base_link"/>
     <child link="stereo_camera_link"/>
-    <origin xyz="0.2 0 0.05" rpy="0 0 0"/>
+    <origin xyz="0.2 0 -0.0375" rpy="0 0 0"/>
   </joint>
 
   <!-- Left camera optical frame -->
@@ -171,10 +243,7 @@
     <origin xyz="0 0 0" rpy="${-pi/2} 0 ${-pi/2}"/>
   </joint>
 
-  <!-- Gazebo plugins -->
-  <gazebo reference="base_link">
-    <material>Gazebo/Black</material>
-  </gazebo>
+  <!-- Gazebo plugins (base_link has no material override: the frame mesh carries its own) -->
 
   <!-- Left camera sensor -->
   <gazebo reference="stereo_left_camera_frame">

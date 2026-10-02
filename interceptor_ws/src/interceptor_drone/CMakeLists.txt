@@ -134,6 +134,11 @@ install(DIRECTORY urdf
   DESTINATION share/${PROJECT_NAME}
 )
 
+# Install meshes referenced by the URDF (package://interceptor_drone/meshes/...)
+install(DIRECTORY meshes
+  DESTINATION share/${PROJECT_NAME}
+)
+
 # Install world files
 install(DIRECTORY worlds
   DESTINATION share/${PROJECT_NAME}
