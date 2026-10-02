@@ -1,0 +1,23 @@
+# colcon build output
+interceptor_ws/build/
+interceptor_ws/install/
+interceptor_ws/log/
+
+# Runtime data (mounted into the container by docker-compose.yml)
+logs/
+bags/
+test-results/
+
+# Python
+__pycache__/
+*.pyc
+
+# YOLO weights downloaded at runtime
+*.pt
+
+# Editors / OS
+.vscode/
+.idea/
+*.swp
+*~
+.DS_Store

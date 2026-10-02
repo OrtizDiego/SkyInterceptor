@@ -1,10 +1,10 @@
 #!/bin/bash
-# Quick test checklist for stereo_sync_node
+# Smoke test for the perception pipeline (sync, depth, detector, localizer)
 # Run this inside the Docker container after building
 
 clear
 echo "╔════════════════════════════════════════════════════════════╗"
-echo "║     STEREO SYNC NODE - QUICK TEST CHECKLIST              ║"
+echo "║     PERCEPTION PIPELINE - QUICK SMOKE TEST                ║"
 echo "╚════════════════════════════════════════════════════════════╝"
 echo ""
 
@@ -152,8 +152,6 @@ echo ""
 if [ $FAILED -eq 0 ]; then
     echo "🎉 ALL TESTS PASSED!"
     echo ""
-    echo "You can proceed to Phase 2.4: target_3d_localizer"
-    echo ""
     exit 0
 else
     echo "⚠️  SOME TESTS FAILED"
@@ -161,6 +159,5 @@ else
     echo "Please check:"
     echo "  • Is Gazebo running? (ros2 launch interceptor_drone simulation.launch.py)"
     echo "  • Is workspace built? (colcon build)"
-    echo "  • See troubleshooting: cat docs/TESTING_PROCEDURE.md"
     exit 1
 fi

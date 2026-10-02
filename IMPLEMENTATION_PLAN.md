@@ -27,7 +27,7 @@ The project now has **two mission modes** that share one perception → tracking
 
 | Area | State | Notes |
 |---|---|---|
-| Docker image | ✅ Builds | `logs/docker-build.log` |
+| Docker image | ✅ Builds | `make build` (log written to `logs/docker-build.log`, not committed) |
 | Workspace build | ❓ Never verified | No `colcon build` on record. Humble header and include fixes pushed in `feat/funny-albattani-l2q2c6` |
 | Interfaces | ✅ 5 msgs + 1 srv | Need a mode-agnostic setpoint message, a track array and a mission-mode service (see §4) |
 | `stereo_sync_node` | ✅ Done | Timestamp bug fixed (kept the capture stamp) |

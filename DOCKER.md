@@ -78,16 +78,19 @@ The `Makefile` simplifies interaction with the Docker container:
 | `make build-ws` | Build the ROS 2 workspace inside the container |
 | `make sim` | Launch the Gazebo simulation |
 | `make full` | Launch the full interceptor system |
-| `make test` | Run automated tests |
+| `make test` | Run unit tests and linters |
 | `make clean` | Remove build, install, and log artifacts |
+| `make status` | Show container status |
 
 ## Development Workflow
 
+All `make` targets are run **from the host**; they call `docker-compose exec` internally.
+
 1.  **Start the environment**: `make up`
-2.  **Enter the container**: `make shell`
-3.  **Build the code**: `make build-ws` (or run it from the host with `make build-ws`)
-4.  **Run the system**: `make full`
-5.  **Iterate**: Edit code on your host; it's instantly reflected in the container. Re-run `make build-ws` to compile.
+2.  **Build the code**: `make build-ws`
+3.  **Run the system**: `make full`
+4.  **Iterate**: Edit code on your host; it's instantly reflected in the container. Re-run `make build-ws` to compile.
+5.  **Debug interactively**: `make shell` opens a bash shell inside the container.
 
 ## Troubleshooting
 

@@ -37,9 +37,6 @@ test-results/*
 *.log
 *.bag
 
-# Scripts (needed for build monitoring)
-!scripts/
-
 # Documentation build
 docs/_build/
 docs/api/
