@@ -37,9 +37,9 @@ The project now has **two mission modes** that share one perception → tracking
 | `target_tracker_node` | ❌ Stub | |
 | `guidance_controller_node` | ❌ Stub | Replaced by `follow_planner_node` and `intercept_guidance_node` |
 | `trajectory_controller_node` | ❌ Stub | |
-| `hector_interface_node` | ❌ Stub | `hector_quadrotor` has **no ROS 2 Humble release**, so it's replaced by `sim_drone_bridge_node` |
+| `hector_interface_node` | ❌ Stub | `hector_quadrotor` has **no ROS 2 Humble release**. Superseded by the `quadrotor_dynamics` Gazebo plugin; delete it |
 | `evasion_controller_node` | ❌ Stub | Becomes `target_drone_behavior_node` |
-| Simulation | ⚠️ Partial | URDF has stereo cameras and an IMU but **no flight dynamics and no odometry, so the drone cannot fly**. World has a walking `target_person` actor and no target drone |
+| Simulation | ✅ Flies | `quadrotor_dynamics` Gazebo plugin: rotor thrust and torques, motor lag, airframe and rotor drag, wind with gusts, ground effect, plus an onboard velocity → attitude → rate controller. Publishes `/odom` and TF. Keyboard teleop node. See `docs/FLIGHT_DYNAMICS.md`. World has a walking `target_person` actor and no target drone |
 | Parameters | ⚠️ Inconsistent | Launch files hard-code dicts instead of loading `config/*.yaml`. Several YAML keys (`imm.*`, `nav_constant_terminal`, `gate_threshold`, …) aren't read by any code. `Parameters::loadFromNode` is unused |
 | Tests | ❌ None | gtest targets are commented out in `CMakeLists.txt` |
 
@@ -64,9 +64,8 @@ The project now has **two mission modes** that share one perception → tracking
                                         │ /setpoint/safe
                            trajectory_controller_node  ◄── /odom
                                         │ /cmd_vel
-                              sim_drone_bridge_node  ──► /odom, TF map→odom→base_link
-                                        │
-                                     Gazebo
+                    quadrotor_dynamics plugin (in Gazebo)  ──► /odom, TF odom→base_link
+                    (flight controller + rotor/aero model)
 ```
 
 `safety_filter_node` is always in the loop and has the final say, whatever the planner commands.
@@ -83,7 +82,7 @@ The project now has **two mission modes** that share one perception → tracking
 | `intercept_guidance_node` (replaces `guidance_controller_node`) | | INTERCEPT |
 | `safety_filter_node` (new) | | both |
 | `trajectory_controller_node` | implement | both |
-| `sim_drone_bridge_node` (replaces `hector_interface_node`) | | both |
+| `quadrotor_dynamics` Gazebo plugin (replaces `hector_interface_node`) | ✅ done | both |
 | `target_drone_behavior_node` (replaces `evasion_controller_node`) | | INTERCEPT sim only |
 
 ### Interface changes (`interceptor_interfaces`)
@@ -136,12 +135,12 @@ The project now has **two mission modes** that share one perception → tracking
 
 ### 4.5 Trajectory controller (shared)
 - Cascade: position P(ID) → velocity PID → acceleration command, with feed-forward of the setpoint velocity and acceleration. Anti-windup by clamping and back-calculation.
-- Output `/cmd_vel` (Twist: linear velocity in world frame, yaw rate).
+- Output `/cmd_vel` (Twist: linear velocity and yaw rate). The plugin reads it in the heading frame by default, like teleop; set its `<command_frame>` to `world` if the controller outputs world-frame velocities.
 
-### 4.6 Simulated drone (`sim_drone_bridge_node`)
-- Kinematic point mass with first-order velocity response, acceleration and jerk limits, integrated at 100 Hz.
-- Pose is pushed to Gazebo through `/set_entity_state` (from `gazebo_ros_state`, already in the world). The node publishes `/odom` and TF `odom→base_link`.
-- This is deliberately simple and deterministic. PX4 SITL or a force-plugin model can replace it later without touching anything upstream.
+### 4.6 Simulated drone (`quadrotor_dynamics` Gazebo plugin) ✅
+- Force-based model instead of the planned kinematic bridge. Every 1 ms physics step, an onboard flight controller (velocity PI → attitude P → body-rate PI → mixer) turns `/cmd_vel` into rotor speeds. A motor and aerodynamic model (thrust k_f·ω², reaction torque, rotor and airframe drag, wind with gusts, ground effect) then applies force and torque to `base_link`, and Gazebo integrates the rigid body with collisions.
+- Publishes `/odom`, TF `odom→base_link`, `/joint_states` (spinning props) and `/drone/status`. Arm with `/drone/arm`. Details in `docs/FLIGHT_DYNAMICS.md`.
+- The physics and controller live in a ROS-free library (`interceptor_drone_flight`) with unit tests. PX4 SITL can still replace the onboard controller later behind the same `/cmd_vel` + `/odom` contract.
 
 ---
 
@@ -152,7 +151,7 @@ Estimates assume one developer. The dependency graph below shows what can run in
 ### Phase 0 – Build, fly, and decouple (blocking, ~3–4 days)
 - **0.1** Get `colcon build` green in the container. Fix compile and link errors (ximgproc availability, include paths). Add `scripts/check.sh` that runs build and tests.
 - **0.2** Interface changes from §3. Move all launch parameters into `config/*.yaml`, load them from launch files, and delete keys that aren't used. Add launch arg `mission_mode:=follow|intercept` and new files `follow_params.yaml`, `intercept_params.yaml`, `safety_params.yaml`.
-- **0.3** `sim_drone_bridge_node` + TF + `/odom`. Delete `hector_interface_node`.
+- **0.3** ✅ Flyable drone + TF + `/odom`: done with the `quadrotor_dynamics` plugin and `drone_teleop_keyboard.py`. Still to do: delete `hector_interface_node`.
 - **0.4** `groundtruth_target_node`: target poses from Gazebo (`/get_entity_state` for the `target_person` actor and `target_drone`) with configurable Gaussian noise and dropout. It publishes `TargetDetection` on `/target/detection_3d`. Selected by `perception_source`.
 - **0.5** Re-enable gtest in CMake with one smoke test per library.
 
@@ -248,5 +247,5 @@ intercept:
 | `opencv_ximgproc` missing from the image | Install `libopencv-contrib-dev`, or fall back to SGBM without WLS behind a CMake option |
 | CPU SGBM and CPU YOLO too slow for vision-in-loop | Ground-truth source for control work. YOLO `device: cuda`. Lower stereo resolution or use `cv::cuda::StereoSGM` if built with CUDA |
 | No drone class in COCO | Auto-labeled sim dataset (3.2); ground-truth source meanwhile |
-| Kinematic drone is unrealistic | Fine for guidance and safety logic. PX4 SITL is a drop-in later behind the same `/cmd_vel` + `/odom` contract |
+| Simplified flight dynamics (no inflow or vortex-ring effects, uniform wind) | Fine for guidance and safety logic. PX4 SITL is a drop-in later behind the same `/cmd_vel` + `/odom` contract |
 | Gazebo actors have no collision and a scripted path | Fine for FOLLOW. The ground-truth node reads actor pose via entity state |

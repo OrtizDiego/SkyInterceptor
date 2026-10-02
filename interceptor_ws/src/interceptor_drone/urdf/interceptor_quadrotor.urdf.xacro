@@ -7,7 +7,17 @@
     Inertia, total mass, main collision box, IMU and the stereo baseline are
     unchanged. Landing-gear collisions let the drone rest on its skids, and the
     stereo camera hangs under the payload rails so it clears the propellers.
+
+    Flight: the quadrotor_dynamics plugin at the end of this file computes rotor
+    thrust, reaction torques, aerodynamic drag, wind and ground effect, and runs
+    the onboard flight controller (see src/flight/ and docs/FLIGHT_DYNAMICS.md).
   -->
+
+  <!-- Wind (world frame, m/s), set from simulation.launch.py -->
+  <xacro:arg name="wind_x" default="0.0"/>
+  <xacro:arg name="wind_y" default="0.0"/>
+  <xacro:arg name="wind_z" default="0.0"/>
+  <xacro:arg name="wind_gust_stddev" default="0.0"/>
 
   <!-- Property definitions -->
   <xacro:property name="mesh_dir" value="package://interceptor_drone/meshes/x500"/>
@@ -72,13 +82,14 @@
     Visuals stay unnamed: Gazebo Classic only applies <gazebo reference>
     materials to visuals lumped through fixed joints when they keep their
     default names.
-    Rotors are fixed: the drone is moved kinematically, see IMPLEMENTATION_PLAN.md.
+    The propeller spins on a continuous joint. Its speed is set by the dynamics
+    plugin (visual only, slowed down); thrust is applied to base_link.
   -->
   <xacro:macro name="quad_rotor" params="name x y prop">
     <link name="rotor_${name}">
       <inertial>
-        <!-- 4 x 0.035 kg keeps the total mass of the previous model -->
-        <mass value="0.035"/>
+        <!-- Motor 0.030 kg + propeller 0.005 kg keeps the total mass of the previous model -->
+        <mass value="0.030"/>
         <inertia ixx="1e-5" ixy="0" ixz="0" iyy="1e-5" iyz="0" izz="1e-5"/>
       </inertial>
       <visual>
@@ -101,6 +112,10 @@
     </joint>
 
     <link name="prop_${name}">
+      <inertial>
+        <mass value="0.005"/>
+        <inertia ixx="1e-6" ixy="0" ixz="0" iyy="3.3e-5" iyz="0" izz="3.3e-5"/>
+      </inertial>
       <visual>
         <!-- The prop mesh origin is at its tip, this centres the hub on the motor -->
         <origin xyz="-0.022 -0.14638461538461536 -0.016" rpy="0 0 0"/>
@@ -113,10 +128,11 @@
         </material>
       </visual>
     </link>
-    <joint name="prop_${name}_joint" type="fixed">
+    <joint name="prop_${name}_joint" type="continuous">
       <parent link="rotor_${name}"/>
       <child link="prop_${name}"/>
       <origin xyz="0 0 0" rpy="0 0 0"/>
+      <axis xyz="0 0 1"/>
     </joint>
     <gazebo reference="prop_${name}">
       <material>Gazebo/DarkGrey</material>
@@ -329,6 +345,60 @@
         <frame_name>imu_link</frame_name>
       </plugin>
     </sensor>
+  </gazebo>
+
+  <!--
+    Flight dynamics + onboard flight controller.
+    Rotor coefficients are the PX4 x500 SITL values. Mass and inertia are read
+    from this model, rotor positions from the prop joints.
+    Topics: cmd_vel (in), drone/arm (in), drone/set_wind (in), odom, joint_states,
+    drone/status, drone/wind (out), TF odom -> base_link.
+  -->
+  <gazebo>
+    <plugin name="quadrotor_dynamics" filename="libquadrotor_dynamics_plugin.so">
+      <ros>
+        <namespace>/</namespace>
+      </ros>
+      <body_link>base_link</body_link>
+      <rotor><joint>prop_fr_joint</joint><direction>ccw</direction></rotor>
+      <rotor><joint>prop_fl_joint</joint><direction>cw</direction></rotor>
+      <rotor><joint>prop_rl_joint</joint><direction>ccw</direction></rotor>
+      <rotor><joint>prop_rr_joint</joint><direction>cw</direction></rotor>
+
+      <!-- Rotors: T = k_f w^2, Q = k_m T, first-order motor lag -->
+      <thrust_coefficient>8.54858e-06</thrust_coefficient>
+      <moment_coefficient>0.016</moment_coefficient>
+      <rotor_drag_coefficient>8.06428e-05</rotor_drag_coefficient>
+      <rotor_radius>0.1397</rotor_radius>
+      <max_rotor_speed>1000.0</max_rotor_speed>
+      <motor_time_constant_up>0.0125</motor_time_constant_up>
+      <motor_time_constant_down>0.025</motor_time_constant_down>
+      <rotor_visual_slowdown>10.0</rotor_visual_slowdown>
+
+      <!-- Aerodynamics -->
+      <air_density>1.225</air_density>
+      <drag_area>0.04 0.04 0.08</drag_area>
+      <angular_drag>0.002</angular_drag>
+      <ground_effect>true</ground_effect>
+      <ground_height>0.0</ground_height>
+      <wind_mean>$(arg wind_x) $(arg wind_y) $(arg wind_z)</wind_mean>
+      <wind_gust_stddev>$(arg wind_gust_stddev)</wind_gust_stddev>
+      <wind_gust_time_constant>2.0</wind_gust_time_constant>
+
+      <!-- Flight controller -->
+      <command_frame>heading</command_frame>
+      <command_timeout>0.5</command_timeout>
+      <max_horizontal_speed>8.0</max_horizontal_speed>
+      <max_vertical_speed>3.0</max_vertical_speed>
+      <max_yaw_rate>1.5</max_yaw_rate>
+      <max_tilt>0.61</max_tilt>
+      <idle_rotor_speed>100.0</idle_rotor_speed>
+      <start_armed>false</start_armed>
+
+      <odom_frame>odom</odom_frame>
+      <odom_rate>100.0</odom_rate>
+      <joint_state_rate>30.0</joint_state_rate>
+    </plugin>
   </gazebo>
 
 </robot>

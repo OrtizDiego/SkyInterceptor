@@ -25,6 +25,12 @@
   <depend>interceptor_interfaces</depend>
   <depend>visualization_msgs</depend>
   <depend>message_filters</depend>
+  <depend>gazebo_dev</depend>
+  <depend>gazebo_ros</depend>
+
+  <exec_depend>rclpy</exec_depend>
+  <exec_depend>xacro</exec_depend>
+  <exec_depend>robot_state_publisher</exec_depend>
 
   <test_depend>ament_lint_auto</test_depend>
   <test_depend>ament_lint_common</test_depend>
@@ -32,7 +38,8 @@
 
   <export>
     <build_type>ament_cmake</build_type>
-    <!-- Lets gazebo_ros resolve package://interceptor_drone/ mesh URIs -->
-    <gazebo_ros gazebo_model_path="${prefix}/.."/>
+    <!-- Lets gazebo_ros resolve package://interceptor_drone/ mesh URIs and find
+         libquadrotor_dynamics_plugin.so -->
+    <gazebo_ros gazebo_model_path="${prefix}/.." plugin_path="${prefix}/lib"/>
   </export>
 </package>

@@ -7,7 +7,7 @@ SkyInterceptor is an autonomous drone system built on **ROS 2 Humble** (C++17 an
 
 The pipeline is stereo vision → YOLO detection → IMM-EKF tracking → mode-specific guidance → trajectory control. An independent safety filter has the final say on every setpoint.
 
-> **Status:** early stage. The perception layer (stereo sync, depth, YOLO detection, 3D localization) works. Tracking, guidance, control and evasion nodes are still skeletons. See [`IMPLEMENTATION_PLAN.md`](IMPLEMENTATION_PLAN.md) for the roadmap and current status.
+> **Status:** early stage. The perception layer (stereo sync, depth, YOLO detection, 3D localization) works, and the drone flies in Gazebo on a physics model that you can drive from the keyboard (see [Flying the drone](#flying-the-drone)). Tracking, guidance, control and evasion nodes are still skeletons. See [`IMPLEMENTATION_PLAN.md`](IMPLEMENTATION_PLAN.md) for the roadmap and current status.
 
 ## Repository layout
 
@@ -20,6 +20,7 @@ SkyInterceptor/
 ├── IMPLEMENTATION_PLAN.md           # Architecture, roadmap and status
 ├── DOCKER.md                        # Docker details, WSL2 GPU rendering, troubleshooting
 ├── docs/AGENT_PROMPTS.md            # Task prompts for coding agents
+├── docs/FLIGHT_DYNAMICS.md          # Flight physics, flight controller, wind, teleop
 ├── .github/workflows/ci.yml         # CI: static checks + build & test
 └── interceptor_ws/                  # ROS 2 (colcon) workspace
     └── src/
@@ -33,7 +34,11 @@ SkyInterceptor/
             │   ├── estimation/      # target_tracker_node (IMM-EKF)
             │   ├── guidance/        # guidance_controller_node (proportional navigation)
             │   ├── control/         # trajectory_controller_node, hector_interface_node
-            │   └── evasion/         # evasion_controller_node
+            │   ├── evasion/         # evasion_controller_node
+            │   ├── flight/          # Flight dynamics library: rotors, aerodynamics,
+            │   │                    # wind, flight controller (no ROS dependency)
+            │   ├── simulation/      # quadrotor_dynamics Gazebo plugin
+            │   └── teleop/          # drone_teleop_keyboard.py
             ├── test/                # GTest unit tests
             ├── config/              # YAML parameter files
             ├── launch/              # Launch files
@@ -59,6 +64,8 @@ Perception  →  Estimation  →  Guidance  →  Control  →  Platform (Gazebo)
 | Control | `trajectory_controller_node` | Cascade PID *(skeleton)* |
 | Control | `hector_interface_node` | Simulator bridge *(skeleton)* |
 | Evasion | `evasion_controller_node` | Target-drone behaviour *(skeleton)* |
+| Platform | `quadrotor_dynamics` (Gazebo plugin) | Rotor thrust and torques, drag, wind, ground effect, plus the onboard flight controller. Publishes `/odom` and TF |
+| Platform | `drone_teleop_keyboard.py` | Keyboard teleoperation |
 
 ## Installation
 
@@ -107,8 +114,26 @@ Run all `make` targets **from the host**. Everything except `make build` and `ma
 | `make build-ws` | `colcon build` the workspace (Release, `--symlink-install`) |
 | `make test` | Run the unit tests and linters (`colcon test` + `colcon test-result`) |
 | `make sim` | Launch Gazebo with the drone and the scenario world |
+| `make teleop` | Fly the drone with the keyboard (run it next to `make sim`) |
 | `make full` | Launch the full system: simulation, perception, guidance, control and RViz |
 | `make clean` | Delete `build/`, `install/` and `log/` inside the container |
+
+### Flying the drone
+
+```bash
+make sim       # terminal 1: Gazebo, the park world with the walking person, and the drone
+make teleop    # terminal 2: keyboard control
+```
+
+Press `t` to arm, then `w` to take off. The arrow keys fly forward, back, left and right, `w` / `s` climb and descend, `a` / `d` yaw, space stops and hovers, and `x` disarms. Each press changes the speed by one step, and the speed is held until you change it.
+
+The drone flies on physics: rotor speed → thrust (T = k_f·ω²) and torques, motor lag, airframe and rotor drag, wind with gusts, and ground effect. An onboard flight controller turns the velocity commands into rotor speeds. Add wind with:
+
+```bash
+ros2 launch interceptor_drone simulation.launch.py wind_x:=4.0 wind_gust_stddev:=1.0
+```
+
+Details (equations, parameters, topics) are in [`docs/FLIGHT_DYNAMICS.md`](docs/FLIGHT_DYNAMICS.md).
 
 ### Running individual parts
 
@@ -150,7 +175,7 @@ make test
 
 This runs:
 
-- **GTest unit tests** in `interceptor_drone/test/` (`test_math_utils`, `test_parameters`)
+- **GTest unit tests** in `interceptor_drone/test/` (`test_math_utils`, `test_parameters`, `test_flight_dynamics`; the latter flies the drone in a standalone 6-DOF sim)
 - **ament linters**: uncrustify, cpplint, cppcheck, flake8, pep257, lint_cmake, xmllint
 
 Inside the container you can also run the tests for a single package and see the results:
