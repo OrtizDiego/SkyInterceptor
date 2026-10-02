@@ -32,7 +32,5 @@
 
   <export>
     <build_type>ament_cmake</build_type>
-    <!-- Lets gazebo_ros resolve package://interceptor_drone/ mesh URIs -->
-    <gazebo_ros gazebo_model_path="${prefix}/.."/>
   </export>
 </package>

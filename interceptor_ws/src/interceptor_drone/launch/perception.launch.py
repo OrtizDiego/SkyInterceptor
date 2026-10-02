@@ -53,7 +53,7 @@ def generate_launch_description():
             'use_sim_time': use_sim_time,
             'model_path': 'yolov8n.pt',
             'confidence_threshold': 0.3,
-            'device': 'cpu',
+            'device': 'auto',
         }]
     )
 
