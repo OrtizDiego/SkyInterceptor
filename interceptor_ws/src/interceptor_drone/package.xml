@@ -38,8 +38,8 @@
 
   <export>
     <build_type>ament_cmake</build_type>
-    <!-- Lets gazebo_ros resolve package://interceptor_drone/ mesh URIs and find
-         libquadrotor_dynamics_plugin.so -->
-    <gazebo_ros gazebo_model_path="${prefix}/.." plugin_path="${prefix}/lib"/>
+    <!-- Lets gazebo_ros find libquadrotor_dynamics_plugin.so. No gazebo_model_path:
+         meshes use file:// URIs (see the URDF) -->
+    <gazebo_ros plugin_path="${prefix}/lib"/>
   </export>
 </package>
