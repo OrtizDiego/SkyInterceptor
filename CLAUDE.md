@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 SkyInterceptor is a ROS2-based autonomous drone system written in C++17 with two mission modes (see `IMPLEMENTATION_PLAN.md` v2):
 
-- **FOLLOW**: aerial filming drone that follows a person, bicycle or car while always keeping a minimum safety distance (`d_min`) from every person or vehicle.
+- **FOLLOW**: aerial filming drone that follows a person, bicycle or car while always keeping a minimum safety distance (`d_min`) from every person or vehicle and `d_obstacle_min` from every static obstacle. Safety distance is the top-level rule in both modes.
 - **INTERCEPT**: counter-UAS capture of an intruding small drone (class `uav` only). Ground targets are never eligible.
 
 It uses stereo vision, a YOLO-based detector (Python), an IMM-EKF tracker, mode-specific planners (follow planner / PN-based intercept guidance), and an independent safety filter node that has the final say on every setpoint. Everything runs in simulation (Gazebo Classic). Agent task prompts live in `docs/AGENT_PROMPTS.md`.
