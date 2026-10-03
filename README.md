@@ -13,15 +13,8 @@
 
 </div>
 
-<!--
-  DEMO GIF: record a short clip of the keyboard-flight demo (see "Flying the drone"),
-  save it as docs/media/teleop-demo.gif, then replace the placeholder block below with:
-
-  <p align="center"><img src="docs/media/teleop-demo.gif" alt="Flying the SkyInterceptor drone with the keyboard in Gazebo" width="720"></p>
--->
-
 <p align="center">
-  <b>🎥 Demo GIF coming soon</b><br>
+  <img src="docs/media/teleop-demo.gif" alt="Flying the SkyInterceptor drone with the keyboard in Gazebo" width="720"><br>
   <i>Flying the drone with the keyboard in Gazebo</i>
 </p>
 
@@ -53,6 +46,17 @@ Fly the drone yourself in two terminals (details in [Flying the drone](#flying-t
 make sim       # Gazebo, the park world with a walking person, and the drone
 make teleop    # keyboard control: arm with t, take off with w
 ```
+
+<table align="center">
+  <tr>
+    <td align="center"><img src="docs/media/simulation-example.png" alt="The park world in Gazebo with the drone on the ground and a walking person" width="480"></td>
+    <td align="center"><img src="docs/media/drone-model.png" alt="The drone model with its stereo camera, based on the Holybro X500 V2" width="360"></td>
+  </tr>
+  <tr>
+    <td align="center"><i>The park world: drone, walking person, trees</i></td>
+    <td align="center"><i>Drone model (Holybro X500 V2 look) with the stereo camera</i></td>
+  </tr>
+</table>
 
 ## Architecture
 
