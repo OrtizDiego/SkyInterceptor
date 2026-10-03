@@ -78,6 +78,8 @@ Done when everything builds, `ros2 interface show interceptor_interfaces/msg/Fli
 
 ### P0.3 – Flyable simulated drone
 
+> **Done differently:** the drone flies on a force-based model (the `quadrotor_dynamics` Gazebo plugin with an onboard flight controller) instead of the kinematic bridge below, and `drone_teleop_keyboard.py` flies it. See `docs/FLIGHT_DYNAMICS.md`. Only the removal of `hector_interface_node` is left from this prompt.
+
 ```
 Task: replace hector_interface_node with sim_drone_bridge_node so the drone can fly in Gazebo (plan §4.6).
 

@@ -26,6 +26,8 @@ find_package(Eigen3 REQUIRED)
 find_package(interceptor_interfaces REQUIRED)
 find_package(visualization_msgs REQUIRED)
 find_package(message_filters REQUIRED)
+find_package(gazebo_dev REQUIRED)
+find_package(gazebo_ros REQUIRED)
 
 # Include directories
 include_directories(
@@ -57,6 +59,31 @@ ament_target_dependencies(${PROJECT_NAME}_lib
   cv_bridge
   image_transport
   interceptor_interfaces
+)
+
+# Flight dynamics library: quadrotor plant, wind and autopilot. Plain C++ and Eigen,
+# no ROS or Gazebo, so it can be unit tested without a simulator.
+add_library(${PROJECT_NAME}_flight SHARED
+  src/flight/quadrotor_model.cpp
+  src/flight/wind_model.cpp
+  src/flight/flight_controller.cpp
+)
+target_link_libraries(${PROJECT_NAME}_flight Eigen3::Eigen)
+
+# Gazebo plugin that flies the drone with the flight dynamics library
+add_library(quadrotor_dynamics_plugin SHARED src/simulation/quadrotor_dynamics_plugin.cpp)
+# Gazebo's own headers are not -Wpedantic clean: include them as system headers
+target_include_directories(quadrotor_dynamics_plugin SYSTEM PRIVATE ${gazebo_dev_INCLUDE_DIRS})
+target_link_libraries(quadrotor_dynamics_plugin ${PROJECT_NAME}_flight)
+ament_target_dependencies(quadrotor_dynamics_plugin
+  gazebo_dev
+  gazebo_ros
+  rclcpp
+  geometry_msgs
+  nav_msgs
+  sensor_msgs
+  std_msgs
+  tf2_ros
 )
 
 # Perception nodes
@@ -109,8 +136,15 @@ install(TARGETS
   DESTINATION lib/${PROJECT_NAME}
 )
 
+install(TARGETS
+  ${PROJECT_NAME}_flight
+  quadrotor_dynamics_plugin
+  LIBRARY DESTINATION lib
+)
+
 install(PROGRAMS
   src/perception/target_detector.py
+  src/teleop/drone_teleop_keyboard.py
   DESTINATION lib/${PROJECT_NAME}
 )
 
@@ -167,6 +201,9 @@ if(BUILD_TESTING)
 
   ament_add_gtest(test_parameters test/test_parameters.cpp)
   target_link_libraries(test_parameters ${PROJECT_NAME}_lib)
+
+  ament_add_gtest(test_flight_dynamics test/test_flight_dynamics.cpp)
+  target_link_libraries(test_flight_dynamics ${PROJECT_NAME}_flight)
 
   # ament_add_gtest(test_ekf test/test_ekf.cpp)
   # target_link_libraries(test_ekf ${PROJECT_NAME}_lib)

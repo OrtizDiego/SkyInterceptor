@@ -4,7 +4,7 @@ PROJECT_DIR := $(shell pwd)
 LOG_DIR := $(PROJECT_DIR)/logs
 SERVICE_NAME := interceptor
 
-.PHONY: help build up down shell test clean logs status build-ws sim full
+.PHONY: help build up down shell test clean logs status build-ws sim full teleop
 
 help:
 	@echo "Interceptor Drone - Commands"
@@ -15,6 +15,7 @@ help:
 	@echo "  make shell          - Enter container shell"
 	@echo "  make build-ws       - Build ROS2 workspace"
 	@echo "  make sim            - Launch simulation"
+	@echo "  make teleop         - Fly the drone with the keyboard (run next to make sim)"
 	@echo "  make full           - Launch full system"
 	@echo "  make test           - Run project tests"
 	@echo "  make clean          - Remove build artifacts"
@@ -53,6 +54,13 @@ sim:
 		source /opt/ros/humble/setup.bash && \
 		source install/setup.bash && \
 		ros2 launch interceptor_drone simulation.launch.py \
+	"
+
+teleop:
+	docker-compose exec $(SERVICE_NAME) bash -c " \
+		source /opt/ros/humble/setup.bash && \
+		source install/setup.bash && \
+		ros2 run interceptor_drone drone_teleop_keyboard.py \
 	"
 
 full:

@@ -11,7 +11,7 @@ SkyInterceptor is a ROS2-based autonomous drone system written in C++17 with two
 
 It uses stereo vision, a YOLO-based detector (Python), an IMM-EKF tracker, mode-specific planners (follow planner / PN-based intercept guidance), and an independent safety filter node that has the final say on every setpoint. Everything runs in simulation (Gazebo Classic). Agent task prompts live in `docs/AGENT_PROMPTS.md`.
 
-**Status note:** the tables below describe the current code. The target architecture (new nodes such as `safety_filter_node`, `follow_planner_node` and `sim_drone_bridge_node`) is in `IMPLEMENTATION_PLAN.md` §3.
+**Status note:** the tables below describe the current code. The target architecture (new nodes such as `safety_filter_node` and `follow_planner_node`) is in `IMPLEMENTATION_PLAN.md` §3.
 
 All development runs inside a Docker container with CUDA 11.8 + ROS2 Humble.
 
@@ -27,6 +27,7 @@ make shell      # Open bash shell inside container
 make build-ws   # colcon build --symlink-install --cmake-args -DCMAKE_BUILD_TYPE=Release
 make test       # colcon test + colcon test-result --verbose
 make sim        # ros2 launch interceptor_drone simulation.launch.py
+make teleop     # ros2 run interceptor_drone drone_teleop_keyboard.py (fly with the keyboard)
 make full       # ros2 launch interceptor_drone interceptor_full.launch.py
 make clean      # Remove build/, install/, log/ inside container
 make status     # docker-compose ps
@@ -43,7 +44,7 @@ source /opt/ros/humble/setup.bash && source install/setup.bash
 ros2 run interceptor_drone stereo_sync_node
 ```
 
-**Tests:** `make test` runs the GTest unit tests in `interceptor_drone/test/` (`test_math_utils`, `test_parameters`) plus the ament linters (uncrustify, cpplint, cppcheck, flake8, pep257, lint_cmake, xmllint). `ament_copyright` is excluded because the sources have no license headers yet. GTest targets for EKF, guidance and controller are still commented out in `CMakeLists.txt` until those tests exist. To auto-fix C++ formatting inside the container: `ament_uncrustify --reformat src include test` (from the package directory).
+**Tests:** `make test` runs the GTest unit tests in `interceptor_drone/test/` (`test_math_utils`, `test_parameters`, `test_flight_dynamics`) plus the ament linters (uncrustify, cpplint, cppcheck, flake8, pep257, lint_cmake, xmllint). `ament_copyright` is excluded because the sources have no license headers yet. GTest targets for EKF, guidance and controller are still commented out in `CMakeLists.txt` until those tests exist. To auto-fix C++ formatting inside the container: `ament_uncrustify --reformat src include test` (from the package directory).
 
 **CI:** `.github/workflows/ci.yml` runs on every PR and on pushes to `main`. It has two jobs: a fast static-checks job (yamllint, shellcheck, Python syntax) and a build-and-test job in the `ros:humble-perception` container (`colcon build` with `-Werror`, then `colcon test`). The container has no CUDA, so code must also build without GPU support.
 
@@ -68,6 +69,17 @@ Perception → Estimation → Guidance → Control → Platform
 | Control | `trajectory_controller_node` | Cascade PID |
 | Control | `hector_interface_node` | Hector Quadrotor simulator bridge |
 | Evasion | `evasion_controller_node` | Target evasion strategies (skeleton) |
+| Platform | `quadrotor_dynamics` (Gazebo plugin, `libquadrotor_dynamics_plugin.so`) | Rotor/aero/wind model + onboard flight controller; `/cmd_vel` in, `/odom` + TF out |
+| Platform | `drone_teleop_keyboard.py` | Keyboard teleop: `/cmd_vel` + `/drone/arm` |
+
+### Flight dynamics library
+
+`interceptor_drone_flight` (`include/flight/`, `src/flight/`) is plain C++/Eigen with no ROS or Gazebo dependency, so gtests can fly the drone in a standalone 6-DOF sim:
+- `quadrotor_model.hpp` — motor lag, rotor thrust/reaction torque/rotor drag, airframe drag, ground effect; `integrateRigidBody` for tests
+- `wind_model.hpp` — steady wind + Gauss–Markov gusts
+- `flight_controller.hpp` — velocity PI → attitude P (SO(3)) → body-rate PI → mixer, landed/take-off state
+
+The Gazebo plugin (`src/simulation/quadrotor_dynamics_plugin.cpp`) wraps it; its parameters are in the `<plugin>` block of the URDF xacro. Frames are ENU world / FLU body. See `docs/FLIGHT_DYNAMICS.md`.
 
 ### Shared library
 
@@ -103,7 +115,7 @@ YAML files loaded by launch files; key values to know:
 ### Launch files (`launch/` directory)
 
 - `interceptor_full.launch.py` — Full system (simulation + perception + guidance + control + RViz)
-- `simulation.launch.py` — Gazebo only
+- `simulation.launch.py` — Gazebo + drone (args: `gui`, `x`, `y`, `yaw`, `wind_x`, `wind_y`, `wind_z`, `wind_gust_stddev`)
 - `perception.launch.py` — Perception pipeline only
 - `guidance.launch.py` — Guidance controller only
 
@@ -114,6 +126,7 @@ interceptor_ws/
   src/
     interceptor_drone/          # Main C++ package
       include/common/           # Shared headers (types, params, math)
+      include/flight/           # Flight dynamics headers
       src/
         common/                 # Shared library sources
         perception/             # stereo_sync, depth_processor, 3d_localizer, target_detector.py
@@ -121,6 +134,9 @@ interceptor_ws/
         guidance/               # guidance_controller_node (PN)
         control/                # trajectory_controller, hector_interface
         evasion/                # evasion_controller_node
+        flight/                 # flight dynamics library (no ROS)
+        simulation/             # quadrotor_dynamics Gazebo plugin
+        teleop/                 # drone_teleop_keyboard.py
       config/                   # YAML parameter files
       launch/                   # Python launch files
       urdf/                     # Robot model (Holybro X500 V2 look)
