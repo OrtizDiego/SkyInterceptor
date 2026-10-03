@@ -6,6 +6,7 @@ import rclpy
 from rclpy.node import Node
 from sensor_msgs.msg import Image
 from cv_bridge import CvBridge
+import torch
 from ultralytics import YOLO
 from interceptor_interfaces.msg import TargetDetection
 
@@ -21,12 +22,14 @@ class TargetDetector(Node):
         # Parameters
         self.declare_parameter('model_path', 'yolov8n.pt')
         self.declare_parameter('confidence_threshold', 0.3)
-        self.declare_parameter('device', 'cpu')
+        # 'auto' picks the first CUDA GPU when PyTorch can see one, else the CPU
+        self.declare_parameter('device', 'auto')
 
         model_path = self.get_parameter('model_path').get_parameter_value().string_value
         self.conf_threshold = (
             self.get_parameter('confidence_threshold').get_parameter_value().double_value)
-        device = self.get_parameter('device').get_parameter_value().string_value
+        device = self.resolve_device(
+            self.get_parameter('device').get_parameter_value().string_value)
 
         # Initialize YOLO
         self.model = YOLO(model_path)
@@ -52,6 +55,24 @@ class TargetDetector(Node):
 
         self.get_logger().info(f"YOLOv8 initialized on {device}")
         self.get_logger().info("Monitoring for: person, car, truck")
+
+    def resolve_device(self, requested):
+        """Map the 'device' parameter to a torch device, falling back to the CPU."""
+        cuda_available = torch.cuda.is_available()
+        if requested == 'auto':
+            requested = 'cuda:0' if cuda_available else 'cpu'
+        elif requested.startswith('cuda') and not cuda_available:
+            self.get_logger().warn(f"Device '{requested}' requested but CUDA is unavailable")
+            requested = 'cpu'
+
+        if requested.startswith('cuda'):
+            self.get_logger().info(
+                f'Using GPU: {torch.cuda.get_device_name(torch.device(requested))}')
+        elif not cuda_available:
+            self.get_logger().warn(
+                f'PyTorch {torch.__version__} cannot see a CUDA GPU '
+                f'(built for CUDA: {torch.version.cuda}); running on CPU')
+        return requested
 
     def image_callback(self, msg):
         # Convert ROS Image to OpenCV

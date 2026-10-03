@@ -10,7 +10,12 @@
   -->
 
   <!-- Property definitions -->
-  <xacro:property name="mesh_dir" value="package://interceptor_drone/meshes/x500"/>
+  <!--
+    Absolute file:// URIs work in both Gazebo and RViz without adding the
+    install share/ directory to GAZEBO_MODEL_PATH (which makes gzclient's
+    Insert tab log "Missing model.config" for every package in it).
+  -->
+  <xacro:property name="mesh_dir" value="file://$(find interceptor_drone)/meshes/x500"/>
   <xacro:property name="camera_mass" value="0.1"/>
   <xacro:property name="baseline" value="0.12"/>
   <!-- Stereo camera housing (ZED 2 class: 175 mm wide for a 120 mm baseline) -->
