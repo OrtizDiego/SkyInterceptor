@@ -1,23 +1,26 @@
-# Stereo camera calibration parameters
-stereo:
-  baseline: 0.12  # meters (12cm)
-  fx: 535.4       # focal length x (pixels)
-  fy: 535.4       # focal length y (pixels)
-  cx: 320.5       # principal point x (pixels)
-  cy: 240.5       # principal point y (pixels)
+# Vision perception pipeline (launched when perception_source:=vision)
 
-# Disparity calculation parameters
-num_disparities: 128  # Must be divisible by 16
-block_size: 11        # Block matching window size
+stereo_depth_processor:
+  ros__parameters:
+    # Stereo rig (must match the camera joints in the URDF)
+    stereo.baseline: 0.12   # m
+    stereo.fx: 535.4        # px
 
-# Preprocessing
-use_cuda: true
-filter_depth: true
+    # SGBM disparity
+    num_disparities: 128    # Must be divisible by 16
+    block_size: 11          # Matching window (odd)
 
-# Detection classes
-# 0: person
-# 1: car
-# 2: truck
-target_classes: [0, 1, 2]
-confidence_threshold: 0.5
-nms_threshold: 0.4
+    # WLS post-filter
+    lambda: 8000.0
+    sigma: 1.5
+
+target_detector:
+  ros__parameters:
+    model_path: "yolov8n.pt"
+    confidence_threshold: 0.3
+    device: "auto"          # auto | cpu | cuda[:N]
+
+target_3d_localizer:
+  ros__parameters:
+    target_frame: "map"
+    sync_slop: 0.1          # s, detection <-> depth image pairing tolerance

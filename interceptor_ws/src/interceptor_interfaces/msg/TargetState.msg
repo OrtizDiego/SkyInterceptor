@@ -2,6 +2,10 @@
 std_msgs/Header header
 int32 track_id
 
+# Target class (TargetDetection class constants)
+int32 class_id
+string class_name
+
 # Position (meters, world frame)
 geometry_msgs/Point position
 float64[9] position_covariance  # 3x3 row-major
@@ -12,6 +16,9 @@ float64[9] velocity_covariance
 
 # Acceleration (m/s², world frame) - estimated
 geometry_msgs/Vector3 acceleration
+
+# Heading of the velocity vector (rad, ENU, atan2(vy, vx)); held when the target is slow
+float64 heading
 
 # Track quality metrics
 float64 quality_score       # 0.0 - 1.0

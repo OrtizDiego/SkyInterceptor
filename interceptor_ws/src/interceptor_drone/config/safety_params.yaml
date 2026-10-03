@@ -1,0 +1,14 @@
+# Safety filter (plan §4.3, §4.4)
+# Reserved for P2.2/P3.4: safety_filter_node does not exist yet.
+safety_filter_node:
+  ros__parameters:
+    safety:
+      d_min_horizontal: 5.0         # m, to ANY person/vehicle track
+      h_min_above: 3.0              # m, vertical clearance above target
+      cbf_alpha: 1.0                # 1/s
+      altitude_floor: 2.0           # m AGL
+      altitude_ceiling: 120.0       # m AGL
+      geofence: {x_min: -100.0, x_max: 100.0, y_min: -100.0, y_max: 100.0}
+      setpoint_timeout: 0.3         # s
+      odom_timeout: 0.3             # s
+      speed_cap: {follow: 15.0, intercept: 30.0}

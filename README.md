@@ -73,8 +73,8 @@ Perception  →  Estimation  →  Guidance  →  Control  →  Platform (Gazebo)
 | Estimation | `target_tracker_node` | IMM-EKF target tracking | 🚧 Skeleton |
 | Guidance | `guidance_controller_node` | Proportional navigation | 🚧 Skeleton |
 | Control | `trajectory_controller_node` | Cascade PID | 🚧 Skeleton |
-| Control | `hector_interface_node` | Simulator bridge | 🚧 Skeleton (being replaced) |
 | Evasion | `evasion_controller_node` | Target-drone behaviour | 🚧 Skeleton |
+| Mission | `mission_manager_node` | Mission mode (`/mission/set_mode` service, latched `/mission/mode`) | ✅ Done |
 | Platform | `quadrotor_dynamics` (Gazebo plugin) | Rotors, aerodynamics, wind, ground effect, onboard flight controller; publishes `/odom` and TF | ✅ Done |
 | Platform | `drone_teleop_keyboard.py` | Keyboard teleoperation | ✅ Done |
 
@@ -113,15 +113,16 @@ SkyInterceptor/
     └── src/
         ├── interceptor_interfaces/  # Custom messages (msg/) and services (srv/)
         └── interceptor_drone/       # Main package
-            ├── include/common/      # Shared headers: types, parameters, math utils
+            ├── include/common/      # Shared headers: types, mission mode/classes, math utils
             ├── src/
             │   ├── common/          # Shared library (interceptor_drone_lib)
             │   ├── perception/      # stereo_sync_node, stereo_depth_processor,
             │   │                    # target_3d_localizer, target_detector.py
             │   ├── estimation/      # target_tracker_node (IMM-EKF)
             │   ├── guidance/        # guidance_controller_node (proportional navigation)
-            │   ├── control/         # trajectory_controller_node, hector_interface_node
+            │   ├── control/         # trajectory_controller_node
             │   ├── evasion/         # evasion_controller_node
+            │   ├── mission/         # mission_manager_node
             │   ├── flight/          # Flight dynamics library: rotors, aerodynamics,
             │   │                    # wind, flight controller (no ROS dependency)
             │   ├── simulation/      # quadrotor_dynamics Gazebo plugin
@@ -216,7 +217,9 @@ Launch files:
 ros2 launch interceptor_drone simulation.launch.py      # Gazebo only
 ros2 launch interceptor_drone perception.launch.py      # Perception pipeline only
 ros2 launch interceptor_drone guidance.launch.py        # Tracker + guidance only
-ros2 launch interceptor_drone interceptor_full.launch.py
+ros2 launch interceptor_drone interceptor_full.launch.py mission_mode:=follow perception_source:=groundtruth
+ros2 launch interceptor_drone follow.launch.py          # Full system in FOLLOW mode
+ros2 launch interceptor_drone intercept.launch.py       # Full system in INTERCEPT mode
 ```
 
 A single node:
@@ -242,7 +245,7 @@ make test
 
 This runs:
 
-- **GTest unit tests** in `interceptor_drone/test/` (`test_math_utils`, `test_parameters`, `test_flight_dynamics`; the latter flies the drone in a standalone 6-DOF sim)
+- **GTest unit tests** in `interceptor_drone/test/` (`test_math_utils`, `test_mission`, `test_flight_dynamics`; the latter flies the drone in a standalone 6-DOF sim)
 - **ament linters**: uncrustify, cpplint, cppcheck, flake8, pep257, lint_cmake, xmllint
 
 Inside the container you can also run the tests for a single package and see the results:
@@ -291,10 +294,14 @@ Parameters are in `interceptor_ws/src/interceptor_drone/config/`:
 
 | File | Contents |
 |---|---|
-| `perception_params.yaml` | Stereo camera (baseline, intrinsics) and detector settings |
-| `stereo_sync_params.yaml` | Stereo synchronization tolerance |
-| `ekf_params.yaml` | Tracker process and measurement noise |
-| `guidance_params.yaml` | Navigation constants and acceleration limits |
-| `controller_params.yaml` | PID gains and limits |
+| `perception_params.yaml` | Stereo depth, YOLO detector and 3D localizer settings |
+| `stereo_sync_params.yaml` | Stereo synchronization tolerance and topics |
+| `ekf_params.yaml` | Tracker noise, IMM model sets, gating and track management |
+| `controller_params.yaml` | Trajectory controller gains and output limits |
+| `safety_params.yaml` | Keep-out distance, altitude limits, geofence, speed caps |
+| `follow_params.yaml` | FOLLOW framing presets and eligible classes |
+| `intercept_params.yaml` | INTERCEPT guidance, capture envelope and engagement gate |
 
-Custom messages are defined in `interceptor_ws/src/interceptor_interfaces/`: `TargetDetection`, `TargetState`, `GuidanceCommand`, `TargetTrajectory`, `StereoImagePair` and the `SetInterceptMode` service.
+Every file uses the `<node_name>: ros__parameters:` layout and is loaded by the launch files. `follow_params.yaml` and `intercept_params.yaml` use `/**:` because the tracker and the safety filter read them too. Keys for nodes that are still stubs are marked as reserved for the plan task that will use them.
+
+Custom messages are defined in `interceptor_ws/src/interceptor_interfaces/`: `TargetDetection`, `TargetState`, `TargetStateArray`, `FlightSetpoint`, `MissionMode`, `MissionStatus`, `GuidanceCommand`, `TargetTrajectory`, `StereoImagePair` and the `SetMissionMode` service.

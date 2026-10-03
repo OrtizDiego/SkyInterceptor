@@ -1,24 +1,32 @@
-# EKF Parameters
-ekf:
-  process_noise_pos: 0.1    # Position process noise (m^2)
-  process_noise_vel: 0.5    # Velocity process noise ((m/s)^2)
-  process_noise_acc: 1.0    # Acceleration process noise ((m/s^2)^2)
-  measurement_noise_pos: 0.1  # Position measurement noise (m^2)
+# Target tracker (IMM-EKF, plan §4.1)
+# Reserved for P1.1/P1.2: target_tracker_node is still a stub and reads none of these yet.
+# Class whitelists for target selection come from follow_params.yaml / intercept_params.yaml.
+target_tracker_node:
+  ros__parameters:
+    publish_rate: 50.0              # Hz, /tracks and /target/state (predict-only between updates)
 
-# IMM Model Parameters
-imm:
-  model_transition:
-    cv_to_cv: 0.9
-    cv_to_ca: 0.05
-    cv_to_ct: 0.05
-    ca_to_cv: 0.1
-    ca_to_ca: 0.85
-    ca_to_ct: 0.05
-    ct_to_cv: 0.1
-    ct_to_ca: 0.1
-    ct_to_ct: 0.8
+    # Process noise (continuous white-noise spectral densities)
+    process_noise_acc: 1.0          # CV model, (m/s^2)^2 / Hz
+    process_noise_jerk: 5.0         # CA model, (m/s^3)^2 / Hz
+    process_noise_turn_rate: 0.1    # CT model, (rad/s^2)^2 / Hz
 
-# Gating
-gate_threshold: 3.0  # Number of standard deviations
-max_missed_frames: 10  # Maximum consecutive misses before track deletion
-min_detections: 3      # Minimum detections to create track
+    # Fallback 3D position measurement noise when a detection carries no covariance
+    measurement_noise_pos: 0.3      # m (std dev)
+
+    # IMM model sets and Markov transition matrices (row-major, rows sum to 1)
+    imm:
+      follow_models: ["cv", "ca"]   # Ground targets
+      follow_transition: [0.95, 0.05,
+                          0.10, 0.90]
+      intercept_models: ["cv", "ct"]  # Aerial targets
+      intercept_transition: [0.95, 0.05,
+                             0.10, 0.90]
+
+    # Gating and track management
+    gate_probability: 0.99          # chi-square gate, 3 DOF
+    confirm_m: 3                    # Confirm after M hits ...
+    confirm_n: 5                    # ... in the last N frames
+    max_missed_frames: 10           # Delete after this many consecutive misses
+    max_position_variance: 25.0     # m^2, delete when trace(P_pos) exceeds this
+    coast_timeout: 2.0              # s, predict through occlusion, then is_valid=false
+    min_heading_speed: 0.5          # m/s, hold the heading below this speed

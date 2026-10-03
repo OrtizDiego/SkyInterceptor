@@ -1,0 +1,17 @@
+# INTERCEPT mode (plan §4.4)
+# Reserved for P3.3/P3.4: intercept_guidance_node does not exist yet.
+# Shared on purpose (/**): the launch files pass this file to the guidance node, to
+# target_tracker_node (intercept.eligible_classes, P1.2) and to safety_filter_node
+# (engagement gate and abort, P3.4).
+/**:
+  ros__parameters:
+    intercept:
+      nav_constant: 4.0
+      max_accel: 15.0               # m/s^2
+      capture_start_range: 10.0     # m
+      capture_radius: 1.5           # m
+      capture_max_rel_speed: 3.0    # m/s
+      min_engage_altitude_agl: 10.0 # m
+      min_confirmed_frames: 10
+      abort_ground_radius: 15.0     # m
+      eligible_classes: ["uav"]

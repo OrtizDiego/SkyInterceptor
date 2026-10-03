@@ -1,26 +1,22 @@
-# Controller Parameters
-controller:
-  # Position loop PID gains
-  kp_pos: 1.0
-  ki_pos: 0.0
-  kd_pos: 0.5
+# Trajectory controller (plan §4.5)
+# Reserved for P2.1: trajectory_controller_node is still a stub and reads none of these yet.
+# Speed caps, altitude limits and the geofence belong to safety_params.yaml.
+trajectory_controller_node:
+  ros__parameters:
+    rate_hz: 50.0
 
-  # Velocity loop PID gains
-  kp_vel: 2.0
-  ki_vel: 0.1
-  kd_vel: 0.5
+    # Position loop: velocity command = v_ff + PID(position error)
+    kp_pos: 1.0
+    ki_pos: 0.05
+    kd_pos: 0.2
+    max_pos_integral: 2.0           # m*s, anti-windup clamp
 
-  # Limits
-  max_velocity: 41.7      # m/s (150 km/h)
-  max_acceleration: 20.0  # m/s^2
-  max_altitude: 200.0     # meters
-  min_altitude: 2.0       # meters
+    # Yaw loop
+    kp_yaw: 1.5
 
-  # Integral windup prevention
-  max_pos_integral: 10.0
-  max_vel_integral: 5.0
+    # Output limits (/cmd_vel)
+    max_horizontal_velocity: 30.0   # m/s
+    max_vertical_velocity: 5.0      # m/s
+    max_yaw_rate: 1.5               # rad/s
 
-  # Trajectory generation
-  trajectory:
-    use_bang_bang: true
-    jerk_limit: 50.0  # m/s^3
+    setpoint_timeout: 0.3           # s, then command zero velocity

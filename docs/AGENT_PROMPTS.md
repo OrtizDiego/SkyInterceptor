@@ -54,6 +54,8 @@ Done when `make check` passes from a clean `make clean`.
 
 ### P0.2 – Interfaces, parameters, mission mode
 
+> **Done.** The mission mode lives in `mission_manager_node`: `/mission/set_mode` (`SetMissionMode`) updates it and `/mission/mode` (`MissionMode`, transient local) latches it for every other node.
+
 ```
 Task: implement the interface and parameter changes in IMPLEMENTATION_PLAN.md §3 "Interface changes" and §6.
 
@@ -138,7 +140,7 @@ Task: implement target_tracker_node on top of the P1.1 library.
 
 - Subscribe to /target/detection_3d (TargetDetection; use position_world only when world_position_valid).
 - Timer at 50 Hz: predict, then publish TargetStateArray on /tracks and the selected TargetState on /target/state.
-- Target selection: filter by the eligible_classes of the current mission mode (from follow_params / intercept_params, switched through the /mission/set_mode service or a mode topic defined in P0.2). Choose the operator-requested track_id if set, else the closest confirmed eligible track, with hysteresis so the selection doesn't flip.
+- Target selection: filter by the eligible_classes of the current mission mode (follow.eligible_classes / intercept.eligible_classes from follow_params.yaml / intercept_params.yaml; subscribe to the latched /mission/mode topic from mission_manager_node). Choose the operator-requested track_id if set, else the closest confirmed eligible track, with hysteresis so the selection doesn't flip.
 - Publish RViz MarkerArray on /tracks/markers (sphere + velocity arrow + text label: id, class, speed).
 
 Done when, with perception_source:=groundtruth, /target/state follows the walking actor smoothly in RViz.
