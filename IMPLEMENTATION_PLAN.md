@@ -29,7 +29,7 @@ The project now has **two mission modes** that share one perception → tracking
 |---|---|---|
 | Docker image | ✅ Builds | `make build` (log written to `logs/docker-build.log`, not committed) |
 | Workspace build | ❓ Never verified | No `colcon build` on record. Humble header and include fixes pushed in `feat/funny-albattani-l2q2c6` |
-| Interfaces | ✅ 5 msgs + 1 srv | Need a mode-agnostic setpoint message, a track array and a mission-mode service (see §4) |
+| Interfaces | ✅ Done (P0.2) | `TargetStateArray`, `FlightSetpoint`, `MissionMode`, `MissionStatus`, `SetMissionMode` added; class constants in `TargetDetection` |
 | `stereo_sync_node` | ✅ Done | Timestamp bug fixed (kept the capture stamp) |
 | `stereo_depth_processor` | ✅ Done (CPU) | SGBM + WLS on CPU, realistically 10–20 FPS rather than 60. Needs `opencv_ximgproc` (contrib) in the image |
 | `target_detector.py` | ✅ Done | COCO person/car/truck on **CPU**. No `bicycle`, and COCO has no drone class |
@@ -37,10 +37,11 @@ The project now has **two mission modes** that share one perception → tracking
 | `target_tracker_node` | ❌ Stub | |
 | `guidance_controller_node` | ❌ Stub | Replaced by `follow_planner_node` and `intercept_guidance_node` |
 | `trajectory_controller_node` | ❌ Stub | |
-| `hector_interface_node` | ❌ Stub | `hector_quadrotor` has **no ROS 2 Humble release**. Superseded by the `quadrotor_dynamics` Gazebo plugin; delete it |
+| `hector_interface_node` | 🗑️ Deleted | Superseded by the `quadrotor_dynamics` Gazebo plugin |
 | `evasion_controller_node` | ❌ Stub | Becomes `target_drone_behavior_node` |
 | Simulation | ✅ Flies | `quadrotor_dynamics` Gazebo plugin: rotor thrust and torques, motor lag, airframe and rotor drag, wind with gusts, ground effect, plus an onboard velocity → attitude → rate controller. Publishes `/odom` and TF. Keyboard teleop node. See `docs/FLIGHT_DYNAMICS.md`. World has a walking `target_person` actor and no target drone |
-| Parameters | ⚠️ Inconsistent | Launch files hard-code dicts instead of loading `config/*.yaml`. Several YAML keys (`imm.*`, `nav_constant_terminal`, `gate_threshold`, …) aren't read by any code. `Parameters::loadFromNode` is unused |
+| Parameters | ✅ Done (P0.2) | Launch files load `config/*.yaml` (`<node>: ros__parameters:`); keys for stub nodes are marked reserved for their task. Static `Parameters` class removed. `mission_mode` and `perception_source` launch args |
+| `mission_manager_node` | ✅ Done (P0.2) | Serves `/mission/set_mode`, latches `/mission/mode` (`MissionMode`, transient local). Starts disarmed; only INTERCEPT can be armed |
 | Tests | ❌ None | gtest targets are commented out in `CMakeLists.txt` |
 
 **Critical path:** the drone can't fly and nothing downstream of perception exists. The fastest route is (1) a kinematic flyable drone, (2) a ground-truth target source so control work doesn't wait for vision, (3) FOLLOW mode end-to-end, then (4) INTERCEPT mode.
@@ -78,6 +79,7 @@ The project now has **two mission modes** that share one perception → tracking
 | `groundtruth_target_node` (new) | Reads Gazebo entity states, publishes noisy `TargetDetection` | both |
 | `target_tracker_node` | implement (IMM-EKF, multi-track, publishes `/tracks`) | both |
 | `target_selector` | a component inside the tracker node or a small node | both |
+| `mission_manager_node` (new) | ✅ done: `/mission/set_mode` → latched `/mission/mode` | both |
 | `follow_planner_node` (new) | | FOLLOW |
 | `intercept_guidance_node` (replaces `guidance_controller_node`) | | INTERCEPT |
 | `safety_filter_node` (new) | | both |
@@ -93,6 +95,7 @@ The project now has **two mission modes** that share one perception → tracking
 - **new** `FlightSetpoint.msg`: header, `geometry_msgs/Point position`, `geometry_msgs/Vector3 velocity`, `geometry_msgs/Vector3 acceleration_ff`, `float64 yaw`, `float64 yaw_rate`, `uint8 source` (FOLLOW / INTERCEPT / HOLD / RTL), `bool position_valid`.
 - **new** `MissionStatus.msg`: mode, phase, target track id, distance to target, safety-filter active flag, reason string.
 - **replace** `SetInterceptMode.srv` with `SetMissionMode.srv`: request `uint8 mode` (HOLD=0, FOLLOW=1, INTERCEPT=2), `bool armed`, `int32 track_id` (-1 = auto). Response `bool success`, `string message`.
+- **new** `MissionMode.msg` (header, mode, armed, track_id): `mission_manager_node` serves `/mission/set_mode` and latches the result on `/mission/mode` (transient local), so the tracker, planners and safety filter all see the same mode.
 - `GuidanceCommand.msg`: keep as intercept telemetry (N', V_c, t_go, ZEM). It's not a control input.
 
 ---
@@ -150,8 +153,8 @@ Estimates assume one developer. The dependency graph below shows what can run in
 
 ### Phase 0 – Build, fly, and decouple (blocking, ~3–4 days)
 - **0.1** Get `colcon build` green in the container. Fix compile and link errors (ximgproc availability, include paths). Add `scripts/check.sh` that runs build and tests.
-- **0.2** Interface changes from §3. Move all launch parameters into `config/*.yaml`, load them from launch files, and delete keys that aren't used. Add launch arg `mission_mode:=follow|intercept` and new files `follow_params.yaml`, `intercept_params.yaml`, `safety_params.yaml`.
-- **0.3** ✅ Flyable drone + TF + `/odom`: done with the `quadrotor_dynamics` plugin and `drone_teleop_keyboard.py`. Still to do: delete `hector_interface_node`.
+- **0.2** ✅ Interface changes from §3. Move all launch parameters into `config/*.yaml`, load them from launch files, and delete keys that aren't used. Add launch arg `mission_mode:=follow|intercept` and new files `follow_params.yaml`, `intercept_params.yaml`, `safety_params.yaml`.
+- **0.3** ✅ Flyable drone + TF + `/odom`: done with the `quadrotor_dynamics` plugin and `drone_teleop_keyboard.py`. `hector_interface_node` deleted.
 - **0.4** `groundtruth_target_node`: target poses from Gazebo (`/get_entity_state` for the `target_person` actor and `target_drone`) with configurable Gaussian noise and dropout. It publishes `TargetDetection` on `/target/detection_3d`. Selected by `perception_source`.
 - **0.5** Re-enable gtest in CMake with one smoke test per library.
 

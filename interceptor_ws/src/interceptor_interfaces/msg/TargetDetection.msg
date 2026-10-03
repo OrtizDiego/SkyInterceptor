@@ -1,6 +1,13 @@
 # Detection from perception system
 std_msgs/Header header
 
+# Target classes (class_id)
+int32 PERSON=0
+int32 CAR=1
+int32 TRUCK=2
+int32 BICYCLE=3
+int32 UAV=4
+
 int32 detection_id          # Unique detection ID
 int32 track_id              # Associated track ID (-1 if new)
 
@@ -11,7 +18,7 @@ int32 bbox_width
 int32 bbox_height
 
 # Detection metadata
-int32 class_id              # 0=person, 1=car, 2=truck
+int32 class_id              # One of the class constants below
 string class_name
 float64 confidence          # 0.0 - 1.0
 

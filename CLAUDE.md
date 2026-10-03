@@ -44,7 +44,7 @@ source /opt/ros/humble/setup.bash && source install/setup.bash
 ros2 run interceptor_drone stereo_sync_node
 ```
 
-**Tests:** `make test` runs the GTest unit tests in `interceptor_drone/test/` (`test_math_utils`, `test_parameters`, `test_flight_dynamics`) plus the ament linters (uncrustify, cpplint, cppcheck, flake8, pep257, lint_cmake, xmllint). `ament_copyright` is excluded because the sources have no license headers yet. GTest targets for EKF, guidance and controller are still commented out in `CMakeLists.txt` until those tests exist. To auto-fix C++ formatting inside the container: `ament_uncrustify --reformat src include test` (from the package directory).
+**Tests:** `make test` runs the GTest unit tests in `interceptor_drone/test/` (`test_math_utils`, `test_mission`, `test_flight_dynamics`) plus the ament linters (uncrustify, cpplint, cppcheck, flake8, pep257, lint_cmake, xmllint). `ament_copyright` is excluded because the sources have no license headers yet. GTest targets for EKF, guidance and controller are still commented out in `CMakeLists.txt` until those tests exist. To auto-fix C++ formatting inside the container: `ament_uncrustify --reformat src include test` (from the package directory).
 
 **CI:** `.github/workflows/ci.yml` runs on every PR and on pushes to `main`. It has two jobs: a fast static-checks job (yamllint, shellcheck, Python syntax) and a build-and-test job in the `ros:humble-perception` container (`colcon build` with `-Werror`, then `colcon test`). The container has no CUDA, so code must also build without GPU support.
 
@@ -67,8 +67,8 @@ Perception → Estimation → Guidance → Control → Platform
 | Estimation | `target_tracker_node` | IMM-EKF (skeleton) |
 | Guidance | `guidance_controller_node` | Proportional Navigation / Augmented PN (skeleton) |
 | Control | `trajectory_controller_node` | Cascade PID |
-| Control | `hector_interface_node` | Hector Quadrotor simulator bridge |
 | Evasion | `evasion_controller_node` | Target evasion strategies (skeleton) |
+| Mission | `mission_manager_node` | Serves `/mission/set_mode` (`SetMissionMode`), latches `/mission/mode` (`MissionMode`, transient local); always starts disarmed |
 | Platform | `quadrotor_dynamics` (Gazebo plugin, `libquadrotor_dynamics_plugin.so`) | Rotor/aero/wind model + onboard flight controller; `/cmd_vel` in, `/odom` + TF out |
 | Platform | `drone_teleop_keyboard.py` | Keyboard teleop: `/cmd_vel` + `/drone/arm` |
 
@@ -85,39 +85,48 @@ The Gazebo plugin (`src/simulation/quadrotor_dynamics_plugin.cpp`) wraps it; its
 
 `interceptor_drone_lib` is linked by every node and contains:
 - `include/common/types.hpp` — `Detection`, `TargetState`, `GuidanceOutput` structs (Eigen3-based)
-- `include/common/parameters.hpp` — All parameter structs (stereo, EKF, guidance, controller)
+- `include/common/mission.hpp` — `MissionMode` and `TargetClass` enums (values match the msg constants), string parsing, `isGroundClass`
 - `include/common/math_utils.hpp` — Quaternion conversion, skew-symmetric matrices, vector saturation
-- `src/common/parameters.cpp` / `src/common/math_utils.cpp` — implementations
+- `src/common/mission.cpp` / `src/common/math_utils.cpp` — implementations
+
+There is no global parameter class: each node declares and reads its own parameters.
 
 Everything lives under the `interceptor` namespace.
 
 ### Custom ROS2 messages (`interceptor_interfaces` package)
 
-- `TargetDetection.msg` — 2D bounding box + 3D position
-- `TargetState.msg` — Filtered position, velocity, acceleration, covariances
+- `TargetDetection.msg` — 2D bounding box + 3D position; class constants `PERSON=0, CAR=1, TRUCK=2, BICYCLE=3, UAV=4`
+- `TargetState.msg` — Filtered position, velocity, acceleration, covariances, class and heading
+- `TargetStateArray.msg` — All tracks (`/tracks`)
+- `FlightSetpoint.msg` — Mode-agnostic setpoint (`/setpoint/raw` → safety filter → `/setpoint/safe`)
+- `MissionMode.msg` — Current mode, armed flag, operator track id (`/mission/mode`)
+- `MissionStatus.msg` — Mode, phase, target, safety-filter activity (`/mission/status`)
 - `GuidanceCommand.msg` — Acceleration commands, navigation constants, intercept params
 - `TargetTrajectory.msg` — Predicted trajectory
 - `StereoImagePair.msg` — Synchronized stereo pair with calibration
-- `SetInterceptMode.srv` — Mode switching service
+- `SetMissionMode.srv` — Mode switching service (HOLD / FOLLOW / INTERCEPT, armed, track id)
 
 ### Configuration (`config/` directory)
 
-YAML files loaded by launch files; key values to know:
+Every file uses `<node_name>: ros__parameters:` and is loaded by the launch files (`parameters=[yaml_path, {'use_sim_time': ...}]`); never hard-code tunables in launch files. `follow_params.yaml` and `intercept_params.yaml` use `/**:` because several nodes (planner, tracker, safety filter) read them. Keys for stub nodes are marked "reserved for <task>". Key values to know:
 
 | File | Notable params |
 |---|---|
 | `perception_params.yaml` | `baseline=0.12m`, `fx=535.4` |
 | `stereo_sync_params.yaml` | sync tolerance `5ms` |
 | `ekf_params.yaml` | process/measurement noise |
-| `guidance_params.yaml` | `nav_constant_far=4.0`, `max_accel=20.0 m/s²` |
-| `controller_params.yaml` | PID gains and limits |
+| `controller_params.yaml` | PID gains and output limits (reserved for P2.1) |
+| `safety_params.yaml` | `d_min_horizontal=5.0`, speed caps 15 / 30 m/s |
+| `follow_params.yaml` | preset `BEHIND`, eligible `person, bicycle, car` |
+| `intercept_params.yaml` | `nav_constant=4.0`, `capture_radius=1.5`, eligible `uav` |
 
 ### Launch files (`launch/` directory)
 
-- `interceptor_full.launch.py` — Full system (simulation + perception + guidance + control + RViz)
+- `interceptor_full.launch.py` — Full system (simulation + perception + mission manager + guidance + control + RViz). Args: `mission_mode:=follow|intercept` (default follow), `perception_source:=vision|groundtruth` (default groundtruth; vision launches the perception pipeline)
+- `follow.launch.py` / `intercept.launch.py` — `interceptor_full` with the mode set
 - `simulation.launch.py` — Gazebo + drone (args: `gui`, `x`, `y`, `yaw`, `wind_x`, `wind_y`, `wind_z`, `wind_gust_stddev`)
 - `perception.launch.py` — Perception pipeline only
-- `guidance.launch.py` — Guidance controller only
+- `guidance.launch.py` — Tracker, plus the guidance node in intercept mode
 
 ## ROS2 Workspace Layout
 
@@ -132,8 +141,9 @@ interceptor_ws/
         perception/             # stereo_sync, depth_processor, 3d_localizer, target_detector.py
         estimation/             # target_tracker_node (IMM-EKF)
         guidance/               # guidance_controller_node (PN)
-        control/                # trajectory_controller, hector_interface
+        control/                # trajectory_controller
         evasion/                # evasion_controller_node
+        mission/                # mission_manager_node
         flight/                 # flight dynamics library (no ROS)
         simulation/             # quadrotor_dynamics Gazebo plugin
         teleop/                 # drone_teleop_keyboard.py
