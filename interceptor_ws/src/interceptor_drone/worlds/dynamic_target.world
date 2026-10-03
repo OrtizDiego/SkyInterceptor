@@ -1,0 +1,92 @@
+<?xml version="1.0" ?>
+<sdf version="1.6">
+  <world name="dynamic_world">
+    <!-- Physics -->
+    <physics type="ode">
+      <max_step_size>0.001</max_step_size>
+      <real_time_factor>1</real_time_factor>
+      <real_time_update_rate>1000</real_time_update_rate>
+    </physics>
+
+    <!-- Scene -->
+    <scene>
+      <ambient>0.6 0.6 0.6 1</ambient>
+      <background>0.7 0.8 0.9 1</background>
+      <shadows>true</shadows>
+      <grid>false</grid>
+    </scene>
+
+    <!-- Ground plane -->
+    <include>
+      <uri>model://ground_plane</uri>
+    </include>
+
+    <!-- Sun -->
+    <include>
+      <uri>model://sun</uri>
+    </include>
+
+    <!-- Physical Human Model -->
+    <model name="human_target">
+      <pose>20 0 0 0 0 0</pose>
+      <link name="link">
+        <inertial>
+          <mass>80.0</mass>
+          <inertia>
+            <ixx>24.0</ixx>
+            <ixy>0</ixy>
+            <ixz>0</ixz>
+            <iyy>24.0</iyy>
+            <iyz>0</iyz>
+            <izz>5.0</izz>
+          </inertia>
+        </inertial>
+        <collision name="collision">
+          <geometry>
+            <cylinder>
+              <radius>0.3</radius>
+              <length>1.8</length>
+            </cylinder>
+          </geometry>
+        </collision>
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>model://walker/meshes/walker.dae</uri>
+            </mesh>
+          </geometry>
+        </visual>
+      </link>
+
+      <!-- Movement Plugin -->
+      <plugin name="planar_move" filename="libgazebo_ros_planar_move.so">
+        <ros>
+          <namespace>/target</namespace>
+        </ros>
+        <update_rate>50</update_rate>
+        <publish_odom>true</publish_odom>
+        <publish_odom_tf>true</publish_odom_tf>
+        <odometry_frame>odom</odometry_frame>
+        <robot_base_frame>link</robot_base_frame>
+      </plugin>
+    </model>
+
+    <!-- Obstacles for more interesting evasion -->
+    <model name="pine_tree_1">
+      <include><uri>model://pine_tree</uri></include>
+      <pose>10 5 0 0 0 0</pose>
+    </model>
+    <model name="pine_tree_2">
+      <include><uri>model://pine_tree</uri></include>
+      <pose>15 -8 0 0 0 0</pose>
+    </model>
+
+    <!-- Gazebo ROS State Plugin -->
+    <plugin name="gazebo_ros_state" filename="libgazebo_ros_state.so">
+      <ros>
+        <namespace>/</namespace>
+      </ros>
+      <update_rate>10.0</update_rate>
+    </plugin>
+  </world>
+</sdf>

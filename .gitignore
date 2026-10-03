@@ -21,3 +21,13 @@ __pycache__/
 *.swp
 *~
 .DS_Store
+
+# Claude Code worktrees
+.claude/worktrees/
+
+# Scratch CMake / compiler artifacts (out-of-tree experiments)
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+check_cuda
+test_opencv_find/
