@@ -1,0 +1,11 @@
+# Switch the mission mode, served by mission_manager_node on /mission/set_mode
+uint8 mode
+uint8 MODE_HOLD=0
+uint8 MODE_FOLLOW=1
+uint8 MODE_INTERCEPT=2
+
+bool armed          # Operator authorization to engage (INTERCEPT only)
+int32 track_id      # Operator-selected track, -1 = automatic selection
+---
+bool success
+string message

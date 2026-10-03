@@ -38,8 +38,8 @@ include_directories(
 
 # Library for shared components
 add_library(${PROJECT_NAME}_lib SHARED
-  src/common/parameters.cpp
   src/common/math_utils.cpp
+  src/common/mission.cpp
 )
 
 target_link_libraries(${PROJECT_NAME}_lib
@@ -114,9 +114,10 @@ add_executable(trajectory_controller_node src/control/trajectory_controller_node
 target_link_libraries(trajectory_controller_node ${PROJECT_NAME}_lib)
 ament_target_dependencies(trajectory_controller_node rclcpp geometry_msgs nav_msgs interceptor_interfaces)
 
-add_executable(hector_interface_node src/control/hector_interface_node.cpp)
-target_link_libraries(hector_interface_node ${PROJECT_NAME}_lib)
-ament_target_dependencies(hector_interface_node rclcpp geometry_msgs)
+# Mission node
+add_executable(mission_manager_node src/mission/mission_manager_node.cpp)
+target_link_libraries(mission_manager_node ${PROJECT_NAME}_lib)
+ament_target_dependencies(mission_manager_node rclcpp interceptor_interfaces)
 
 # Evasion node
 add_executable(evasion_controller_node src/evasion/evasion_controller_node.cpp)
@@ -131,12 +132,13 @@ install(TARGETS
   target_tracker_node
   guidance_controller_node
   trajectory_controller_node
-  hector_interface_node
+  mission_manager_node
   evasion_controller_node
   DESTINATION lib/${PROJECT_NAME}
 )
 
 install(TARGETS
+  ${PROJECT_NAME}_lib
   ${PROJECT_NAME}_flight
   quadrotor_dynamics_plugin
   LIBRARY DESTINATION lib
@@ -199,8 +201,8 @@ if(BUILD_TESTING)
   ament_add_gtest(test_math_utils test/test_math_utils.cpp)
   target_link_libraries(test_math_utils ${PROJECT_NAME}_lib)
 
-  ament_add_gtest(test_parameters test/test_parameters.cpp)
-  target_link_libraries(test_parameters ${PROJECT_NAME}_lib)
+  ament_add_gtest(test_mission test/test_mission.cpp)
+  target_link_libraries(test_mission ${PROJECT_NAME}_lib)
 
   ament_add_gtest(test_flight_dynamics test/test_flight_dynamics.cpp)
   target_link_libraries(test_flight_dynamics ${PROJECT_NAME}_flight)

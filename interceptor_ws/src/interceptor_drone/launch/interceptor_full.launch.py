@@ -1,73 +1,70 @@
 import os
+
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
+from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, LogInfo
+from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
-from launch.substitutions import LaunchConfiguration
+from launch.substitutions import LaunchConfiguration, PythonExpression
 from launch_ros.actions import Node
 
 
 def generate_launch_description():
     pkg_interceptor = get_package_share_directory('interceptor_drone')
+    launch_dir = os.path.join(pkg_interceptor, 'launch')
+    controller_params = os.path.join(pkg_interceptor, 'config', 'controller_params.yaml')
 
-    use_sim_time = LaunchConfiguration('use_sim_time', default='true')
+    use_sim_time = LaunchConfiguration('use_sim_time')
+    mission_mode = LaunchConfiguration('mission_mode')
+    perception_source = LaunchConfiguration('perception_source')
+    use_vision = PythonExpression(["'", perception_source, "' == 'vision'"])
+    use_groundtruth = PythonExpression(["'", perception_source, "' == 'groundtruth'"])
 
-    # Include simulation launch
     simulation = IncludeLaunchDescription(
-        PythonLaunchDescriptionSource([
-            os.path.join(pkg_interceptor, 'launch', 'simulation.launch.py')
-        ]),
+        PythonLaunchDescriptionSource(os.path.join(launch_dir, 'simulation.launch.py')),
         launch_arguments={'use_sim_time': use_sim_time}.items()
     )
 
-    # Include perception launch
+    # Vision pipeline: stereo + YOLO + 3D localizer -> /target/detection_3d
     perception = IncludeLaunchDescription(
-        PythonLaunchDescriptionSource([
-            os.path.join(pkg_interceptor, 'launch', 'perception.launch.py')
-        ]),
-        launch_arguments={'use_sim_time': use_sim_time}.items()
+        PythonLaunchDescriptionSource(os.path.join(launch_dir, 'perception.launch.py')),
+        launch_arguments={'use_sim_time': use_sim_time}.items(),
+        condition=IfCondition(use_vision),
     )
 
-    # Include guidance launch
+    # Ground-truth target source -> /target/detection_3d (groundtruth_target_node, P0.4)
+    groundtruth = LogInfo(
+        msg='perception_source:=groundtruth, but groundtruth_target_node (P0.4) does not exist '
+            'yet: nothing publishes /target/detection_3d',
+        condition=IfCondition(use_groundtruth),
+    )
+
+    # Owns the mission mode: /mission/set_mode service and latched /mission/mode topic
+    mission_manager = Node(
+        package='interceptor_drone',
+        executable='mission_manager_node',
+        name='mission_manager_node',
+        output='screen',
+        parameters=[{'use_sim_time': use_sim_time, 'initial_mode': mission_mode}],
+    )
+
+    # Tracker and mode-specific planners
     guidance = IncludeLaunchDescription(
-        PythonLaunchDescriptionSource([
-            os.path.join(pkg_interceptor, 'launch', 'guidance.launch.py')
-        ]),
-        launch_arguments={'use_sim_time': use_sim_time}.items()
+        PythonLaunchDescriptionSource(os.path.join(launch_dir, 'guidance.launch.py')),
+        launch_arguments={
+            'use_sim_time': use_sim_time,
+            'mission_mode': mission_mode,
+        }.items()
     )
 
-    # Trajectory controller
     trajectory_controller = Node(
         package='interceptor_drone',
         executable='trajectory_controller_node',
         name='trajectory_controller_node',
         output='screen',
-        parameters=[{
-            'use_sim_time': use_sim_time,
-            'controller.kp_pos': 1.0,
-            'controller.ki_pos': 0.0,
-            'controller.kd_pos': 0.5,
-            'controller.kp_vel': 2.0,
-            'controller.ki_vel': 0.1,
-            'controller.kd_vel': 0.5,
-            'controller.max_velocity': 41.7,
-            'controller.max_altitude': 200.0,
-            'controller.min_altitude': 2.0,
-        }]
+        parameters=[controller_params, {'use_sim_time': use_sim_time}],
     )
 
-    # Hector interface
-    hector_interface = Node(
-        package='interceptor_drone',
-        executable='hector_interface_node',
-        name='hector_interface_node',
-        output='screen',
-        parameters=[{
-            'use_sim_time': use_sim_time,
-        }]
-    )
-
-    # RViz
     rviz = Node(
         package='rviz2',
         executable='rviz2',
@@ -83,10 +80,23 @@ def generate_launch_description():
             default_value='true',
             description='Use simulation time'
         ),
+        DeclareLaunchArgument(
+            'mission_mode',
+            default_value='follow',
+            choices=['follow', 'intercept'],
+            description='Mission mode: follow (aerial filming) or intercept (counter-UAS)'
+        ),
+        DeclareLaunchArgument(
+            'perception_source',
+            default_value='groundtruth',
+            choices=['vision', 'groundtruth'],
+            description='Where /target/detection_3d comes from'
+        ),
         simulation,
         perception,
+        groundtruth,
+        mission_manager,
         guidance,
         trajectory_controller,
-        hector_interface,
         rviz,
     ])

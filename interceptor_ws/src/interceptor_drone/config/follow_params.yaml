@@ -1,0 +1,15 @@
+# FOLLOW mode (plan §4.2)
+# Reserved for P2.3: follow_planner_node does not exist yet.
+# Shared on purpose (/**): the launch files pass this file to follow_planner_node and to
+# target_tracker_node, which reads follow.eligible_classes for target selection (P1.2).
+/**:
+  ros__parameters:
+    follow:
+      preset: "BEHIND"              # BEHIND | SIDE | LEAD | ORBIT
+      offset: {behind: 8.0, side: 0.0, height: 5.0}
+      orbit_rate: 0.2               # rad/s
+      heading_tau: 0.8              # s, heading low-pass
+      kp_pos: 0.8
+      lost_hold_time: 2.0           # s -> HOLD
+      lost_rtl_time: 10.0           # s -> RTL
+      eligible_classes: ["person", "bicycle", "car"]

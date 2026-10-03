@@ -15,13 +15,17 @@ find_package(sensor_msgs REQUIRED)
 set(msg_files
   "msg/TargetDetection.msg"
   "msg/TargetState.msg"
+  "msg/TargetStateArray.msg"
+  "msg/FlightSetpoint.msg"
+  "msg/MissionMode.msg"
+  "msg/MissionStatus.msg"
   "msg/GuidanceCommand.msg"
   "msg/TargetTrajectory.msg"
   "msg/StereoImagePair.msg"
 )
 
 set(srv_files
-  "srv/SetInterceptMode.srv"
+  "srv/SetMissionMode.srv"
 )
 
 rosidl_generate_interfaces(${PROJECT_NAME}

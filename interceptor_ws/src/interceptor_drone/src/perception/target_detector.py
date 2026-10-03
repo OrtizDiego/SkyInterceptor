@@ -37,10 +37,17 @@ class TargetDetector(Node):
 
         self.bridge = CvBridge()
 
-        # Class mapping for Interceptor System
-        # YOLO COCO: 0: person, 2: car, 7: truck
-        self.target_classes = {0: 0, 2: 1, 7: 2}
-        self.class_names = {0: 'person', 1: 'car', 2: 'truck'}
+        # COCO class id -> interceptor class id (TargetDetection constants)
+        self.target_classes = {
+            0: TargetDetection.PERSON,
+            2: TargetDetection.CAR,
+            7: TargetDetection.TRUCK,
+        }
+        self.class_names = {
+            TargetDetection.PERSON: 'person',
+            TargetDetection.CAR: 'car',
+            TargetDetection.TRUCK: 'truck',
+        }
 
         # Subscribers
         self.subscription = self.create_subscription(
