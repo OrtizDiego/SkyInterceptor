@@ -1,13 +1,96 @@
+<div align="center">
+
 # SkyInterceptor
 
-SkyInterceptor is an autonomous drone system built on **ROS 2 Humble** (C++17 and Python). It runs entirely in simulation (Gazebo Classic) and has two mission modes:
+**An autonomous drone stack for aerial filming and counter-drone interception, built from scratch on ROS 2 and simulated in Gazebo.**
 
-- **FOLLOW**: an aerial filming drone that follows a person, bicycle or car while always keeping a minimum safety distance from every person and vehicle.
-- **INTERCEPT**: counter-UAS capture of an intruding small drone. Only drones are valid targets; ground targets are never engaged.
+![ROS 2 Humble](https://img.shields.io/badge/ROS_2-Humble-22314E?logo=ros&logoColor=white)
+![C++17](https://img.shields.io/badge/C%2B%2B-17-00599C?logo=cplusplus&logoColor=white)
+![Python](https://img.shields.io/badge/Python-3-3776AB?logo=python&logoColor=white)
+![Gazebo](https://img.shields.io/badge/Gazebo-Classic_11-FF6F00)
+![CUDA](https://img.shields.io/badge/CUDA-11.8-76B900?logo=nvidia&logoColor=white)
+![Docker](https://img.shields.io/badge/Docker-ready-2496ED?logo=docker&logoColor=white)
 
-The pipeline is stereo vision → YOLO detection → IMM-EKF tracking → mode-specific guidance → trajectory control. An independent safety filter has the final say on every setpoint.
+</div>
 
-> **Status:** early stage. The perception layer (stereo sync, depth, YOLO detection, 3D localization) works, and the drone flies in Gazebo on a physics model that you can drive from the keyboard (see [Flying the drone](#flying-the-drone)). Tracking, guidance, control and evasion nodes are still skeletons. See [`IMPLEMENTATION_PLAN.md`](IMPLEMENTATION_PLAN.md) for the roadmap and current status.
+<!--
+  DEMO GIF: record a short clip of the keyboard-flight demo (see "Flying the drone"),
+  save it as docs/media/teleop-demo.gif, then replace the placeholder block below with:
+
+  <p align="center"><img src="docs/media/teleop-demo.gif" alt="Flying the SkyInterceptor drone with the keyboard in Gazebo" width="720"></p>
+-->
+
+<p align="center">
+  <b>🎥 Demo GIF coming soon</b><br>
+  <i>Flying the drone with the keyboard in Gazebo</i>
+</p>
+
+## Overview
+
+SkyInterceptor is a simulated drone that can switch between two missions sharing one perception → tracking → control pipeline:
+
+| | **FOLLOW** (aerial filming) | **INTERCEPT** (counter-UAS) |
+|---|---|---|
+| Goal | Follow a person, bicycle or car and keep them framed | Capture an intruding small drone |
+| Valid targets | `person`, `bicycle`, `car` | `uav` only; ground targets are never engaged |
+| Safety rule | Never closer than `d_min` to any person or vehicle | Abort if a person or vehicle is near the capture point |
+
+An independent **safety filter** has the final say on every setpoint, so neither mission planner can command an unsafe motion.
+
+## Highlights
+
+- **Physics-based flight model.** Rotor thrust and torque (`T = k_f·ω²`), motor lag, airframe and rotor drag, wind with Gauss–Markov gusts and ground effect, all in a ROS-free C++/Eigen library that is unit-tested in a standalone 6-DOF simulation.
+- **Realistic onboard controller.** Velocity PI → attitude P (SO(3)) → body-rate PI → motor mixer, wrapped as a Gazebo plugin that publishes `/odom` and TF.
+- **Stereo-vision perception.** Time-synchronized stereo pair, SGBM depth, YOLOv8 detection and 3D back-projection of detections.
+- **Planned estimation and guidance.** IMM-EKF tracking, a follow planner and proportional-navigation intercept guidance (see the roadmap below).
+- **Engineering discipline.** Fully containerized (CUDA 11.8 + ROS 2 Humble), GTest unit tests, ament linters, and CI that builds with `-Werror`.
+
+## Demo
+
+Fly the drone yourself in two terminals (details in [Flying the drone](#flying-the-drone)):
+
+```bash
+make sim       # Gazebo, the park world with a walking person, and the drone
+make teleop    # keyboard control: arm with t, take off with w
+```
+
+## Architecture
+
+```
+Perception  →  Estimation  →  Guidance  →  Control  →  Platform (Gazebo)
+```
+
+| Layer | Node | Purpose | Status |
+|---|---|---|---|
+| Perception | `stereo_sync_node` | Time-synchronizes the left/right camera images | ✅ Done |
+| Perception | `stereo_depth_processor` | SGBM disparity → depth image | ✅ Done |
+| Perception | `target_detector.py` | YOLOv8 object detection (Ultralytics) | ✅ Done |
+| Perception | `target_3d_localizer` | Back-projects 2D detections to 3D positions | ✅ Done |
+| Estimation | `target_tracker_node` | IMM-EKF target tracking | 🚧 Skeleton |
+| Guidance | `guidance_controller_node` | Proportional navigation | 🚧 Skeleton |
+| Control | `trajectory_controller_node` | Cascade PID | 🚧 Skeleton |
+| Control | `hector_interface_node` | Simulator bridge | 🚧 Skeleton (being replaced) |
+| Evasion | `evasion_controller_node` | Target-drone behaviour | 🚧 Skeleton |
+| Platform | `quadrotor_dynamics` (Gazebo plugin) | Rotors, aerodynamics, wind, ground effect, onboard flight controller; publishes `/odom` and TF | ✅ Done |
+| Platform | `drone_teleop_keyboard.py` | Keyboard teleoperation | ✅ Done |
+
+## Roadmap
+
+The perception layer and the flight simulation work today. Next up, in order (full details in [`IMPLEMENTATION_PLAN.md`](IMPLEMENTATION_PLAN.md)):
+
+1. IMM-EKF tracker and a ground-truth target source
+2. **FOLLOW** mode end to end (first autonomous demo)
+3. **INTERCEPT** mode with proportional-navigation guidance
+4. Independent safety filter, integration and docs
+
+## Tech stack
+
+| Area | Tools |
+|---|---|
+| Robotics | ROS 2 Humble, Gazebo Classic 11, TF2 |
+| Languages | C++17, Python 3 |
+| Libraries | Eigen, OpenCV (CUDA), Ultralytics YOLOv8 |
+| Tooling | Docker, colcon, GTest, ament linters, GitHub Actions |
 
 ## Repository layout
 
@@ -46,26 +129,6 @@ SkyInterceptor/
             ├── CMakeLists.txt
             └── package.xml
 ```
-
-### Architecture
-
-```
-Perception  →  Estimation  →  Guidance  →  Control  →  Platform (Gazebo)
-```
-
-| Layer | Node | Purpose |
-|---|---|---|
-| Perception | `stereo_sync_node` | Time-synchronizes the left/right camera images |
-| Perception | `stereo_depth_processor` | SGBM disparity → depth image |
-| Perception | `target_detector.py` | YOLOv8 object detection (Ultralytics) |
-| Perception | `target_3d_localizer` | Back-projects 2D detections to 3D positions |
-| Estimation | `target_tracker_node` | IMM-EKF target tracking *(skeleton)* |
-| Guidance | `guidance_controller_node` | Proportional navigation *(skeleton)* |
-| Control | `trajectory_controller_node` | Cascade PID *(skeleton)* |
-| Control | `hector_interface_node` | Simulator bridge *(skeleton)* |
-| Evasion | `evasion_controller_node` | Target-drone behaviour *(skeleton)* |
-| Platform | `quadrotor_dynamics` (Gazebo plugin) | Rotor thrust and torques, drag, wind, ground effect, plus the onboard flight controller. Publishes `/odom` and TF |
-| Platform | `drone_teleop_keyboard.py` | Keyboard teleoperation |
 
 ## Installation
 
