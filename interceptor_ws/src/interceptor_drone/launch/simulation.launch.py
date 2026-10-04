@@ -38,6 +38,7 @@ def generate_launch_description():
             'world': world_file,
             'verbose': 'true',
             'gui': LaunchConfiguration('gui'),
+            'params_file': os.path.join(pkg_interceptor, 'config', 'gazebo_params.yaml'),
         }.items()
     )
 

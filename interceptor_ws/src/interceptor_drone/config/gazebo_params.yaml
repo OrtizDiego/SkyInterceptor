@@ -1,0 +1,8 @@
+# gazebo_ros parameters for gzserver (passed as params_file by simulation.launch.py)
+
+gazebo:
+  ros__parameters:
+    # /clock rate. Sim-time ROS timers can't fire faster than the clock ticks, and the
+    # gazebo_ros default of 10 Hz would cap every node at 10 Hz (e.g. the 30 Hz
+    # groundtruth_target_node, the 50 Hz tracker).
+    publish_rate: 250.0

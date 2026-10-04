@@ -44,7 +44,7 @@ source /opt/ros/humble/setup.bash && source install/setup.bash
 ros2 run interceptor_drone stereo_sync_node
 ```
 
-**Tests:** `make test` runs the GTest unit tests in `interceptor_drone/test/` (`test_math_utils`, `test_mission`, `test_flight_dynamics`, `test_imm_filter`, `test_track_manager`, `test_frame_assembler`, `test_target_selector`) plus the ament linters (uncrustify, cpplint, cppcheck, flake8, pep257, lint_cmake, xmllint). `ament_copyright` is excluded because the sources have no license headers yet. GTest targets for guidance and controller are still commented out in `CMakeLists.txt` until those tests exist. To auto-fix C++ formatting inside the container: `ament_uncrustify --reformat src include test` (from the package directory).
+**Tests:** `make test` runs the GTest unit tests in `interceptor_drone/test/` (`test_math_utils`, `test_mission`, `test_groundtruth_sensor`, `test_flight_dynamics`, `test_imm_filter`, `test_track_manager`, `test_frame_assembler`, `test_target_selector`) plus the ament linters (uncrustify, cpplint, cppcheck, flake8, pep257, lint_cmake, xmllint). `ament_copyright` is excluded because the sources have no license headers yet. GTest targets for guidance and controller are still commented out in `CMakeLists.txt` until those tests exist. To auto-fix C++ formatting inside the container: `ament_uncrustify --reformat src include test` (from the package directory).
 
 **CI:** `.github/workflows/ci.yml` runs on every PR and on pushes to `main`. It has two jobs: a fast static-checks job (yamllint, shellcheck, Python syntax) and a build-and-test job in the `ros:humble-perception` container (`colcon build` with `-Werror`, then `colcon test`). The container has no CUDA, so code must also build without GPU support.
 
@@ -64,6 +64,7 @@ Perception → Estimation → Guidance → Control → Platform
 | Perception | `stereo_depth_processor` | OpenCV CUDA SGBM disparity → depth |
 | Perception | `target_3d_localizer` | Back-project 2D YOLO detections to 3D |
 | Perception | `target_detector.py` | YOLOv8 via Ultralytics |
+| Perception | `groundtruth_target_node` | Gazebo entity poses (`/get_entity_state`) + noise, dropout and tree occlusion → `/target/detection_3d` (used when `perception_source:=groundtruth`) |
 | Estimation | `target_tracker_node` | IMM-EKF library: frames by stamp → tracks; `/tracks`, selected `/target/state`, `/tracks/markers` |
 | Guidance | `guidance_controller_node` | Proportional Navigation / Augmented PN (skeleton) |
 | Control | `trajectory_controller_node` | Cascade PID |
@@ -100,6 +101,7 @@ Its defaults match `config/ekf_params.yaml`; they were tuned on the synthetic tr
 - `include/common/types.hpp` — `Detection`, `TargetState`, `GuidanceOutput` structs (Eigen3-based)
 - `include/common/mission.hpp` — `MissionMode` and `TargetClass` enums (values match the msg constants), string parsing, `isGroundClass`
 - `include/common/math_utils.hpp` — Quaternion conversion, skew-symmetric matrices, vector saturation
+- `include/perception/groundtruth_sensor.hpp` — Ground-truth measurement model (Gaussian noise, dropout) and line-of-sight occlusion by vertical cylinders
 - `src/common/mission.cpp` / `src/common/math_utils.cpp` — implementations
 
 There is no global parameter class: each node declares and reads its own parameters.
@@ -128,6 +130,8 @@ Every file uses `<node_name>: ros__parameters:` and is loaded by the launch file
 | `perception_params.yaml` | `baseline=0.12m`, `fx=535.4` |
 | `stereo_sync_params.yaml` | sync tolerance `5ms` |
 | `ekf_params.yaml` | process noise 0.3 / 1.0 / 0.2, IMM sets per class, transition matrices per 1 s, gate 0.99, 3-of-5, coast 2 s, frame grouping 5 ms / 10 ms, selection switch margin 3 m |
+| `groundtruth_params.yaml` | entities + classes, `rate_hz=30`, `pos_noise_std=0.2`, `dropout_prob=0.05`, tree occlusion cylinders |
+| `gazebo_params.yaml` | gzserver `/clock` rate (250 Hz; the 10 Hz default caps every sim-time timer) |
 | `controller_params.yaml` | PID gains and output limits (reserved for P2.1) |
 | `safety_params.yaml` | `d_min_horizontal=5.0`, speed caps 15 / 30 m/s |
 | `follow_params.yaml` | preset `BEHIND`, eligible `person, bicycle, car` |
@@ -138,7 +142,8 @@ Every file uses `<node_name>: ros__parameters:` and is loaded by the launch file
 - `interceptor_full.launch.py` — Full system (simulation + perception + mission manager + guidance + control + RViz). Args: `mission_mode:=follow|intercept` (default follow), `perception_source:=vision|groundtruth` (default groundtruth; vision launches the perception pipeline)
 - `follow.launch.py` / `intercept.launch.py` — `interceptor_full` with the mode set
 - `simulation.launch.py` — Gazebo + drone (args: `gui`, `x`, `y`, `yaw`, `wind_x`, `wind_y`, `wind_z`, `wind_gust_stddev`)
-- `perception.launch.py` — Perception pipeline only
+- `perception.launch.py` — Perception pipeline only (`perception_source:=vision`)
+- `groundtruth.launch.py` — `groundtruth_target_node` only (`perception_source:=groundtruth`)
 - `guidance.launch.py` — Tracker, plus the guidance node in intercept mode
 
 ## ROS2 Workspace Layout
@@ -152,7 +157,7 @@ interceptor_ws/
       include/estimation/       # IMM-EKF and track management headers
       src/
         common/                 # Shared library sources
-        perception/             # stereo_sync, depth_processor, 3d_localizer, target_detector.py
+        perception/             # stereo_sync, depth_processor, 3d_localizer, target_detector.py, groundtruth_target_node
         estimation/             # IMM-EKF library (no ROS) + target_tracker_node
         guidance/               # guidance_controller_node (PN)
         control/                # trajectory_controller

@@ -42,7 +42,7 @@ The project now has **two mission modes** that share one perception → tracking
 | `stereo_depth_processor` | ✅ Done (CPU) | SGBM + WLS on CPU, realistically 10–20 FPS rather than 60. Needs `opencv_ximgproc` (contrib) in the image |
 | `target_detector.py` | ✅ Done | COCO person/car/truck on **CPU**. No `bicycle`, and COCO has no drone class |
 | `target_3d_localizer` | ✅ Done | Needs a TF path from the camera frame to `map` (not published yet: no odometry) |
-| `target_tracker_node` | ✅ Done (P1.1, P1.2) | IMM-EKF library `interceptor_drone_estimation` with tests, node publishes `/tracks`, the selected `/target/state` and `/tracks/markers`; detections are grouped into frames by stamp (`docs/TRACKER.md`). Not yet run on live detections: nothing publishes `/target/detection_3d` with ground truth until P0.4 |
+| `target_tracker_node` | ✅ Done (P1.1, P1.2) | IMM-EKF library `interceptor_drone_estimation` with tests, node publishes `/tracks`, the selected `/target/state` and `/tracks/markers`; detections are grouped into frames by stamp (`docs/TRACKER.md`). Not yet run against `groundtruth_target_node` in Gazebo |
 | `guidance_controller_node` | ❌ Stub | Replaced by `follow_planner_node` and `intercept_guidance_node` |
 | `trajectory_controller_node` | ❌ Stub | |
 | `hector_interface_node` | 🗑️ Deleted | Superseded by the `quadrotor_dynamics` Gazebo plugin |
@@ -168,7 +168,7 @@ Estimates assume one developer. The dependency graph below shows what can run in
 - **0.1** Get `colcon build` green in the container. Fix compile and link errors (ximgproc availability, include paths). Add `scripts/check.sh` that runs build and tests.
 - **0.2** ✅ Interface changes from §3. Move all launch parameters into `config/*.yaml`, load them from launch files, and delete keys that aren't used. Add launch arg `mission_mode:=follow|intercept` and new files `follow_params.yaml`, `intercept_params.yaml`, `safety_params.yaml`.
 - **0.3** ✅ Flyable drone + TF + `/odom`: done with the `quadrotor_dynamics` plugin and `drone_teleop_keyboard.py`. `hector_interface_node` deleted.
-- **0.4** `groundtruth_target_node`: target poses from Gazebo (`/get_entity_state` for the `target_person` actor and `target_drone`) with configurable Gaussian noise and dropout. It publishes `TargetDetection` on `/target/detection_3d`. Selected by `perception_source`.
+- **0.4** ✅ `groundtruth_target_node`: target poses from Gazebo (`/get_entity_state` for the `target_person` actor and `target_drone`) with configurable Gaussian noise and dropout. It publishes `TargetDetection` on `/target/detection_3d`. Selected by `perception_source`.
 - **0.5** Re-enable gtest in CMake with one smoke test per library.
 
 **Exit:** `make build-ws && make test` passes. With `teleop_twist_keyboard` publishing to `/cmd_vel`, the drone flies in Gazebo and RViz shows its TF and odometry.
