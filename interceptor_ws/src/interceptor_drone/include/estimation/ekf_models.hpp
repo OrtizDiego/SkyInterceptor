@@ -2,160 +2,179 @@
 
 #include <Eigen/Dense>
 
+#include <array>
+#include <memory>
+#include <optional>
+#include <string>
+
 namespace interceptor
 {
+namespace estimation
+{
 
-/**
- * @brief Base class for EKF motion models
- */
+// Common state layout shared by every motion model, so the IMM can mix model
+// states with plain weighted sums:
+//
+//   x = [px py pz | vx vy vz | ax ay az | omega]   (10 states, ENU world frame)
+//
+// omega is the horizontal turn rate (yaw rate of the velocity vector, rad/s).
+// Each model uses a subset and zero-pads the rest:
+//
+//   CV (6D) : p, v          a = 0, omega = 0
+//   CA (9D) : p, v, a       omega = 0
+//   CT (7D) : p, v, omega   a = 0 (the turn acceleration is omega x v, see acceleration())
+//
+// Zero-padding is the model's own hypothesis (a CV target has no acceleration
+// and no turn rate), so the padded components carry zero mean and zero
+// covariance. predict() re-applies the padding after every step, so whatever the
+// IMM mixes into an unused component is dropped before it can affect the model.
+// When mixing into a model, the IMM does not mix these padded zeros in; it
+// borrows the receiving model's own estimate instead (see ImmFilter::predict).
+// The measurement is always the 3D position, so H = [I3 0] for every model.
+constexpr int kStateDim = 10;
+constexpr int kPos = 0;
+constexpr int kVel = 3;
+constexpr int kAcc = 6;
+constexpr int kOmega = 9;
+
+using StateVector = Eigen::Matrix<double, kStateDim, 1>;
+using StateMatrix = Eigen::Matrix<double, kStateDim, kStateDim>;
+using StateMask = std::array<bool, kStateDim>;
+
+enum class ModelType
+{
+  CV,  // Constant velocity
+  CA,  // Constant acceleration
+  CT,  // Coordinated turn (horizontal), constant velocity in z
+};
+
+// "cv" | "ca" | "ct" (case-insensitive); nullopt for anything else
+std::optional<ModelType> modelTypeFromString(const std::string & name);
+std::string toString(ModelType type);
+
+// Continuous-time white-noise spectral densities of the process noise
+// Defaults tuned on the synthetic trajectories of the unit tests (30 Hz, 0.3 m
+// noise): CV stays stiff and leaves maneuvers to CA / CT, as an IMM should.
+struct ProcessNoise
+{
+  double acc = 0.3;        // CV and CT: white acceleration, (m/s^2)^2 / Hz
+  double jerk = 1.0;       // CA: white jerk, (m/s^3)^2 / Hz
+  double turn_rate = 0.2;  // CT: random-walk turn rate, (rad/s^2)^2 / Hz
+};
+
+// Prior standard deviations for a track started from a single position fix
+struct InitialUncertainty
+{
+  double velocity = 5.0;      // m/s
+  double acceleration = 2.0;  // m/s^2 (CA)
+  double turn_rate = 0.5;     // rad/s (CT)
+};
+
+// Result of a Kalman measurement update
+struct UpdateResult
+{
+  Eigen::Vector3d innovation = Eigen::Vector3d::Zero();
+  Eigen::Matrix3d innovation_cov = Eigen::Matrix3d::Identity();
+  double mahalanobis2 = 0.0;    // innovation' S^-1 innovation
+  double log_likelihood = 0.0;  // log N(innovation; 0, S)
+  bool ok = false;              // false if S was not positive definite (state untouched)
+};
+
+// Squared Mahalanobis distance and Gaussian log-likelihood of a 3D innovation.
+// Returns false if S is not positive definite.
+bool innovationStatistics(
+  const Eigen::Vector3d & innovation, const Eigen::Matrix3d & innovation_cov,
+  double & mahalanobis2, double & log_likelihood);
+
+// Position measurement update (H = [I3 0]) in Joseph form. Shared by all models:
+// the measurement is linear in the common state layout.
+UpdateResult positionUpdate(
+  StateVector & x, StateMatrix & P, const Eigen::Vector3d & z, const Eigen::Matrix3d & R);
+
+// Discrete EKF motion model on the common state layout
 class MotionModel
 {
 public:
   virtual ~MotionModel() = default;
-  virtual void predict(Eigen::VectorXd & x, Eigen::MatrixXd & P, double dt) = 0;
-  virtual void update(
-    Eigen::VectorXd & x, Eigen::MatrixXd & P, const Eigen::Vector3d & z,
-    double R_noise) = 0;
-  virtual double calculateLikelihood(
-    const Eigen::VectorXd & x, const Eigen::MatrixXd & P,
-    const Eigen::Vector3d & z, double R_noise) = 0;
+
+  virtual ModelType type() const = 0;
+
+  // State components this model uses; the others are held at zero
+  virtual StateMask activeStates() const = 0;
+
+  // x <- f(x, dt), P <- F P F' + Q with F = df/dx. Applies the zero-padding.
+  void predict(StateVector & x, StateMatrix & P, double dt) const;
+
+  // f(x, dt) and its Jacobian F, without padding or noise
+  virtual StateVector transition(const StateVector & x, double dt, StateMatrix & F) const = 0;
+
+  // Discrete process noise Q(dt), zero on padded components
+  virtual StateMatrix processNoise(const StateVector & x, double dt) const = 0;
+
+  // Acceleration the model implies for a state (zero for CV, omega x v for CT)
+  virtual Eigen::Vector3d acceleration(const StateVector & x) const = 0;
+
+  // Zeros the padded components of x and the matching rows/columns of P
+  void applyPadding(StateVector & x, StateMatrix & P) const;
+
+  // Initial state from a position fix z with covariance R
+  void initialize(
+    const Eigen::Vector3d & z, const Eigen::Matrix3d & R, const InitialUncertainty & prior,
+    StateVector & x, StateMatrix & P) const;
 };
 
-/**
- * @brief Constant Velocity (CV) Model
- * State: [px, py, pz, vx, vy, vz]^T (6D)
- */
 class CVModel : public MotionModel
 {
 public:
-  CVModel(double q_pos, double q_vel)
-  : q_pos_(q_pos), q_vel_(q_vel) {}
+  explicit CVModel(const ProcessNoise & noise = ProcessNoise())
+  : noise_(noise) {}
 
-  void predict(Eigen::VectorXd & x, Eigen::MatrixXd & P, double dt) override
-  {
-    // State transition matrix F
-    Eigen::Matrix<double, 6, 6> F = Eigen::Matrix<double, 6, 6>::Identity();
-    F(0, 3) = F(1, 4) = F(2, 5) = dt;
-
-    // Process noise matrix Q
-    Eigen::Matrix<double, 6, 6> Q = Eigen::Matrix<double, 6, 6>::Zero();
-    double dt2 = dt * dt;
-    double dt3 = dt2 * dt / 3.0;
-    double dt4 = dt2 * dt2 / 4.0;
-
-    // Piecewise white noise model for Q
-    Q.block<3, 3>(0, 0) = Eigen::Matrix3d::Identity() * (q_pos_ * dt4);
-    Q.block<3, 3>(0, 3) = Eigen::Matrix3d::Identity() * (q_pos_ * dt3);
-    Q.block<3, 3>(3, 0) = Eigen::Matrix3d::Identity() * (q_pos_ * dt3);
-    Q.block<3, 3>(3, 3) = Eigen::Matrix3d::Identity() * (q_vel_ * dt2);
-
-    x = F * x;
-    P = F * P * F.transpose() + Q;
-  }
-
-  void update(
-    Eigen::VectorXd & x, Eigen::MatrixXd & P, const Eigen::Vector3d & z,
-    double R_noise) override
-  {
-    // Measurement matrix H (we only measure position)
-    Eigen::Matrix<double, 3, 6> H = Eigen::Matrix<double, 3, 6>::Zero();
-    H.block<3, 3>(0, 0) = Eigen::Matrix3d::Identity();
-
-    Eigen::Matrix3d R = Eigen::Matrix3d::Identity() * R_noise;
-    Eigen::Vector3d y = z - H * x;     // Innovation
-    Eigen::Matrix3d S = H * P * H.transpose() + R;     // Innovation covariance
-    Eigen::Matrix<double, 6, 3> K = P * H.transpose() * S.inverse();     // Kalman gain
-
-    x = x + K * y;
-    P = (Eigen::Matrix<double, 6, 6>::Identity() - K * H) * P;
-  }
-
-  double calculateLikelihood(
-    const Eigen::VectorXd & x, const Eigen::MatrixXd & P,
-    const Eigen::Vector3d & z, double R_noise) override
-  {
-    Eigen::Matrix<double, 3, 6> H = Eigen::Matrix<double, 3, 6>::Zero();
-    H.block<3, 3>(0, 0) = Eigen::Matrix3d::Identity();
-
-    Eigen::Vector3d y = z - H * x;
-    Eigen::Matrix3d S = H * P * H.transpose() + Eigen::Matrix3d::Identity() * R_noise;
-
-    double detS = S.determinant();
-    if (detS < 1e-9) {detS = 1e-9;}
-
-    double exponent = -0.5 * y.transpose() * S.inverse() * y;
-    return (1.0 / std::sqrt(std::pow(2 * M_PI, 3) * detS)) * std::exp(exponent);
-  }
+  ModelType type() const override {return ModelType::CV;}
+  StateMask activeStates() const override;
+  StateVector transition(const StateVector & x, double dt, StateMatrix & F) const override;
+  StateMatrix processNoise(const StateVector & x, double dt) const override;
+  Eigen::Vector3d acceleration(const StateVector & x) const override;
 
 private:
-  double q_pos_, q_vel_;
+  ProcessNoise noise_;
 };
 
-/**
- * @brief Constant Acceleration (CA) Model
- * State: [px, py, pz, vx, vy, vz, ax, ay, az]^T (9D)
- */
 class CAModel : public MotionModel
 {
 public:
-  CAModel(double q_pos, double q_vel, double q_acc)
-  : q_pos_(q_pos), q_vel_(q_vel), q_acc_(q_acc) {}
+  explicit CAModel(const ProcessNoise & noise = ProcessNoise())
+  : noise_(noise) {}
 
-  void predict(Eigen::VectorXd & x, Eigen::MatrixXd & P, double dt) override
-  {
-    // State transition matrix F
-    Eigen::Matrix<double, 9, 9> F = Eigen::Matrix<double, 9, 9>::Identity();
-    double dt2 = 0.5 * dt * dt;
-    F(0, 3) = F(1, 4) = F(2, 5) = dt;
-    F(0, 6) = F(1, 7) = F(2, 8) = dt2;
-    F(3, 6) = F(4, 7) = F(5, 8) = dt;
-
-    // Simplified process noise Q
-    Eigen::Matrix<double, 9, 9> Q = Eigen::Matrix<double, 9, 9>::Identity();
-    Q.block<3, 3>(0, 0) *= q_pos_;
-    Q.block<3, 3>(3, 3) *= q_vel_;
-    Q.block<3, 3>(6, 6) *= q_acc_;
-    Q *= dt;
-
-    x = F * x;
-    P = F * P * F.transpose() + Q;
-  }
-
-  void update(
-    Eigen::VectorXd & x, Eigen::MatrixXd & P, const Eigen::Vector3d & z,
-    double R_noise) override
-  {
-    Eigen::Matrix<double, 3, 9> H = Eigen::Matrix<double, 3, 9>::Zero();
-    H.block<3, 3>(0, 0) = Eigen::Matrix3d::Identity();
-
-    Eigen::Matrix3d R = Eigen::Matrix3d::Identity() * R_noise;
-    Eigen::Vector3d y = z - H * x;
-    Eigen::Matrix3d S = H * P * H.transpose() + R;
-    Eigen::Matrix<double, 9, 3> K = P * H.transpose() * S.inverse();
-
-    x = x + K * y;
-    P = (Eigen::Matrix<double, 9, 9>::Identity() - K * H) * P;
-  }
-
-  double calculateLikelihood(
-    const Eigen::VectorXd & x, const Eigen::MatrixXd & P,
-    const Eigen::Vector3d & z, double R_noise) override
-  {
-    Eigen::Matrix<double, 3, 9> H = Eigen::Matrix<double, 3, 9>::Zero();
-    H.block<3, 3>(0, 0) = Eigen::Matrix3d::Identity();
-
-    Eigen::Vector3d y = z - H * x;
-    Eigen::Matrix3d S = H * P * H.transpose() + Eigen::Matrix3d::Identity() * R_noise;
-
-    double detS = S.determinant();
-    if (detS < 1e-9) {detS = 1e-9;}
-
-    double exponent = -0.5 * y.transpose() * S.inverse() * y;
-    return (1.0 / std::sqrt(std::pow(2 * M_PI, 3) * detS)) * std::exp(exponent);
-  }
+  ModelType type() const override {return ModelType::CA;}
+  StateMask activeStates() const override;
+  StateVector transition(const StateVector & x, double dt, StateMatrix & F) const override;
+  StateMatrix processNoise(const StateVector & x, double dt) const override;
+  Eigen::Vector3d acceleration(const StateVector & x) const override;
 
 private:
-  double q_pos_, q_vel_, q_acc_;
+  ProcessNoise noise_;
 };
 
+// Coordinated turn in the horizontal plane with constant speed and turn rate,
+// constant velocity in z. Nonlinear in omega: the EKF uses the analytic Jacobian,
+// with series expansions for |omega| -> 0 (where it reduces to CV).
+class CTModel : public MotionModel
+{
+public:
+  explicit CTModel(const ProcessNoise & noise = ProcessNoise())
+  : noise_(noise) {}
+
+  ModelType type() const override {return ModelType::CT;}
+  StateMask activeStates() const override;
+  StateVector transition(const StateVector & x, double dt, StateMatrix & F) const override;
+  StateMatrix processNoise(const StateVector & x, double dt) const override;
+  Eigen::Vector3d acceleration(const StateVector & x) const override;
+
+private:
+  ProcessNoise noise_;
+};
+
+std::shared_ptr<const MotionModel> makeMotionModel(ModelType type, const ProcessNoise & noise);
+
+}  // namespace estimation
 }  // namespace interceptor

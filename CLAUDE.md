@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 SkyInterceptor is a ROS2-based autonomous drone system written in C++17 with two mission modes (see `IMPLEMENTATION_PLAN.md` v2):
 
-- **FOLLOW**: aerial filming drone that follows a person, bicycle or car while always keeping a minimum safety distance (`d_min`) from every person or vehicle.
+- **FOLLOW**: aerial filming drone that follows a person, bicycle or car while always keeping a minimum safety distance (`d_min`) from every person or vehicle and `d_obstacle_min` from every static obstacle. Safety distance is the top-level rule in both modes.
 - **INTERCEPT**: counter-UAS capture of an intruding small drone (class `uav` only). Ground targets are never eligible.
 
 It uses stereo vision, a YOLO-based detector (Python), an IMM-EKF tracker, mode-specific planners (follow planner / PN-based intercept guidance), and an independent safety filter node that has the final say on every setpoint. Everything runs in simulation (Gazebo Classic). Agent task prompts live in `docs/AGENT_PROMPTS.md`.
@@ -44,7 +44,7 @@ source /opt/ros/humble/setup.bash && source install/setup.bash
 ros2 run interceptor_drone stereo_sync_node
 ```
 
-**Tests:** `make test` runs the GTest unit tests in `interceptor_drone/test/` (`test_math_utils`, `test_mission`, `test_groundtruth_sensor`, `test_flight_dynamics`) plus the ament linters (uncrustify, cpplint, cppcheck, flake8, pep257, lint_cmake, xmllint). `ament_copyright` is excluded because the sources have no license headers yet. GTest targets for EKF, guidance and controller are still commented out in `CMakeLists.txt` until those tests exist. To auto-fix C++ formatting inside the container: `ament_uncrustify --reformat src include test` (from the package directory).
+**Tests:** `make test` runs the GTest unit tests in `interceptor_drone/test/` (`test_math_utils`, `test_mission`, `test_groundtruth_sensor`, `test_flight_dynamics`, `test_imm_filter`, `test_track_manager`) plus the ament linters (uncrustify, cpplint, cppcheck, flake8, pep257, lint_cmake, xmllint). `ament_copyright` is excluded because the sources have no license headers yet. GTest targets for guidance and controller are still commented out in `CMakeLists.txt` until those tests exist. To auto-fix C++ formatting inside the container: `ament_uncrustify --reformat src include test` (from the package directory).
 
 **CI:** `.github/workflows/ci.yml` runs on every PR and on pushes to `main`. It has two jobs: a fast static-checks job (yamllint, shellcheck, Python syntax) and a build-and-test job in the `ros:humble-perception` container (`colcon build` with `-Werror`, then `colcon test`). The container has no CUDA, so code must also build without GPU support.
 
@@ -65,7 +65,7 @@ Perception → Estimation → Guidance → Control → Platform
 | Perception | `target_3d_localizer` | Back-project 2D YOLO detections to 3D |
 | Perception | `target_detector.py` | YOLOv8 via Ultralytics |
 | Perception | `groundtruth_target_node` | Gazebo entity poses (`/get_entity_state`) + noise, dropout and tree occlusion → `/target/detection_3d` (used when `perception_source:=groundtruth`) |
-| Estimation | `target_tracker_node` | IMM-EKF (skeleton) |
+| Estimation | `target_tracker_node` | Stub; will wrap the IMM-EKF library (P1.2) |
 | Guidance | `guidance_controller_node` | Proportional Navigation / Augmented PN (skeleton) |
 | Control | `trajectory_controller_node` | Cascade PID |
 | Evasion | `evasion_controller_node` | Target evasion strategies (skeleton) |
@@ -81,6 +81,15 @@ Perception → Estimation → Guidance → Control → Platform
 - `flight_controller.hpp` — velocity PI → attitude P (SO(3)) → body-rate PI → mixer, landed/take-off state
 
 The Gazebo plugin (`src/simulation/quadrotor_dynamics_plugin.cpp`) wraps it; its parameters are in the `<plugin>` block of the URDF xacro. Frames are ENU world / FLU body. See `docs/FLIGHT_DYNAMICS.md`.
+
+### Estimation library
+
+`interceptor_drone_estimation` (`include/estimation/`, `src/estimation/`) is plain C++/Eigen with no ROS dependency, like the flight library. See `docs/TRACKER.md`:
+- `ekf_models.hpp` — CV / CA / CT EKF models on one padded 10-state layout `[p, v, a, omega]`, Joseph-form position update
+- `imm_filter.hpp` — IMM: mixing (borrows the receiving model's estimate for components the source model lacks), time-scaled Markov chain (`transition_interval`), log-domain mode probabilities, const `extrapolate()` for publishing between frames
+- `track_manager.hpp` — multi-target tracking: chi-square gate (same class only), Hungarian GNN with confirmed tracks first, spawn gate against duplicates, 3-of-5 confirmation, coasting, deletion, heading. Model set per class: `uav` → CV+CT, else CV+CA
+
+Its defaults match `config/ekf_params.yaml`; they were tuned on the synthetic trajectories in the tests, so re-run them after changing noise or IMM parameters.
 
 ### Shared library
 
@@ -116,7 +125,7 @@ Every file uses `<node_name>: ros__parameters:` and is loaded by the launch file
 |---|---|
 | `perception_params.yaml` | `baseline=0.12m`, `fx=535.4` |
 | `stereo_sync_params.yaml` | sync tolerance `5ms` |
-| `ekf_params.yaml` | process/measurement noise |
+| `ekf_params.yaml` | process noise 0.3 / 1.0 / 0.2, IMM sets per class, transition matrices per 1 s, gate 0.99, 3-of-5, coast 2 s |
 | `groundtruth_params.yaml` | entities + classes, `rate_hz=30`, `pos_noise_std=0.2`, `dropout_prob=0.05`, tree occlusion cylinders |
 | `gazebo_params.yaml` | gzserver `/clock` rate (250 Hz; the 10 Hz default caps every sim-time timer) |
 | `controller_params.yaml` | PID gains and output limits (reserved for P2.1) |
@@ -141,10 +150,11 @@ interceptor_ws/
     interceptor_drone/          # Main C++ package
       include/common/           # Shared headers (types, params, math)
       include/flight/           # Flight dynamics headers
+      include/estimation/       # IMM-EKF and track management headers
       src/
         common/                 # Shared library sources
         perception/             # stereo_sync, depth_processor, 3d_localizer, target_detector.py, groundtruth_target_node
-        estimation/             # target_tracker_node (IMM-EKF)
+        estimation/             # IMM-EKF library (no ROS) + target_tracker_node
         guidance/               # guidance_controller_node (PN)
         control/                # trajectory_controller
         evasion/                # evasion_controller_node

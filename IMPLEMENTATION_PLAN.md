@@ -1,7 +1,7 @@
-# SkyInterceptor – Implementation Plan v2
+# SkyInterceptor – Implementation Plan v2.1
 
-**Version:** 2.0
-**Last Updated:** 2026-09-24
+**Version:** 2.1
+**Last Updated:** 2026-10-03
 **Platform:** Simulation (ROS 2 Humble + Gazebo Classic 11)
 **Replaces:** v1.0 (2026-02-05)
 
@@ -16,8 +16,16 @@ The project now has **two mission modes** that share one perception → tracking
 | Use case | Camera drone that follows an athlete, cyclist or car | Capture an intruding small drone |
 | Eligible targets | `person`, `bicycle`, `car` | `uav` only |
 | Objective | Hold a camera framing at a standoff offset | Reach the capture envelope of the target drone (net-capture style: close range at low relative speed) |
-| Hard constraint | Never closer than `d_min` (default 5 m horizontal, 3 m above) to **any** person or vehicle | Never engage a non-aerial track; abort if a person or vehicle is near the predicted capture point |
+| Hard constraint | Never closer than `d_min` (default 5 m horizontal, 3 m above) to **any** person or vehicle, and `d_obstacle_min` (3 m) to any static obstacle | Same keep-out distances as FOLLOW; never engage a non-aerial track; abort if a person, vehicle or obstacle is near the predicted capture point |
 | Speed cap | 15 m/s | 30 m/s |
+
+**Design principle: keep your distance.** In both modes the drone never touches or approaches a person, vehicle or static obstacle (trees, benches, buildings) closer than a configured standoff distance. This holds whatever a planner commands, and it is enforced by the safety filter. The only thing the drone ever closes in on is a hostile `uav` in INTERCEPT mode, and even there it arrives at a low relative speed (a net-capture envelope, not an impact), and never near people, vehicles or obstacles.
+
+| Keep-out class | Default standoff | Applies in |
+|---|---|---|
+| `person` | 5 m horizontal, 3 m above | both modes |
+| `bicycle`, `car`, `truck` | 5 m horizontal, 3 m above | both modes |
+| Static obstacle (tree, bench, building, pole) | 3 m from the obstacle surface | both modes |
 
 **Removed from v1:** collision or impact with ground targets, "terminal collision guidance", the car/person target vehicle, and evasion by ground targets. The evasion node becomes the behaviour script for the simulated **target drone** (intercept mode only).
 
@@ -34,7 +42,7 @@ The project now has **two mission modes** that share one perception → tracking
 | `stereo_depth_processor` | ✅ Done (CPU) | SGBM + WLS on CPU, realistically 10–20 FPS rather than 60. Needs `opencv_ximgproc` (contrib) in the image |
 | `target_detector.py` | ✅ Done | COCO person/car/truck on **CPU**. No `bicycle`, and COCO has no drone class |
 | `target_3d_localizer` | ✅ Done | Needs a TF path from the camera frame to `map` (not published yet: no odometry) |
-| `target_tracker_node` | ❌ Stub | |
+| `target_tracker_node` | 🟡 Library done (P1.1) | IMM-EKF library `interceptor_drone_estimation` with tests (`docs/TRACKER.md`). The node itself is still a stub (P1.2) |
 | `guidance_controller_node` | ❌ Stub | Replaced by `follow_planner_node` and `intercept_guidance_node` |
 | `trajectory_controller_node` | ❌ Stub | |
 | `hector_interface_node` | 🗑️ Deleted | Superseded by the `quadrotor_dynamics` Gazebo plugin |
@@ -61,7 +69,7 @@ The project now has **two mission modes** that share one perception → tracking
                  follow_planner_node  (FOLLOW)                  intercept_guidance_node (INTERCEPT)
                          └──────────────┬────────────────────────────────────────────┘
                                         │ /setpoint/raw   (FlightSetpoint)
-                              safety_filter_node   ◄── /tracks, /odom, /mission/estop
+                              safety_filter_node   ◄── /tracks, /odom, /mission/estop, obstacles (config)
                                         │ /setpoint/safe
                            trajectory_controller_node  ◄── /odom
                                         │ /cmd_vel
@@ -104,7 +112,8 @@ The project now has **two mission modes** that share one perception → tracking
 
 ### 4.1 Tracker (shared)
 - Per-track IMM with **CV + CA** (FOLLOW, ground targets, z weakly constrained) or **CV + CT** (INTERCEPT, 3D). Pick the model set per class.
-- Gating on the Mahalanobis distance of the innovation (χ², 3 DOF, 99%). Association by nearest neighbour; upgrade to GNN or Hungarian if needed.
+- Gating on the Mahalanobis distance of the innovation (χ², 3 DOF, 99%). Association by global nearest neighbour (Hungarian), confirmed tracks first. Nearest neighbour lost ids on crossing targets.
+- Mixing across models of unequal dimension borrows the receiving model's estimate (not zero padding), and the Markov transition matrix is defined per second and rescaled to the actual time step. Both were needed for the IMM to switch modes at 30 Hz (`docs/TRACKER.md`).
 - Track management: confirm after M-of-N (3 of 5), delete after `max_missed_frames` or covariance growth. Keep predicting through occlusion for up to 2 s, then flag the track `is_valid=false`.
 - Heading = `atan2(vy, vx)` when speed > 0.5 m/s; otherwise hold the last value.
 - Publish `/tracks` at 50 Hz (predict-only between measurements).
@@ -119,7 +128,10 @@ The project now has **two mission modes** that share one perception → tracking
 - **Keep-out barrier** (control barrier function) for every person or vehicle track, not only the selected one:
   `h = ‖p_xy − p_t,xy‖ − d_min` and require `ḣ ≥ −α·h`.
   In closed form, project `v_cmd` onto the half-space `n·(v − v_t) ≥ −α·h`, where `n` is the unit vector from the target to the drone. With several constraints, apply them sequentially or with a tiny QP.
+- **Static obstacles** (trees, benches, buildings) use the same barrier with `v_t = 0`: `h = ‖p_xy − c_o,xy‖ − (r_o + d_obstacle_min)`, where `c_o` and `r_o` are the obstacle's centre and radius. They come from `safety_params.yaml` (`obstacles:` list, generated from the world file) and are not tracked at runtime.
 - Vertical keep-out: never descend below `z_t + h_min_above` while horizontally inside `2·d_min`.
+- **Inflate for uncertainty:** the effective `d_min` for a track is `d_min + k·σ_pos`, using the position covariance from the tracker, so a poor track gets a larger margin. A track that goes stale keeps its last known keep-out for `coast_timeout`, then the filter holds position rather than forgetting it.
+- Feasibility: if the constraints cannot all be satisfied (for example the drone is boxed in), command hover and set `MissionStatus.reason`. Never relax a distance to make a command feasible.
 - Global limits: speed cap per mode, altitude floor and ceiling, geofence box, stale odometry or stale setpoint (> 0.3 s) → brake to hover.
 - `/mission/estop` (std_msgs/Bool) latches HOLD.
 - Publishes `MissionStatus` with `safety_active=true` whenever it modifies the command.
@@ -134,7 +146,8 @@ The project now has **two mission modes** that share one perception → tracking
   - The target is ≥ `min_engage_altitude_agl` (default 10 m) above ground.
   - The target is inside the geofence.
   - The operator has armed via `SetMissionMode(armed=true)`.
-- **Abort:** any person or vehicle track within `abort_ground_radius` (default 15 m, horizontal) of the predicted capture point, the target descending below the altitude floor, or the track becoming invalid.
+- **Abort:** any person or vehicle track within `abort_ground_radius` (default 15 m, horizontal) of the predicted capture point, a static obstacle within `d_obstacle_min` of it, the target descending below the altitude floor, or the track becoming invalid.
+- The keep-out barrier from §4.3 stays active in INTERCEPT mode for all people, vehicles and obstacles. The intercept path may be bent or stopped by it.
 
 ### 4.5 Trajectory controller (shared)
 - Cascade: position P(ID) → velocity PID → acceleration command, with feed-forward of the setpoint velocity and acceleration. Anti-windup by clamping and back-calculation.
@@ -168,12 +181,12 @@ Estimates assume one developer. The dependency graph below shows what can run in
 
 ### Phase 2 – FOLLOW mode (first demo, ~5 days)
 - **2.1** `trajectory_controller_node` (shared).
-- **2.2** `safety_filter_node` (keep-out CBF, limits, e-stop), with unit tests for the projection.
+- **2.2** `safety_filter_node` (keep-out CBF for tracks and static obstacles, covariance inflation, limits, e-stop), with unit tests for the projection.
 - **2.3** `follow_planner_node` (presets, heading smoothing, lost-track handling).
-- **2.4** World scenarios: walking person (1.4 m/s), jogger (4 m/s) with turns, occlusion behind trees, plus a second bystander actor. Add a `metrics_recorder` script that computes min distance, framing error and track retention from a rosbag.
+- **2.4** World scenarios: walking person (1.4 m/s), jogger (4 m/s) with turns, occlusion behind trees, plus a second bystander actor. Add a `metrics_recorder` script that computes min distance (to every person, vehicle and obstacle), framing error and track retention from a rosbag.
 - **2.5** Vision in the loop: `perception_source:=vision`, add COCO class 1 (`bicycle`), run YOLO on CUDA.
 
-**Exit (100 randomized runs, ground truth):** minimum distance to any person ≥ `d_min` in **100 %** of runs. Target within ±15° of camera boresight ≥ 95 % of the time. Track reacquired after a 2 s occlusion. With vision: ≥ 90 % of that framing score.
+**Exit (100 randomized runs, ground truth):** minimum distance to any person or vehicle ≥ `d_min` and to any obstacle ≥ `d_obstacle_min` in **100 %** of runs, including runs where the planner is deliberately commanded straight at them. Target within ±15° of camera boresight ≥ 95 % of the time. Track reacquired after a 2 s occlusion. With vision: ≥ 90 % of that framing score.
 
 ### Phase 3 – INTERCEPT mode (~5–7 days, after Phase 1, 2.1, 2.2)
 - **3.1** Target drone: a small quadrotor model in the world (`target_drone`) and `target_drone_behavior_node` with `hover`, `waypoints`, `straight` (CV) and `weave` behaviours. It moves via `/set_entity_state` like the bridge.
@@ -208,6 +221,10 @@ Parallel agents after 0.2: {0.3, 0.4, 1.1, 0.5}. After 0.3: {2.1, 3.1}. Wall clo
 safety:
   d_min_horizontal: 5.0        # m, to ANY person/vehicle track
   h_min_above: 3.0             # m, vertical clearance above target
+  d_obstacle_min: 3.0          # m, to the surface of any static obstacle
+  uncertainty_gain: 2.0        # k in d_eff = d_min + k * sigma_pos
+  obstacles:                   # generated from the world file
+    - {name: oak_tree_1, x: 0.0, y: 0.0, radius: 0.6}   # example entry; real values come from the world file
   cbf_alpha: 1.0               # 1/s
   altitude_floor: 2.0          # m AGL
   altitude_ceiling: 120.0      # m AGL
@@ -252,3 +269,5 @@ intercept:
 | No drone class in COCO | Auto-labeled sim dataset (3.2); ground-truth source meanwhile |
 | Simplified flight dynamics (no inflow or vortex-ring effects, uniform wind) | Fine for guidance and safety logic. PX4 SITL is a drop-in later behind the same `/cmd_vel` + `/odom` contract |
 | Gazebo actors have no collision and a scripted path | Fine for FOLLOW. The ground-truth node reads actor pose via entity state |
+| Safety distance eroded by tracking error or latency | Inflate `d_min` with track covariance, keep stale tracks as keep-out for `coast_timeout`, and test the filter against delayed and noisy tracks. Never fix a violation by lowering a threshold |
+| Obstacle list drifts from the world file | Generate `obstacles:` from the `.world` file with a script and add a test that compares the two |
