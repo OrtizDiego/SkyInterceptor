@@ -1,32 +1,45 @@
 # Target tracker (IMM-EKF, plan §4.1)
-# Reserved for P1.1/P1.2: target_tracker_node is still a stub and reads none of these yet.
+# The values match the defaults of the estimation library (P1.1, docs/TRACKER.md),
+# which were tuned on the synthetic trajectories of its unit tests.
+# Reserved for P1.2: target_tracker_node is still a stub and reads none of these yet.
 # Class whitelists for target selection come from follow_params.yaml / intercept_params.yaml.
 target_tracker_node:
   ros__parameters:
     publish_rate: 50.0              # Hz, /tracks and /target/state (predict-only between updates)
 
     # Process noise (continuous white-noise spectral densities)
-    process_noise_acc: 1.0          # CV model, (m/s^2)^2 / Hz
-    process_noise_jerk: 5.0         # CA model, (m/s^3)^2 / Hz
-    process_noise_turn_rate: 0.1    # CT model, (rad/s^2)^2 / Hz
+    process_noise_acc: 0.3          # CV and CT models, (m/s^2)^2 / Hz
+    process_noise_jerk: 1.0         # CA model, (m/s^3)^2 / Hz
+    process_noise_turn_rate: 0.2    # CT model, (rad/s^2)^2 / Hz
 
     # Fallback 3D position measurement noise when a detection carries no covariance
     measurement_noise_pos: 0.3      # m (std dev)
 
-    # IMM model sets and Markov transition matrices (row-major, rows sum to 1)
+    # IMM model sets, chosen per track class: aerial for uav, ground for everything else.
+    # Markov transition matrices are row-major, rows sum to 1, and give the
+    # switching probabilities over transition_interval seconds (rescaled to the
+    # actual time step, so they don't depend on the detection rate).
     imm:
-      follow_models: ["cv", "ca"]   # Ground targets
-      follow_transition: [0.95, 0.05,
-                          0.10, 0.90]
-      intercept_models: ["cv", "ct"]  # Aerial targets
-      intercept_transition: [0.95, 0.05,
-                             0.10, 0.90]
+      transition_interval: 1.0      # s
+      ground_models: ["cv", "ca"]
+      ground_transition: [0.90, 0.10,
+                          0.20, 0.80]
+      aerial_models: ["cv", "ct"]
+      aerial_transition: [0.90, 0.10,
+                          0.20, 0.80]
+      # Prior std devs of a track started from a single position fix
+      ground_init_velocity_std: 5.0   # m/s
+      aerial_init_velocity_std: 10.0  # m/s
+      init_acceleration_std: 2.0      # m/s^2 (CA)
+      init_turn_rate_std: 0.5         # rad/s (CT)
 
     # Gating and track management
     gate_probability: 0.99          # chi-square gate, 3 DOF
+    spawn_gate_probability: 0.9999  # No new track from a detection this close to a track that missed
     confirm_m: 3                    # Confirm after M hits ...
     confirm_n: 5                    # ... in the last N frames
-    max_missed_frames: 10           # Delete after this many consecutive misses
-    max_position_variance: 25.0     # m^2, delete when trace(P_pos) exceeds this
+    max_missed_frames: 10           # Delete a confirmed track after this many misses AND coast_timeout
+    max_position_variance: 50.0     # m^2, delete when trace(P_pos) exceeds this
     coast_timeout: 2.0              # s, predict through occlusion, then is_valid=false
-    min_heading_speed: 0.5          # m/s, hold the heading below this speed
+    min_heading_speed: 0.5          # m/s, hold the heading below this speed ...
+    heading_speed_sigmas: 3.0       # ... or below this many std devs of the speed estimate
