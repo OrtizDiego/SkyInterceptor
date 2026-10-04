@@ -26,7 +26,7 @@ SkyInterceptor is a simulated drone that can switch between two missions sharing
 |---|---|---|
 | Goal | Follow a person, bicycle or car and keep them framed | Capture an intruding small drone |
 | Valid targets | `person`, `bicycle`, `car` | `uav` only; ground targets are never engaged |
-| Safety rule | Never closer than `d_min` to any person or vehicle | Abort if a person or vehicle is near the capture point |
+| Safety rule | Never closer than `d_min` to any person or vehicle, or `d_obstacle_min` to any static obstacle | Same keep-out distances, and abort if a person, vehicle or obstacle is near the capture point |
 
 An independent **safety filter** has the final say on every setpoint, so neither mission planner can command an unsafe motion.
 

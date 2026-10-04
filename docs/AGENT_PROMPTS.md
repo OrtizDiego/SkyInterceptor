@@ -24,8 +24,10 @@ Each prompt is self-contained. Run them in the order of the dependency graph (pl
 You are working on SkyInterceptor, a ROS 2 Humble (C++17 + one Python node) drone project that runs in Gazebo Classic inside a Docker container (see CLAUDE.md for make targets). Read CLAUDE.md and IMPLEMENTATION_PLAN.md (v2) before you start; the plan is the source of truth for architecture, topics, message definitions and default parameters.
 
 The project has two mission modes:
-- FOLLOW: an aerial filming drone that follows a person, bicycle or car while ALWAYS keeping at least d_min distance from every person or vehicle.
+- FOLLOW: an aerial filming drone that follows a person, bicycle or car while ALWAYS keeping at least d_min distance from every person or vehicle, and d_obstacle_min from every static obstacle (trees, benches, buildings).
 - INTERCEPT: capture of an intruding small drone (class "uav" only) by reaching a capture envelope at low relative speed. Ground targets must never be engaged.
+
+Safety distance is the top-level rule: never fix a distance violation by lowering a threshold, and never let a planner approach a person, vehicle or obstacle closer than the configured standoff.
 
 Rules:
 - Stay within the task scope below. Don't implement other plan tasks; stub interfaces you depend on only if they don't exist yet, and say so.
@@ -173,13 +175,15 @@ Task: implement safety_filter_node (plan §4.3). It sits between the planners an
 
 - Inputs: /setpoint/raw (FlightSetpoint), /tracks (TargetStateArray), /odom, /mission/estop (std_msgs/Bool, latching), and the mission mode.
 - Output: /setpoint/safe (FlightSetpoint) and /mission/status (MissionStatus).
-- Keep-out CBF: for EVERY track whose class is person, bicycle, car or truck (not only the selected target), with h = horizontal distance − d_min, constrain the velocity so n·(v − v_t) ≥ −alpha·h. Enforce multiple constraints with sequential projection, iterating until all are satisfied or 10 iterations pass; then fall back to the minimum-norm velocity that satisfies them, or to hover. Also enforce vertical clearance h_min_above inside 2·d_min. Convert position setpoints to velocity first (use the controller's kp) so the filter always works on velocity.
+- Keep-out CBF: for EVERY track whose class is person, bicycle, car or truck (not only the selected target), with h = horizontal distance − (d_min + k·σ_pos), where σ_pos comes from the track's position covariance (uncertainty_gain k), constrain the velocity so n·(v − v_t) ≥ −alpha·h. Enforce multiple constraints with sequential projection, iterating until all are satisfied or 10 iterations pass; then fall back to the minimum-norm velocity that satisfies them, or to hover. Static obstacles from the `obstacles:` list in safety_params.yaml use the same barrier with zero velocity and h = distance to the centre − (radius + d_obstacle_min). Stale tracks stay as keep-out for coast_timeout. If the constraints can't all be met, command hover and set MissionStatus.reason; never relax a distance. Also enforce vertical clearance h_min_above inside 2·d_min. Convert position setpoints to velocity first (use the controller's kp) so the filter always works on velocity.
 - Limits: mode-dependent speed cap, altitude floor and ceiling, geofence (velocity pointing outward is zeroed at the boundary), and stale odometry or setpoint → hover.
 - INTERCEPT engagement gate (plan §4.4) is enforced here as well. Leave a clear hook; P3.4 fills in the logic.
 - Put all math in a ROS-free SafetyFilter class. gtests must include:
   - a drone commanded straight at a standing person stops at ≥ d_min;
   - a person walking toward a hovering drone makes the drone back off;
   - two bystanders plus the target, with no constraint violated;
+  - a drone commanded straight at a tree stops at ≥ d_obstacle_min from its surface;
+  - a noisy track (large covariance) gets a larger margin than a precise one;
   - e-stop latches.
   Also add a randomized property test: 10,000 random states and commands, and after a simulated step the distance never goes below d_min − 0.05 m.
 ```
@@ -206,7 +210,7 @@ Task: scenario coverage and a metrics pipeline for FOLLOW mode.
 
 - World variants (or actor scripts selected by launch arg): walker 1.4 m/s on the footpath, jogger 4 m/s with sharp turns, a path that passes behind the tree line (occlusion), and a second "bystander" actor walking across the follow path.
 - scripts/run_follow_trials.py: launches N randomized trials headless (gzserver only) with a randomized start offset, preset and actor speed. Records a rosbag per trial and computes:
-  - minimum distance to every person;
+  - minimum distance to every person, vehicle and obstacle;
   - fraction of time the target is within ±15° of the camera boresight;
   - track-loss events and reacquisition time;
   - safety-filter intervention time.
@@ -280,7 +284,8 @@ Task: implement the INTERCEPT safety hooks in safety_filter_node (plan §4.4). T
   - the target is inside the geofence.
   Otherwise replace the setpoint with HOLD and set MissionStatus.reason.
 - Abort (latching until re-armed) when any person/bicycle/car/truck track is within abort_ground_radius horizontally of the predicted capture point (target position + target velocity · t_go), when the target drops below the altitude floor, or when the track becomes invalid.
-- The keep-out CBF from P2.2 stays active in INTERCEPT mode for all ground tracks.
+- A static obstacle within d_obstacle_min of the predicted capture point also triggers the abort.
+- The keep-out CBF from P2.2 stays active in INTERCEPT mode for all ground tracks and obstacles.
 - gtests: every gate condition individually; a person track with a spoofed high altitude still can't be engaged (the class check); the bystander abort; and that re-arming is required after an abort.
 ```
 
