@@ -70,6 +70,16 @@ add_library(${PROJECT_NAME}_flight SHARED
 )
 target_link_libraries(${PROJECT_NAME}_flight Eigen3::Eigen)
 
+# Target tracking library: IMM-EKF (CV / CA / CT) and multi-target track
+# management. Plain C++ and Eigen, no ROS, so it can be unit tested on
+# synthetic trajectories.
+add_library(${PROJECT_NAME}_estimation SHARED
+  src/estimation/ekf_models.cpp
+  src/estimation/imm_filter.cpp
+  src/estimation/track_manager.cpp
+)
+target_link_libraries(${PROJECT_NAME}_estimation Eigen3::Eigen)
+
 # Gazebo plugin that flies the drone with the flight dynamics library
 add_library(quadrotor_dynamics_plugin SHARED src/simulation/quadrotor_dynamics_plugin.cpp)
 # Gazebo's own headers are not -Wpedantic clean: include them as system headers
@@ -140,6 +150,7 @@ install(TARGETS
 install(TARGETS
   ${PROJECT_NAME}_lib
   ${PROJECT_NAME}_flight
+  ${PROJECT_NAME}_estimation
   quadrotor_dynamics_plugin
   LIBRARY DESTINATION lib
 )
@@ -207,8 +218,11 @@ if(BUILD_TESTING)
   ament_add_gtest(test_flight_dynamics test/test_flight_dynamics.cpp)
   target_link_libraries(test_flight_dynamics ${PROJECT_NAME}_flight)
 
-  # ament_add_gtest(test_ekf test/test_ekf.cpp)
-  # target_link_libraries(test_ekf ${PROJECT_NAME}_lib)
+  ament_add_gtest(test_imm_filter test/test_imm_filter.cpp)
+  target_link_libraries(test_imm_filter ${PROJECT_NAME}_estimation)
+
+  ament_add_gtest(test_track_manager test/test_track_manager.cpp)
+  target_link_libraries(test_track_manager ${PROJECT_NAME}_estimation)
 
   # ament_add_gtest(test_guidance test/test_guidance.cpp)
   # target_link_libraries(test_guidance ${PROJECT_NAME}_lib)

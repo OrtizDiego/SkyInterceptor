@@ -42,7 +42,7 @@ The project now has **two mission modes** that share one perception → tracking
 | `stereo_depth_processor` | ✅ Done (CPU) | SGBM + WLS on CPU, realistically 10–20 FPS rather than 60. Needs `opencv_ximgproc` (contrib) in the image |
 | `target_detector.py` | ✅ Done | COCO person/car/truck on **CPU**. No `bicycle`, and COCO has no drone class |
 | `target_3d_localizer` | ✅ Done | Needs a TF path from the camera frame to `map` (not published yet: no odometry) |
-| `target_tracker_node` | ❌ Stub | |
+| `target_tracker_node` | 🟡 Library done (P1.1) | IMM-EKF library `interceptor_drone_estimation` with tests (`docs/TRACKER.md`). The node itself is still a stub (P1.2) |
 | `guidance_controller_node` | ❌ Stub | Replaced by `follow_planner_node` and `intercept_guidance_node` |
 | `trajectory_controller_node` | ❌ Stub | |
 | `hector_interface_node` | 🗑️ Deleted | Superseded by the `quadrotor_dynamics` Gazebo plugin |
@@ -112,7 +112,8 @@ The project now has **two mission modes** that share one perception → tracking
 
 ### 4.1 Tracker (shared)
 - Per-track IMM with **CV + CA** (FOLLOW, ground targets, z weakly constrained) or **CV + CT** (INTERCEPT, 3D). Pick the model set per class.
-- Gating on the Mahalanobis distance of the innovation (χ², 3 DOF, 99%). Association by nearest neighbour; upgrade to GNN or Hungarian if needed.
+- Gating on the Mahalanobis distance of the innovation (χ², 3 DOF, 99%). Association by global nearest neighbour (Hungarian), confirmed tracks first. Nearest neighbour lost ids on crossing targets.
+- Mixing across models of unequal dimension borrows the receiving model's estimate (not zero padding), and the Markov transition matrix is defined per second and rescaled to the actual time step. Both were needed for the IMM to switch modes at 30 Hz (`docs/TRACKER.md`).
 - Track management: confirm after M-of-N (3 of 5), delete after `max_missed_frames` or covariance growth. Keep predicting through occlusion for up to 2 s, then flag the track `is_valid=false`.
 - Heading = `atan2(vy, vx)` when speed > 0.5 m/s; otherwise hold the last value.
 - Publish `/tracks` at 50 Hz (predict-only between measurements).
