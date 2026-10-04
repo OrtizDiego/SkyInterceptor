@@ -22,5 +22,6 @@ float64 heading
 
 # Track quality metrics
 float64 quality_score       # 0.0 - 1.0
-bool is_valid               # Track is active
+bool confirmed              # Passed M-of-N confirmation (false: tentative track)
+bool is_valid               # Updated within coast_timeout (false: coasting, target lost)
 int32 missed_detections     # Consecutive missed frames

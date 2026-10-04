@@ -1,11 +1,17 @@
-# Target tracker (IMM-EKF, plan §4.1)
-# The values match the defaults of the estimation library (P1.1, docs/TRACKER.md),
-# which were tuned on the synthetic trajectories of its unit tests.
-# Reserved for P1.2: target_tracker_node is still a stub and reads none of these yet.
+# Target tracker (IMM-EKF, plan §4.1, docs/TRACKER.md)
+# The filter values match the defaults of the estimation library, which were
+# tuned on the synthetic trajectories of its unit tests.
 # Class whitelists for target selection come from follow_params.yaml / intercept_params.yaml.
 target_tracker_node:
   ros__parameters:
     publish_rate: 50.0              # Hz, /tracks and /target/state (predict-only between updates)
+    world_frame: "map"              # Frame of position_world (target_3d_localizer target_frame)
+
+    # Perception publishes one TargetDetection per object; detections whose stamps
+    # are this close form one frame for the tracker
+    frame_grouping:
+      stamp_tolerance: 0.005        # s, well below the 33 ms sensor period
+      timeout: 0.01                 # s after the first detection arrived, unless a newer frame closes it
 
     # Process noise (continuous white-noise spectral densities)
     process_noise_acc: 0.3          # CV and CT models, (m/s^2)^2 / Hz
@@ -43,3 +49,8 @@ target_tracker_node:
     coast_timeout: 2.0              # s, predict through occlusion, then is_valid=false
     min_heading_speed: 0.5          # m/s, hold the heading below this speed ...
     heading_speed_sigmas: 3.0       # ... or below this many std devs of the speed estimate
+
+    # Target selection (/target/state): operator track_id if set, else the closest
+    # confirmed eligible track to the drone
+    target_selection:
+      switch_margin: 3.0            # m, another track must be this much closer to take over

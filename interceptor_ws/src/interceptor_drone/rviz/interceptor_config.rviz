@@ -101,9 +101,9 @@ Panels:
         
       - Alpha: 1
         Class: rviz_default_plugins/MarkerArray
-        Name: Target Detection
+        Name: Tracks
         Enabled: true
-        Topic: /target/detection_markers
+        Topic: /tracks/markers
         Unreliable: false
         Value: true
         

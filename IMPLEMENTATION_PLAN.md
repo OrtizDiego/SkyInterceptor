@@ -42,7 +42,7 @@ The project now has **two mission modes** that share one perception → tracking
 | `stereo_depth_processor` | ✅ Done (CPU) | SGBM + WLS on CPU, realistically 10–20 FPS rather than 60. Needs `opencv_ximgproc` (contrib) in the image |
 | `target_detector.py` | ✅ Done | COCO person/car/truck on **CPU**. No `bicycle`, and COCO has no drone class |
 | `target_3d_localizer` | ✅ Done | Needs a TF path from the camera frame to `map` (not published yet: no odometry) |
-| `target_tracker_node` | 🟡 Library done (P1.1) | IMM-EKF library `interceptor_drone_estimation` with tests (`docs/TRACKER.md`). The node itself is still a stub (P1.2) |
+| `target_tracker_node` | ✅ Done (P1.1, P1.2) | IMM-EKF library `interceptor_drone_estimation` with tests, node publishes `/tracks`, the selected `/target/state` and `/tracks/markers`; detections are grouped into frames by stamp (`docs/TRACKER.md`). Not yet run against `groundtruth_target_node` in Gazebo |
 | `guidance_controller_node` | ❌ Stub | Replaced by `follow_planner_node` and `intercept_guidance_node` |
 | `trajectory_controller_node` | ❌ Stub | |
 | `hector_interface_node` | 🗑️ Deleted | Superseded by the `quadrotor_dynamics` Gazebo plugin |
@@ -85,8 +85,8 @@ The project now has **two mission modes** that share one perception → tracking
 |---|---|---|
 | `stereo_sync_node`, `stereo_depth_processor`, `target_3d_localizer`, `target_detector.py` | keep | both |
 | `groundtruth_target_node` (new) | Reads Gazebo entity states, publishes noisy `TargetDetection` | both |
-| `target_tracker_node` | implement (IMM-EKF, multi-track, publishes `/tracks`) | both |
-| `target_selector` | a component inside the tracker node or a small node | both |
+| `target_tracker_node` | ✅ done (IMM-EKF, multi-track, publishes `/tracks`) | both |
+| `target_selector` | ✅ done, a component inside the tracker node (`TargetSelector`) | both |
 | `mission_manager_node` (new) | ✅ done: `/mission/set_mode` → latched `/mission/mode` | both |
 | `follow_planner_node` (new) | | FOLLOW |
 | `intercept_guidance_node` (replaces `guidance_controller_node`) | | INTERCEPT |
@@ -175,7 +175,7 @@ Estimates assume one developer. The dependency graph below shows what can run in
 
 ### Phase 1 – Tracker (~2–3 days, after 0.2)
 - **1.1** IMM-EKF library (`include/estimation/`, `src/estimation/`), pure C++ with no ROS dependency, plus unit tests on synthetic trajectories.
-- **1.2** `target_tracker_node`: multi-track, publishes `/tracks` and the selected `/target/state`, plus RViz markers.
+- **1.2** ✅ `target_tracker_node`: multi-track, publishes `/tracks` and the selected `/target/state`, plus RViz markers. Groups single-detection messages into frames by stamp.
 
 **Exit:** on synthetic CV, CA and turn trajectories, position RMSE < 0.3 m at σ_meas = 0.3 m. The track survives a 2 s dropout.
 

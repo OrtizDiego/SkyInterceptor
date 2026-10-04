@@ -44,7 +44,7 @@ source /opt/ros/humble/setup.bash && source install/setup.bash
 ros2 run interceptor_drone stereo_sync_node
 ```
 
-**Tests:** `make test` runs the GTest unit tests in `interceptor_drone/test/` (`test_math_utils`, `test_mission`, `test_groundtruth_sensor`, `test_flight_dynamics`, `test_imm_filter`, `test_track_manager`) plus the ament linters (uncrustify, cpplint, cppcheck, flake8, pep257, lint_cmake, xmllint). `ament_copyright` is excluded because the sources have no license headers yet. GTest targets for guidance and controller are still commented out in `CMakeLists.txt` until those tests exist. To auto-fix C++ formatting inside the container: `ament_uncrustify --reformat src include test` (from the package directory).
+**Tests:** `make test` runs the GTest unit tests in `interceptor_drone/test/` (`test_math_utils`, `test_mission`, `test_groundtruth_sensor`, `test_flight_dynamics`, `test_imm_filter`, `test_track_manager`, `test_frame_assembler`, `test_target_selector`) plus the ament linters (uncrustify, cpplint, cppcheck, flake8, pep257, lint_cmake, xmllint). `ament_copyright` is excluded because the sources have no license headers yet. GTest targets for guidance and controller are still commented out in `CMakeLists.txt` until those tests exist. To auto-fix C++ formatting inside the container: `ament_uncrustify --reformat src include test` (from the package directory).
 
 **CI:** `.github/workflows/ci.yml` runs on every PR and on pushes to `main`. It has two jobs: a fast static-checks job (yamllint, shellcheck, Python syntax) and a build-and-test job in the `ros:humble-perception` container (`colcon build` with `-Werror`, then `colcon test`). The container has no CUDA, so code must also build without GPU support.
 
@@ -65,7 +65,7 @@ Perception → Estimation → Guidance → Control → Platform
 | Perception | `target_3d_localizer` | Back-project 2D YOLO detections to 3D |
 | Perception | `target_detector.py` | YOLOv8 via Ultralytics |
 | Perception | `groundtruth_target_node` | Gazebo entity poses (`/get_entity_state`) + noise, dropout and tree occlusion → `/target/detection_3d` (used when `perception_source:=groundtruth`) |
-| Estimation | `target_tracker_node` | Stub; will wrap the IMM-EKF library (P1.2) |
+| Estimation | `target_tracker_node` | IMM-EKF library: frames by stamp → tracks; `/tracks`, selected `/target/state`, `/tracks/markers` |
 | Guidance | `guidance_controller_node` | Proportional Navigation / Augmented PN (skeleton) |
 | Control | `trajectory_controller_node` | Cascade PID |
 | Evasion | `evasion_controller_node` | Target evasion strategies (skeleton) |
@@ -88,6 +88,10 @@ The Gazebo plugin (`src/simulation/quadrotor_dynamics_plugin.cpp`) wraps it; its
 - `ekf_models.hpp` — CV / CA / CT EKF models on one padded 10-state layout `[p, v, a, omega]`, Joseph-form position update
 - `imm_filter.hpp` — IMM: mixing (borrows the receiving model's estimate for components the source model lacks), time-scaled Markov chain (`transition_interval`), log-domain mode probabilities, const `extrapolate()` for publishing between frames
 - `track_manager.hpp` — multi-target tracking: chi-square gate (same class only), Hungarian GNN with confirmed tracks first, spawn gate against duplicates, 3-of-5 confirmation, coasting, deletion, heading. Model set per class: `uav` → CV+CT, else CV+CA
+- `frame_assembler.hpp` — groups single `TargetDetection` messages into frames by stamp (tolerance 5 ms; closed by a newer frame or a 10 ms timeout; late detections dropped). One frame = one `processFrame()` call
+- `target_selector.hpp` — `/target/state` selection: mode class whitelist only, operator track (no fallback), else closest confirmed valid track with a switch margin
+
+`target_tracker_node` wraps these: 50 Hz timer on the node clock (close frames, prune, extrapolate, select, publish), resets on a backward clock jump.
 
 Its defaults match `config/ekf_params.yaml`; they were tuned on the synthetic trajectories in the tests, so re-run them after changing noise or IMM parameters.
 
@@ -107,7 +111,7 @@ Everything lives under the `interceptor` namespace.
 ### Custom ROS2 messages (`interceptor_interfaces` package)
 
 - `TargetDetection.msg` — 2D bounding box + 3D position; class constants `PERSON=0, CAR=1, TRUCK=2, BICYCLE=3, UAV=4`
-- `TargetState.msg` — Filtered position, velocity, acceleration, covariances, class and heading
+- `TargetState.msg` — Filtered position, velocity, acceleration, covariances, class, heading, `confirmed` and `is_valid`
 - `TargetStateArray.msg` — All tracks (`/tracks`)
 - `FlightSetpoint.msg` — Mode-agnostic setpoint (`/setpoint/raw` → safety filter → `/setpoint/safe`)
 - `MissionMode.msg` — Current mode, armed flag, operator track id (`/mission/mode`)
@@ -125,7 +129,7 @@ Every file uses `<node_name>: ros__parameters:` and is loaded by the launch file
 |---|---|
 | `perception_params.yaml` | `baseline=0.12m`, `fx=535.4` |
 | `stereo_sync_params.yaml` | sync tolerance `5ms` |
-| `ekf_params.yaml` | process noise 0.3 / 1.0 / 0.2, IMM sets per class, transition matrices per 1 s, gate 0.99, 3-of-5, coast 2 s |
+| `ekf_params.yaml` | process noise 0.3 / 1.0 / 0.2, IMM sets per class, transition matrices per 1 s, gate 0.99, 3-of-5, coast 2 s, frame grouping 5 ms / 10 ms, selection switch margin 3 m |
 | `groundtruth_params.yaml` | entities + classes, `rate_hz=30`, `pos_noise_std=0.2`, `dropout_prob=0.05`, tree occlusion cylinders |
 | `gazebo_params.yaml` | gzserver `/clock` rate (250 Hz; the 10 Hz default caps every sim-time timer) |
 | `controller_params.yaml` | PID gains and output limits (reserved for P2.1) |

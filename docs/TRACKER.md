@@ -3,14 +3,19 @@
 The tracker turns noisy 3D position detections of people, vehicles and drones into tracks with a position, velocity, acceleration, heading and covariance. Each track runs an Interacting Multiple Model (IMM) filter over extended Kalman filters, so it can follow a target that walks straight, accelerates or turns without retuning.
 
 ```
-/target/detection_3d ──► TrackManager.processFrame(stamp, detections)          (per sensor frame)
+/target/detection_3d ──► FrameAssembler: one message per object → frames by stamp
+                           │
+                           ▼
+                         TrackManager.processFrame(stamp, detections)          (per sensor frame)
                            │ predict every track to the frame time (IMM mixing + EKF predict)
                            │ chi-square gate, same class only
                            │ global nearest neighbour: confirmed tracks first, then tentative
                            │ IMM update (EKF update per model, mode probabilities, combination)
                            │ spawn / confirm (3 of 5) / delete
                            ▼
-                 TrackManager.tracks(t) ──► /tracks, /target/state            (50 Hz, extrapolated)
+                 TrackManager.tracks(t) ──► /tracks, /tracks/markers           (50 Hz, extrapolated)
+                           │
+                 TargetSelector (mode whitelist, operator track, closest) ──► /target/state
 ```
 
 | Piece | File | ROS dependency |
@@ -18,10 +23,13 @@ The tracker turns noisy 3D position detections of people, vehicles and drones in
 | Motion models (CV, CA, CT) and the Kalman update | `include/estimation/ekf_models.hpp`, `src/estimation/ekf_models.cpp` | none (Eigen only) |
 | IMM filter | `include/estimation/imm_filter.hpp`, `src/estimation/imm_filter.cpp` | none |
 | Multi-target track management | `include/estimation/track_manager.hpp`, `src/estimation/track_manager.cpp` | none |
-| Unit tests (17 + 20) | `test/test_imm_filter.cpp`, `test/test_track_manager.cpp`, `test/synthetic_trajectory.hpp` | gtest |
-| Parameters | `config/ekf_params.yaml` | |
+| Frame grouping | `include/estimation/frame_assembler.hpp`, `src/estimation/frame_assembler.cpp` | none |
+| Target selection | `include/estimation/target_selector.hpp`, `src/estimation/target_selector.cpp` | none |
+| Unit tests (17 + 20 + 9 + 12) | `test/test_imm_filter.cpp`, `test/test_track_manager.cpp`, `test/test_frame_assembler.cpp`, `test/test_target_selector.cpp`, `test/synthetic_trajectory.hpp` | gtest |
+| ROS node | `src/estimation/target_tracker_node.cpp` | rclcpp |
+| Parameters | `config/ekf_params.yaml`, `eligible_classes` in `follow_params.yaml` / `intercept_params.yaml` | |
 
-The library builds into `libinterceptor_drone_estimation.so`. `target_tracker_node` (P1.2) will wrap it.
+The library builds into `libinterceptor_drone_estimation.so`; `target_tracker_node` is a thin wrapper around it (see [The node](#the-node)).
 
 ## Motion models
 
@@ -64,7 +72,47 @@ Model sets are chosen per track class: `uav` gets the aerial set (CV + CT), ever
 | Delete | Confirmed: `max_missed_frames` consecutive misses **and** longer than `coast_timeout` without an update, so an occlusion shorter than 2 s never deletes a track, even while other targets keep the frames coming. Any track: `trace(P_pos) > max_position_variance` (50 m², reached ~4 s into a coast). `prune(t)` applies this while no frames arrive |
 | Heading | `atan2(vy, vx)` while the horizontal speed is above `min_heading_speed` (0.5 m/s) **and** above 3 standard deviations of its own estimate; otherwise the last heading is held. The 3-sigma test stops the velocity noise of a person standing still from making the heading jump |
 
-Frames older than the last processed one are dropped. A frame is all detections taken at one time; the node (P1.2) groups `TargetDetection` messages by stamp.
+Frames older than the last processed one are dropped. A frame is all detections taken at one time; the node groups `TargetDetection` messages by stamp (next section).
+
+## Frame grouping
+
+Perception publishes one `TargetDetection` per object, all with the stamp of the image they came from. The tracker must see a sensor frame in one `processFrame()` call: a detection delivered on its own is a frame in which every other track missed, and a second call at the same stamp makes them miss again. Two walkers fed one message at a time end up with half of their M-of-N window empty (quality < 0.7 instead of 1.0, see `test_frame_assembler`).
+
+`FrameAssembler` collects the messages first:
+
+| Rule | Detail |
+|---|---|
+| Same frame | Stamps within `frame_grouping.stamp_tolerance` (5 ms) of a pending frame join it. The frame keeps the stamp of its first detection |
+| Complete | When a detection of a newer frame arrives (sources publish in stamp order), or `frame_grouping.timeout` (10 ms, on the node clock) after the frame's first detection arrived. The second rule closes the last frame before a gap and frames with a single detection |
+| Order | Complete frames go to the tracker oldest first, also if their messages arrived out of order |
+| Late | A detection for a frame that already went to the tracker, or an older one, is dropped and counted (throttled warning) |
+
+The node checks for complete frames on every detection and on every 50 Hz tick, so a frame reaches the filter within `timeout` + 20 ms of its first message, usually sooner because the next frame closes it. Detections without a valid `position_world` are ignored.
+
+## Target selection
+
+`TargetSelector` picks the track the planners work on and the node publishes it on `/target/state`:
+
+- Only tracks of the current mode's `eligible_classes` can be selected, whatever else is asked: `follow.eligible_classes` (person, bicycle, car) in FOLLOW, `intercept.eligible_classes` (uav) in INTERCEPT, nothing in HOLD or before `/mission/mode` arrives. INTERCEPT can never select a person.
+- **Operator track** (`MissionMode.track_id >= 0`): that track if it exists, is eligible and confirmed, otherwise nothing. It never falls back to another track.
+- **Automatic**: candidates are confirmed, valid, eligible tracks. The closest one to the drone (`/odom`, transformed into `world_frame`) is selected. It is kept until another candidate is closer by more than `target_selection.switch_margin` (3 m), so two people at a similar distance don't make the camera flip between them. Once the selected track coasts past `coast_timeout` the closest candidate takes over; with no candidate it stays selected, with `is_valid = false`, until it is deleted. Without odometry, the oldest track (lowest id) wins.
+
+With no selection the node still publishes `/target/state`, with `track_id = -1`, `class_id = -1` and `is_valid = false`, so a planner can tell "no target" from "tracker down".
+
+## The node
+
+`target_tracker_node` reads `ekf_params.yaml` plus `follow_params.yaml` and `intercept_params.yaml` (for the class whitelists); `guidance.launch.py` starts it in both modes.
+
+| Topic | Type | Direction | Notes |
+|---|---|---|---|
+| `/target/detection_3d` | `TargetDetection` | in | `position_world` in `world_frame` when `world_position_valid`; `R = max(measurement_noise_pos², depth_variance) · I` |
+| `/mission/mode` | `MissionMode` | in | Latched (transient local): mode and operator track |
+| `/odom` | `nav_msgs/Odometry` | in | Drone position for the closest-track selection |
+| `/tracks` | `TargetStateArray` | out, 50 Hz | Every track, tentative (`confirmed = false`) or confirmed, extrapolated to the publish time |
+| `/target/state` | `TargetState` | out, 50 Hz | The selected track, or `track_id = -1` |
+| `/tracks/markers` | `visualization_msgs/MarkerArray` | out, 50 Hz | Sphere, velocity arrow (1 m per m/s) and label (`#id class`, speed) per track. Selected orange, confirmed green, tentative or lost grey. "Tracks" display in `rviz/interceptor_config.rviz` |
+
+Each tick runs on the node clock (simulation time with `use_sim_time`): close complete frames, `prune()`, extrapolate all tracks to now, select, publish. If the clock jumps back (Gazebo reset), the node clears its tracks and starts over.
 
 ## Performance
 
