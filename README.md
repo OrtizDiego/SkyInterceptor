@@ -35,7 +35,7 @@ An independent **safety filter** has the final say on every setpoint, so neither
 - **Physics-based flight model.** Rotor thrust and torque (`T = k_f·ω²`), motor lag, airframe and rotor drag, wind with Gauss–Markov gusts and ground effect, all in a ROS-free C++/Eigen library that is unit-tested in a standalone 6-DOF simulation.
 - **Realistic onboard controller.** Velocity PI → attitude P (SO(3)) → body-rate PI → motor mixer, wrapped as a Gazebo plugin that publishes `/odom` and TF.
 - **Stereo-vision perception.** Time-synchronized stereo pair, SGBM depth, YOLOv8 detection and 3D back-projection of detections.
-- **Multi-target IMM-EKF tracker.** CV / constant-acceleration / coordinated-turn models mixed by an IMM, chi-square gating, global-nearest-neighbour association and M-of-N track management, as a ROS-free library tested on synthetic trajectories ([`docs/TRACKER.md`](docs/TRACKER.md)).
+- **Multi-target IMM-EKF tracker.** CV / constant-acceleration / coordinated-turn models mixed by an IMM, chi-square gating, global-nearest-neighbour association and M-of-N track management, as a ROS-free library tested on synthetic trajectories, plus mode-aware target selection ([`docs/TRACKER.md`](docs/TRACKER.md)).
 - **Planned guidance.** A follow planner and proportional-navigation intercept guidance (see the roadmap below).
 - **Engineering discipline.** Fully containerized (CUDA 11.8 + ROS 2 Humble), GTest unit tests, ament linters, and CI that builds with `-Werror`.
 
@@ -71,7 +71,7 @@ Perception  →  Estimation  →  Guidance  →  Control  →  Platform (Gazebo)
 | Perception | `stereo_depth_processor` | SGBM disparity → depth image | ✅ Done |
 | Perception | `target_detector.py` | YOLOv8 object detection (Ultralytics) | ✅ Done |
 | Perception | `target_3d_localizer` | Back-projects 2D detections to 3D positions | ✅ Done |
-| Estimation | `target_tracker_node` | IMM-EKF target tracking | 🚧 Library done, node pending |
+| Estimation | `target_tracker_node` | IMM-EKF multi-target tracking and target selection (`/tracks`, `/target/state`) | ✅ Done |
 | Guidance | `guidance_controller_node` | Proportional navigation | 🚧 Skeleton |
 | Control | `trajectory_controller_node` | Cascade PID | 🚧 Skeleton |
 | Evasion | `evasion_controller_node` | Target-drone behaviour | 🚧 Skeleton |
@@ -81,9 +81,9 @@ Perception  →  Estimation  →  Guidance  →  Control  →  Platform (Gazebo)
 
 ## Roadmap
 
-The perception layer, the flight simulation and the tracking library work today. Next up, in order (full details in [`IMPLEMENTATION_PLAN.md`](IMPLEMENTATION_PLAN.md)):
+The perception layer, the flight simulation and the tracker work today. Next up, in order (full details in [`IMPLEMENTATION_PLAN.md`](IMPLEMENTATION_PLAN.md)):
 
-1. Tracker node on top of the IMM-EKF library, and a ground-truth target source
+1. A ground-truth target source, so the tracker and planners can run without vision
 2. **FOLLOW** mode end to end (first autonomous demo)
 3. **INTERCEPT** mode with proportional-navigation guidance
 4. Independent safety filter, integration and docs

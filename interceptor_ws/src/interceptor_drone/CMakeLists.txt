@@ -70,13 +70,15 @@ add_library(${PROJECT_NAME}_flight SHARED
 )
 target_link_libraries(${PROJECT_NAME}_flight Eigen3::Eigen)
 
-# Target tracking library: IMM-EKF (CV / CA / CT) and multi-target track
-# management. Plain C++ and Eigen, no ROS, so it can be unit tested on
-# synthetic trajectories.
+# Target tracking library: IMM-EKF (CV / CA / CT), multi-target track
+# management, frame grouping and target selection. Plain C++ and Eigen, no ROS,
+# so it can be unit tested on synthetic trajectories.
 add_library(${PROJECT_NAME}_estimation SHARED
   src/estimation/ekf_models.cpp
   src/estimation/imm_filter.cpp
   src/estimation/track_manager.cpp
+  src/estimation/frame_assembler.cpp
+  src/estimation/target_selector.cpp
 )
 target_link_libraries(${PROJECT_NAME}_estimation Eigen3::Eigen)
 
@@ -111,8 +113,18 @@ ament_target_dependencies(target_3d_localizer rclcpp tf2 tf2_ros geometry_msgs s
 
 # Estimation nodes
 add_executable(target_tracker_node src/estimation/target_tracker_node.cpp)
-target_link_libraries(target_tracker_node ${PROJECT_NAME}_lib)
-ament_target_dependencies(target_tracker_node rclcpp geometry_msgs interceptor_interfaces)
+target_link_libraries(target_tracker_node ${PROJECT_NAME}_lib ${PROJECT_NAME}_estimation)
+ament_target_dependencies(target_tracker_node
+  rclcpp
+  geometry_msgs
+  nav_msgs
+  std_msgs
+  tf2
+  tf2_ros
+  tf2_geometry_msgs
+  visualization_msgs
+  interceptor_interfaces
+)
 
 # Guidance nodes
 add_executable(guidance_controller_node src/guidance/guidance_controller_node.cpp)
@@ -223,6 +235,12 @@ if(BUILD_TESTING)
 
   ament_add_gtest(test_track_manager test/test_track_manager.cpp)
   target_link_libraries(test_track_manager ${PROJECT_NAME}_estimation)
+
+  ament_add_gtest(test_frame_assembler test/test_frame_assembler.cpp)
+  target_link_libraries(test_frame_assembler ${PROJECT_NAME}_estimation)
+
+  ament_add_gtest(test_target_selector test/test_target_selector.cpp)
+  target_link_libraries(test_target_selector ${PROJECT_NAME}_estimation)
 
   # ament_add_gtest(test_guidance test/test_guidance.cpp)
   # target_link_libraries(test_guidance ${PROJECT_NAME}_lib)

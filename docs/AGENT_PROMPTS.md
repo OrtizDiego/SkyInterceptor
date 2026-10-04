@@ -137,6 +137,8 @@ Task: implement the IMM-EKF as a ROS-free library (plan §4.1): include/estimati
 
 ### P1.2 – target_tracker_node
 
+> **Done.** `target_tracker_node` groups the single-detection messages into frames by stamp (`FrameAssembler`), runs the P1.1 `TrackManager`, and selects the target with `TargetSelector`; `TargetState` gained a `confirmed` flag. See `docs/TRACKER.md`. The groundtruth check in RViz waits for P0.4.
+
 ```
 Task: implement target_tracker_node on top of the P1.1 library.
 
