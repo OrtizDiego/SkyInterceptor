@@ -1,0 +1,40 @@
+# Ground-truth target source (launched when perception_source:=groundtruth)
+
+groundtruth_target_node:
+  ros__parameters:
+    # Gazebo entities published as targets, with one class per entity
+    # (person | car | truck | bicycle | uav). target_drone joins in P3.1.
+    entity_names: ["target_person"]
+    entity_classes: ["person"]
+    # Added to the entity's z so the published point is the body centre, like the
+    # vision localizer's bbox centre. Gazebo reports the walking actor's origin ~2.0 m
+    # above the ground (actor <pose> z + script z), so -1.0 puts it at the hip.
+    entity_z_offsets: [-1.0]
+
+    rate_hz: 30.0            # sim time
+    pos_noise_std: 0.2       # m, Gaussian, per axis
+    dropout_prob: 0.05       # chance that a detection is missed
+    seed: 0                  # 0 = random; fix it for reproducible runs
+
+    frame_id: "map"          # Gazebo world == map (map -> odom is identity)
+    reference_frame: "world"
+    get_entity_state_service: "/get_entity_state"
+    observer_entity: "interceptor"   # line-of-sight origin and range for depth_meters
+
+    # Drop detections when the line of sight from the drone crosses a tree canopy.
+    # Flat list of [x, y, radius, height] per vertical cylinder standing on the ground,
+    # matching the trees in worlds/intercept_scenario.world. Sizes come from the
+    # oak_tree (canopy ~4.5 m radius, 6.5 m tall) and pine_tree (1.6 m, 5.1 m) meshes.
+    occlusion:
+      enabled: true
+      cylinders: [
+        20.0, 7.0, 4.0, 6.5,    # oak_1
+        7.0, 22.0, 4.0, 6.5,    # oak_2
+        -4.0, 10.0, 4.0, 6.5,   # oak_3
+        18.0, 23.0, 4.0, 6.5,   # oak_4
+        24.0, 14.0, 4.0, 6.5,   # oak_5
+        4.0, -5.0, 1.6, 5.1,    # pine_1
+        27.0, 6.0, 1.6, 5.1,    # pine_2
+        -3.0, 22.0, 1.6, 5.1,   # pine_3
+        26.0, 26.0, 1.6, 5.1,   # pine_4
+      ]

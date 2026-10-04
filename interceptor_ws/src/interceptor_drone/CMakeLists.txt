@@ -28,6 +28,7 @@ find_package(visualization_msgs REQUIRED)
 find_package(message_filters REQUIRED)
 find_package(gazebo_dev REQUIRED)
 find_package(gazebo_ros REQUIRED)
+find_package(gazebo_msgs REQUIRED)
 
 # Include directories
 include_directories(
@@ -40,6 +41,7 @@ include_directories(
 add_library(${PROJECT_NAME}_lib SHARED
   src/common/math_utils.cpp
   src/common/mission.cpp
+  src/perception/groundtruth_sensor.cpp
 )
 
 target_link_libraries(${PROJECT_NAME}_lib
@@ -109,6 +111,10 @@ add_executable(target_3d_localizer src/perception/target_3d_localizer.cpp)
 target_link_libraries(target_3d_localizer ${PROJECT_NAME}_lib)
 ament_target_dependencies(target_3d_localizer rclcpp tf2 tf2_ros geometry_msgs sensor_msgs interceptor_interfaces)
 
+add_executable(groundtruth_target_node src/perception/groundtruth_target_node.cpp)
+target_link_libraries(groundtruth_target_node ${PROJECT_NAME}_lib)
+ament_target_dependencies(groundtruth_target_node rclcpp gazebo_msgs interceptor_interfaces)
+
 # Estimation nodes
 add_executable(target_tracker_node src/estimation/target_tracker_node.cpp)
 target_link_libraries(target_tracker_node ${PROJECT_NAME}_lib)
@@ -139,6 +145,7 @@ install(TARGETS
   stereo_sync_node
   stereo_depth_processor
   target_3d_localizer
+  groundtruth_target_node
   target_tracker_node
   guidance_controller_node
   trajectory_controller_node
@@ -214,6 +221,9 @@ if(BUILD_TESTING)
 
   ament_add_gtest(test_mission test/test_mission.cpp)
   target_link_libraries(test_mission ${PROJECT_NAME}_lib)
+
+  ament_add_gtest(test_groundtruth_sensor test/test_groundtruth_sensor.cpp)
+  target_link_libraries(test_groundtruth_sensor ${PROJECT_NAME}_lib)
 
   ament_add_gtest(test_flight_dynamics test/test_flight_dynamics.cpp)
   target_link_libraries(test_flight_dynamics ${PROJECT_NAME}_flight)

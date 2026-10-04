@@ -27,6 +27,7 @@
   <depend>message_filters</depend>
   <depend>gazebo_dev</depend>
   <depend>gazebo_ros</depend>
+  <depend>gazebo_msgs</depend>
 
   <exec_depend>rclpy</exec_depend>
   <exec_depend>xacro</exec_depend>
