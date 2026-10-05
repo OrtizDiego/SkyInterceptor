@@ -128,6 +128,10 @@ textarea { min-height: 96px; resize: vertical; }
 .msg { font-size: 0.85rem; color: var(--muted); }
 .msg.err { color: var(--st-block); }
 .meta { font-size: 0.8rem; color: var(--muted); }
+.yolo { margin-top: 14px; display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; font-size: 0.88rem; }
+.yolo.on { border: 1px solid var(--st-block); background: var(--st-block-bg); color: var(--st-block); padding: 8px 12px; font-weight: 600; }
+.yolo .btn { padding: 4px 12px; font-size: 0.82rem; }
+.yolo .warn { color: var(--st-block); font-weight: 600; }
 .agentbox { border: 1px solid var(--rule); padding: 12px 14px; display: grid; gap: 10px; background: var(--board); }
 .agentbox textarea { min-height: 120px; font-family: var(--font-mono); font-size: 0.78rem; }
 .agentbox .state { font-weight: 600; }
@@ -162,6 +166,7 @@ code { font-family: var(--font-mono); font-size: 0.85em; }
   </header>
   <div class="rack" id="rack" aria-hidden="true"></div>
   <div class="legend" id="legend"></div>
+  <div class="yolo" id="yolo"></div>
 
   <div class="grid">
     <main id="board">
@@ -191,13 +196,13 @@ code { font-family: var(--font-mono); font-size: 0.85em; }
     todo: 'To do', in_progress: 'In progress', review: 'In review', done: 'Done', blocked: 'Blocked',
   };
   const LAUNCH = {
-    requested: 'Agent requested, waiting for approval in your Claude session',
+    requested: 'Agent requested, waiting for the dispatcher',
     launched: 'Agent launched',
     declined: 'Launch declined',
     failed: 'Launch failed',
   };
   const state = {
-    meta: {}, phases: [], tasks: [], log: [], launch: {},
+    meta: {}, settings: {}, yoloAsk: false, phases: [], tasks: [], log: [], launch: {},
     loaded: { phases: false, tasks: false },
     open: null, drafts: {}, canWrite: false, canAdmin: false, failed: false, msg: {},
   };
@@ -271,6 +276,30 @@ code { font-family: var(--font-mono); font-size: 0.85em; }
       '<pre>' + esc(protocolText()) + '</pre>';
   }
 
+  function renderYolo() {
+    const on = !!state.settings.auto_approve;
+    const el = $('yolo');
+    if (on) {
+      el.className = 'yolo on';
+      el.innerHTML = '<span>YOLO mode is on: Spin agent starts agents without asking, once a dispatcher is running.</span>' +
+        (state.canAdmin ? '<button class="btn ghost" data-yolo="off">Turn off</button>' : '');
+    } else if (state.canAdmin) {
+      el.className = 'yolo';
+      el.innerHTML = state.yoloAsk
+        ? '<span class="warn">Agents will start without your approval and can edit code and open PRs.</span><button class="btn" data-yolo="on">Enable YOLO mode</button><button class="btn ghost" data-yolo="cancel">Cancel</button>'
+        : '<button class="btn ghost" data-yolo="ask">YOLO mode: spin agents without approval</button><span class="meta">Off: every launch waits for your approval.</span>';
+    } else { el.className = 'yolo'; el.innerHTML = ''; }
+  }
+
+  async function setYolo(on) {
+    state.yoloAsk = false;
+    const body = { auto_approve: on, max_parallel: state.settings.max_parallel || 3, set_at: stamp() };
+    if (myId) body.set_by_user = myId;
+    try { await db.doc('meta/settings').set(body); await addLog('', on ? 'YOLO mode enabled: agents launch without approval' : 'YOLO mode disabled'); }
+    catch (e) { /* the snapshot shows the real state */ }
+    renderYolo();
+  }
+
   function launchSub(t) {
     const l = state.launch[t.id];
     return l && LAUNCH[l.status] ? '<span class="agent">' + esc(LAUNCH[l.status]) + '</span>' : '';
@@ -313,7 +342,7 @@ code { font-family: var(--font-mono); font-size: 0.85em; }
     }
     const warn = r.open.length && t.status === 'todo' ? '<div class="msg err">Dependencies still open: ' + esc(r.open.join(', ')) + '. The agent will have to stub them.</div>' : '';
     const buttons = '<div class="actions">' +
-      (canSpin(t) ? '<button class="btn" data-spin="' + esc(t.id) + '">Spin agent (needs your approval)</button>' : '') +
+      (canSpin(t) ? '<button class="btn" data-spin="' + esc(t.id) + '">' + (state.settings.auto_approve ? 'Spin agent (no approval, YOLO)' : 'Spin agent (needs your approval)') + '</button>' : '') +
       (l && l.status === 'requested' && state.canAdmin ? '<button class="btn ghost" data-cancel="' + esc(t.id) + '">Cancel request</button>' : '') +
       '<button class="btn ghost" data-copy="prompt">Copy prompt</button>' +
       '<button class="btn ghost" data-copy="command">Copy command</button>' +
@@ -406,7 +435,7 @@ code { font-family: var(--font-mono); font-size: 0.85em; }
     select.value = current;
   }
 
-  function render() { renderHeader(); renderBoard(); renderLog(); resolveNames(); }
+  function render() { renderHeader(); renderYolo(); renderBoard(); renderLog(); resolveNames(); }
 
   async function resolveNames() {
     if (!user || !user.profiles) return;
@@ -470,8 +499,8 @@ code { font-family: var(--font-mono); font-size: 0.85em; }
     state.msg[id] = { text: 'Requesting…' };
     try {
       await db.doc('launch/' + id).set(body);
-      await addLog(id, 'Agent requested, waiting for approval');
-      state.msg[id] = { text: 'Requested. Approve it in the Claude session that runs the dispatcher.' };
+      await addLog(id, state.settings.auto_approve ? 'Agent requested (YOLO)' : 'Agent requested, waiting for approval');
+      state.msg[id] = { text: state.settings.auto_approve ? 'Requested. The dispatcher will start it.' : 'Requested. Approve it in the Claude session that runs the dispatcher.' };
     } catch (e) {
       state.msg[id] = { text: 'Could not request the agent. Only editors can.', err: true };
     }
@@ -503,6 +532,14 @@ code { font-family: var(--font-mono); font-size: 0.85em; }
       state.open = state.open === id ? null : id;
       delete state.msg[id]; delete state.msg[id + ':copy'];
       renderBoard();
+      return;
+    }
+    const yo = ev.target.closest('[data-yolo]');
+    if (yo) {
+      const a = yo.getAttribute('data-yolo');
+      if (a === 'ask') { state.yoloAsk = true; renderYolo(); }
+      else if (a === 'cancel') { state.yoloAsk = false; renderYolo(); }
+      else setYolo(a === 'on');
       return;
     }
     const sp = ev.target.closest('[data-spin]');
@@ -541,6 +578,7 @@ code { font-family: var(--font-mono); font-size: 0.85em; }
     } else state.canWrite = true;
     const fail = () => { state.failed = true; render(); };
     db.doc('meta/board').onSnapshot((s) => { state.meta = s.exists ? s.data() : {}; render(); }, () => {});
+    db.doc('meta/settings').onSnapshot((s) => { state.settings = s.exists ? s.data() : {}; renderYolo(); renderBoard(); }, () => {});
     db.collection('phases').onSnapshot((s) => {
       state.phases = s.docs.map((d) => Object.assign({ id: d.id }, d.data())).sort((a, b) => (a.order || 0) - (b.order || 0));
       state.loaded.phases = true; render();
