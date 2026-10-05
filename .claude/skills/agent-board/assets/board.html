@@ -242,10 +242,8 @@ code { font-family: var(--font-mono); font-size: 0.85em; }
       '\n' + protocolText();
   }
   function buildCommand(t) {
-    const branch = t.branch || ('feat/' + slug(t.id + ' ' + t.title));
-    const dir = '../' + slug(t.id + ' ' + t.title);
-    const base = state.meta.base_branch || 'main';
-    return 'git worktree add -b ' + branch + ' ' + dir + ' ' + base + ' && cd ' + dir + ' && claude "$(cat <<\'AGENT_PROMPT\'\n' +
+    const name = t.id + ' ' + t.title;
+    return 'claude --worktree ' + slug(name) + ' --name "' + name.replace(/["$`\\]/g, '') + '" "$(cat <<\'AGENT_PROMPT\'\n' +
       buildPrompt(t) + '\nAGENT_PROMPT\n)"';
   }
 
