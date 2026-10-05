@@ -18,6 +18,8 @@
   <xacro:arg name="wind_y" default="0.0"/>
   <xacro:arg name="wind_z" default="0.0"/>
   <xacro:arg name="wind_gust_stddev" default="0.0"/>
+  <!-- Frame of /cmd_vel: heading (keyboard teleop) or world (trajectory_controller_node) -->
+  <xacro:arg name="command_frame" default="heading"/>
 
   <!-- Property definitions -->
   <!--
@@ -405,7 +407,7 @@
       <wind_gust_time_constant>2.0</wind_gust_time_constant>
 
       <!-- Flight controller -->
-      <command_frame>heading</command_frame>
+      <command_frame>$(arg command_frame)</command_frame>
       <command_timeout>0.5</command_timeout>
       <max_horizontal_speed>8.0</max_horizontal_speed>
       <max_vertical_speed>3.0</max_vertical_speed>

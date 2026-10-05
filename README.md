@@ -73,7 +73,7 @@ Perception  →  Estimation  →  Guidance  →  Control  →  Platform (Gazebo)
 | Perception | `target_3d_localizer` | Back-projects 2D detections to 3D positions | ✅ Done |
 | Estimation | `target_tracker_node` | IMM-EKF multi-target tracking and target selection (`/tracks`, `/target/state`) | ✅ Done |
 | Guidance | `guidance_controller_node` | Proportional navigation | 🚧 Skeleton |
-| Control | `trajectory_controller_node` | Cascade PID | 🚧 Skeleton |
+| Control | `trajectory_controller_node` | Position PID → velocity, yaw P | ✅ Done |
 | Evasion | `evasion_controller_node` | Target-drone behaviour | 🚧 Skeleton |
 | Mission | `mission_manager_node` | Mission mode (`/mission/set_mode` service, latched `/mission/mode`) | ✅ Done |
 | Platform | `quadrotor_dynamics` (Gazebo plugin) | Rotors, aerodynamics, wind, ground effect, onboard flight controller; publishes `/odom` and TF | ✅ Done |
