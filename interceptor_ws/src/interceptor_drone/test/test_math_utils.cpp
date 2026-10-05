@@ -99,5 +99,24 @@ TEST(SaturateVector, ZeroVectorStaysZero)
   EXPECT_TRUE(saturateVector(Eigen::Vector3d::Zero(), 0.0).isZero());
 }
 
+TEST(WrapAngle, KeepsAnglesInsideTheRange)
+{
+  EXPECT_NEAR(wrapAngle(0.0), 0.0, kTol);
+  EXPECT_NEAR(wrapAngle(1.0), 1.0, kTol);
+  EXPECT_NEAR(wrapAngle(-1.0), -1.0, kTol);
+}
+
+TEST(WrapAngle, WrapsAroundPlusMinusPi)
+{
+  constexpr double kPi = 3.14159265358979323846;
+  EXPECT_NEAR(wrapAngle(kPi + 0.1), -kPi + 0.1, kTol);
+  EXPECT_NEAR(wrapAngle(-kPi - 0.1), kPi - 0.1, kTol);
+  EXPECT_NEAR(wrapAngle(5.0 * kPi + 0.2), -kPi + 0.2, 1e-9);
+  EXPECT_NEAR(wrapAngle(-6.0 * kPi + 0.3), 0.3, 1e-9);
+  // The range is (-pi, pi]
+  EXPECT_NEAR(wrapAngle(kPi), kPi, kTol);
+  EXPECT_NEAR(wrapAngle(-kPi), kPi, kTol);
+}
+
 }  // namespace
 }  // namespace interceptor

@@ -65,6 +65,17 @@ inline Eigen::Vector4d rotToQuat(const Eigen::Matrix3d & R)
   return q.normalized();
 }
 
+// Wraps an angle to (-pi, pi]
+inline double wrapAngle(double angle)
+{
+  constexpr double kPi = 3.14159265358979323846;
+  angle = std::fmod(angle + kPi, 2.0 * kPi);
+  if (angle <= 0.0) {
+    angle += 2.0 * kPi;
+  }
+  return angle - kPi;
+}
+
 // Saturate vector magnitude
 inline Eigen::Vector3d saturateVector(const Eigen::Vector3d & v, double max_norm)
 {

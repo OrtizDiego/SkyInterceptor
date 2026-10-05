@@ -44,7 +44,7 @@ source /opt/ros/humble/setup.bash && source install/setup.bash
 ros2 run interceptor_drone stereo_sync_node
 ```
 
-**Tests:** `make test` runs the GTest unit tests in `interceptor_drone/test/` (`test_math_utils`, `test_mission`, `test_groundtruth_sensor`, `test_flight_dynamics`, `test_imm_filter`, `test_track_manager`, `test_frame_assembler`, `test_target_selector`) plus the ament linters (uncrustify, cpplint, cppcheck, flake8, pep257, lint_cmake, xmllint). `ament_copyright` is excluded because the sources have no license headers yet. GTest targets for guidance and controller are still commented out in `CMakeLists.txt` until those tests exist. To auto-fix C++ formatting inside the container: `ament_uncrustify --reformat src include test` (from the package directory).
+**Tests:** `make test` runs the GTest unit tests in `interceptor_drone/test/` (`test_math_utils`, `test_mission`, `test_groundtruth_sensor`, `test_flight_dynamics`, `test_imm_filter`, `test_track_manager`, `test_frame_assembler`, `test_target_selector`, `test_trajectory_controller`) plus the ament linters (uncrustify, cpplint, cppcheck, flake8, pep257, lint_cmake, xmllint). `ament_copyright` is excluded because the sources have no license headers yet. The GTest target for guidance is still commented out in `CMakeLists.txt` until those tests exist. To auto-fix C++ formatting inside the container: `ament_uncrustify --reformat src include test` (from the package directory).
 
 **CI:** `.github/workflows/ci.yml` runs on every PR and on pushes to `main`. It has two jobs: a fast static-checks job (yamllint, shellcheck, Python syntax) and a build-and-test job in the `ros:humble-perception` container (`colcon build` with `-Werror`, then `colcon test`). The container has no CUDA, so code must also build without GPU support.
 
@@ -67,7 +67,7 @@ Perception → Estimation → Guidance → Control → Platform
 | Perception | `groundtruth_target_node` | Gazebo entity poses (`/get_entity_state`) + noise, dropout and tree occlusion → `/target/detection_3d` (used when `perception_source:=groundtruth`) |
 | Estimation | `target_tracker_node` | IMM-EKF library: frames by stamp → tracks; `/tracks`, selected `/target/state`, `/tracks/markers` |
 | Guidance | `guidance_controller_node` | Proportional Navigation / Augmented PN (skeleton) |
-| Control | `trajectory_controller_node` | Cascade PID |
+| Control | `trajectory_controller_node` | `/setpoint/safe` + `/odom` → `/cmd_vel` (world-frame velocity + yaw rate): position PID with velocity feed-forward, anti-windup (integral zone, clamp, back-calculation), yaw P with rate limit, 0.3 s setpoint timeout. Logic in the ROS-free `control::TrajectoryController` (`include/control/`) |
 | Evasion | `evasion_controller_node` | Target evasion strategies (skeleton) |
 | Mission | `mission_manager_node` | Serves `/mission/set_mode` (`SetMissionMode`), latches `/mission/mode` (`MissionMode`, transient local); always starts disarmed |
 | Platform | `quadrotor_dynamics` (Gazebo plugin, `libquadrotor_dynamics_plugin.so`) | Rotor/aero/wind model + onboard flight controller; `/cmd_vel` in, `/odom` + TF out |
@@ -132,7 +132,7 @@ Every file uses `<node_name>: ros__parameters:` and is loaded by the launch file
 | `ekf_params.yaml` | process noise 0.3 / 1.0 / 0.2, IMM sets per class, transition matrices per 1 s, gate 0.99, 3-of-5, coast 2 s, frame grouping 5 ms / 10 ms, selection switch margin 3 m |
 | `groundtruth_params.yaml` | entities + classes, `rate_hz=30`, `pos_noise_std=0.2`, `dropout_prob=0.05`, tree occlusion cylinders |
 | `gazebo_params.yaml` | gzserver `/clock` rate (250 Hz; the 10 Hz default caps every sim-time timer) |
-| `controller_params.yaml` | PID gains and output limits (reserved for P2.1) |
+| `controller_params.yaml` | `kp/ki/kd_pos=1.0/0.05/0.2`, anti-windup (`integral_zone=2m`, `max_integral_velocity=1m/s`), `kp_yaw=1.5`, output limits, `setpoint_timeout=0.3s` |
 | `safety_params.yaml` | `d_min_horizontal=5.0`, speed caps 15 / 30 m/s |
 | `follow_params.yaml` | preset `BEHIND`, eligible `person, bicycle, car` |
 | `intercept_params.yaml` | `nav_constant=4.0`, `capture_radius=1.5`, eligible `uav` |
@@ -141,7 +141,7 @@ Every file uses `<node_name>: ros__parameters:` and is loaded by the launch file
 
 - `interceptor_full.launch.py` — Full system (simulation + perception + mission manager + guidance + control + RViz). Args: `mission_mode:=follow|intercept` (default follow), `perception_source:=vision|groundtruth` (default groundtruth; vision launches the perception pipeline)
 - `follow.launch.py` / `intercept.launch.py` — `interceptor_full` with the mode set
-- `simulation.launch.py` — Gazebo + drone (args: `gui`, `x`, `y`, `yaw`, `wind_x`, `wind_y`, `wind_z`, `wind_gust_stddev`)
+- `simulation.launch.py` — Gazebo + drone (args: `gui`, `x`, `y`, `yaw`, `wind_x`, `wind_y`, `wind_z`, `wind_gust_stddev`, `command_frame`: `heading` for the keyboard teleop (default), `world` for `trajectory_controller_node`; `interceptor_full` sets `world`)
 - `perception.launch.py` — Perception pipeline only (`perception_source:=vision`)
 - `groundtruth.launch.py` — `groundtruth_target_node` only (`perception_source:=groundtruth`)
 - `guidance.launch.py` — Tracker, plus the guidance node in intercept mode

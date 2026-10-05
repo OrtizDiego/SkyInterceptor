@@ -156,6 +156,8 @@ Done when, with perception_source:=groundtruth, /target/state follows the walkin
 
 ### P2.1 – Trajectory controller
 
+> **Done.** The optional velocity loop was left out: the drone's onboard flight controller closes it. `/cmd_vel` is world frame, so the simulation is launched with `command_frame:=world` by `interceptor_full`.
+
 ```
 Task: implement trajectory_controller_node (plan §4.5).
 
