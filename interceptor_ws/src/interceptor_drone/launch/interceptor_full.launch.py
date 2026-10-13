@@ -22,7 +22,8 @@ def generate_launch_description():
 
     simulation = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(os.path.join(launch_dir, 'simulation.launch.py')),
-        launch_arguments={'use_sim_time': use_sim_time}.items()
+        # trajectory_controller_node commands world-frame velocities
+        launch_arguments={'use_sim_time': use_sim_time, 'command_frame': 'world'}.items()
     )
 
     # Vision pipeline: stereo + YOLO + 3D localizer -> /target/detection_3d

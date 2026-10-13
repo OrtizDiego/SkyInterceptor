@@ -41,6 +41,7 @@ include_directories(
 add_library(${PROJECT_NAME}_lib SHARED
   src/common/math_utils.cpp
   src/common/mission.cpp
+  src/control/trajectory_controller.cpp
   src/perception/groundtruth_sensor.cpp
 )
 
@@ -139,7 +140,7 @@ ament_target_dependencies(guidance_controller_node rclcpp geometry_msgs intercep
 
 # Control nodes
 add_executable(trajectory_controller_node src/control/trajectory_controller_node.cpp)
-target_link_libraries(trajectory_controller_node ${PROJECT_NAME}_lib)
+target_link_libraries(trajectory_controller_node ${PROJECT_NAME}_lib ${PROJECT_NAME}_flight)
 ament_target_dependencies(trajectory_controller_node rclcpp geometry_msgs nav_msgs interceptor_interfaces)
 
 # Mission node
@@ -255,8 +256,8 @@ if(BUILD_TESTING)
   # ament_add_gtest(test_guidance test/test_guidance.cpp)
   # target_link_libraries(test_guidance ${PROJECT_NAME}_lib)
 
-  # ament_add_gtest(test_controller test/test_controller.cpp)
-  # target_link_libraries(test_controller ${PROJECT_NAME}_lib)
+  ament_add_gtest(test_trajectory_controller test/test_trajectory_controller.cpp)
+  target_link_libraries(test_trajectory_controller ${PROJECT_NAME}_lib ${PROJECT_NAME}_flight)
 endif()
 
 ament_export_include_directories(include)

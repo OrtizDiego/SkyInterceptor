@@ -44,7 +44,7 @@ The project now has **two mission modes** that share one perception → tracking
 | `target_3d_localizer` | ✅ Done | Needs a TF path from the camera frame to `map` (not published yet: no odometry) |
 | `target_tracker_node` | ✅ Done (P1.1, P1.2) | IMM-EKF library `interceptor_drone_estimation` with tests, node publishes `/tracks`, the selected `/target/state` and `/tracks/markers`; detections are grouped into frames by stamp (`docs/TRACKER.md`). Not yet run against `groundtruth_target_node` in Gazebo |
 | `guidance_controller_node` | ❌ Stub | Replaced by `follow_planner_node` and `intercept_guidance_node` |
-| `trajectory_controller_node` | ❌ Stub | |
+| `trajectory_controller_node` | ✅ Done (P2.1) | `/setpoint/safe` + `/odom` → `/cmd_vel`. ROS-free `control::TrajectoryController` with tests, also closed-loop on the 6-DOF model |
 | `hector_interface_node` | 🗑️ Deleted | Superseded by the `quadrotor_dynamics` Gazebo plugin |
 | `evasion_controller_node` | ❌ Stub | Becomes `target_drone_behavior_node` |
 | Simulation | ✅ Flies | `quadrotor_dynamics` Gazebo plugin: rotor thrust and torques, motor lag, airframe and rotor drag, wind with gusts, ground effect, plus an onboard velocity → attitude → rate controller. Publishes `/odom` and TF. Keyboard teleop node. See `docs/FLIGHT_DYNAMICS.md`. World has a walking `target_person` actor and no target drone |
@@ -91,7 +91,7 @@ The project now has **two mission modes** that share one perception → tracking
 | `follow_planner_node` (new) | | FOLLOW |
 | `intercept_guidance_node` (replaces `guidance_controller_node`) | | INTERCEPT |
 | `safety_filter_node` (new) | | both |
-| `trajectory_controller_node` | implement | both |
+| `trajectory_controller_node` | ✅ done | both |
 | `quadrotor_dynamics` Gazebo plugin (replaces `hector_interface_node`) | ✅ done | both |
 | `target_drone_behavior_node` (replaces `evasion_controller_node`) | | INTERCEPT sim only |
 
@@ -150,8 +150,9 @@ The project now has **two mission modes** that share one perception → tracking
 - The keep-out barrier from §4.3 stays active in INTERCEPT mode for all people, vehicles and obstacles. The intercept path may be bent or stopped by it.
 
 ### 4.5 Trajectory controller (shared)
-- Cascade: position P(ID) → velocity PID → acceleration command, with feed-forward of the setpoint velocity and acceleration. Anti-windup by clamping and back-calculation.
-- Output `/cmd_vel` (Twist: linear velocity and yaw rate). The plugin reads it in the heading frame by default, like teleop; set its `<command_frame>` to `world` if the controller outputs world-frame velocities.
+- Position PID → velocity command: `v = v_ff + kp·e + I + kd·(v_ff − v)`. The drone's onboard flight controller already closes the velocity loop (§4.6), so the controller stops at the velocity command; the setpoint acceleration is not used. With `position_valid = false` the setpoint velocity is tracked directly. Yaw: P on the wrapped error plus the yaw-rate feed-forward, rate limited. Zero velocity when no setpoint arrived for 0.3 s or `/odom` is stale.
+- Anti-windup: the integral only accumulates within `integral_zone` of the setpoint (a long approach would otherwise overshoot), is clamped, and back-calculation unwinds it while the output is saturated. It is reset on a change of setpoint source, of `position_valid`, and of the mission mode.
+- Output `/cmd_vel` (Twist: world-frame linear velocity and yaw rate). The plugin reads it in the heading frame by default, like teleop; `interceptor_full` launches the simulation with `command_frame:=world`.
 
 ### 4.6 Simulated drone (`quadrotor_dynamics` Gazebo plugin) ✅
 - Force-based model instead of the planned kinematic bridge. Every 1 ms physics step, an onboard flight controller (velocity PI → attitude P → body-rate PI → mixer) turns `/cmd_vel` into rotor speeds. A motor and aerodynamic model (thrust k_f·ω², reaction torque, rotor and airframe drag, wind with gusts, ground effect) then applies force and torque to `base_link`, and Gazebo integrates the rigid body with collisions.

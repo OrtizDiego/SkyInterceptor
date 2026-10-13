@@ -27,6 +27,7 @@ def generate_launch_description():
         ' wind_y:=', LaunchConfiguration('wind_y'),
         ' wind_z:=', LaunchConfiguration('wind_z'),
         ' wind_gust_stddev:=', LaunchConfiguration('wind_gust_stddev'),
+        ' command_frame:=', LaunchConfiguration('command_frame'),
     ]), value_type=str)
 
     # Gazebo launch
@@ -102,6 +103,10 @@ def generate_launch_description():
         DeclareLaunchArgument(
             'wind_gust_stddev', default_value='0.0',
             description='Turbulence intensity (std. dev. of the gusts) [m/s]'),
+        DeclareLaunchArgument(
+            'command_frame', default_value='heading', choices=['heading', 'world'],
+            description='Frame of /cmd_vel: heading (keyboard teleop) or world '
+                        '(trajectory_controller_node)'),
         gazebo,
         spawn_drone,
         static_tf,

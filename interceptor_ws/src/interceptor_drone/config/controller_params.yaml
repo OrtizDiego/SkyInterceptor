@@ -1,15 +1,17 @@
-# Trajectory controller (plan §4.5)
-# Reserved for P2.1: trajectory_controller_node is still a stub and reads none of these yet.
-# Speed caps, altitude limits and the geofence belong to safety_params.yaml.
+# Trajectory controller (plan 4.5): /setpoint/safe + /odom -> /cmd_vel
+# Speed caps, altitude limits and the geofence belong to safety_params.yaml; the limits
+# below only bound the controller output.
 trajectory_controller_node:
   ros__parameters:
     rate_hz: 50.0
 
-    # Position loop: velocity command = v_ff + PID(position error)
+    # Position loop: velocity command = v_ff + kp*e + I + kd*(v_ff - v)
     kp_pos: 1.0
-    ki_pos: 0.05
-    kd_pos: 0.2
-    max_pos_integral: 2.0           # m*s, anti-windup clamp
+    ki_pos: 0.05                    # 1/s^2, I accumulates ki*e
+    kd_pos: 0.2                     # damping on the velocity error
+    kb_antiwindup: 2.0              # 1/s, back-calculation gain while the output is saturated
+    max_integral_velocity: 1.0      # m/s, clamp on the integral term
+    integral_zone: 2.0              # m, the integral only accumulates inside this error
 
     # Yaw loop
     kp_yaw: 1.5
@@ -20,3 +22,4 @@ trajectory_controller_node:
     max_yaw_rate: 1.5               # rad/s
 
     setpoint_timeout: 0.3           # s, then command zero velocity
+    odom_timeout: 0.3               # s, stale /odom also commands zero velocity

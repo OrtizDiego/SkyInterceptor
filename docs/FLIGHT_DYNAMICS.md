@@ -112,7 +112,7 @@ ros2 topic pub --once /drone/set_wind geometry_msgs/msg/Vector3 "{x: 6.0, y: 0.0
 
 | Topic | Type | Direction |
 |---|---|---|
-| `/cmd_vel` | `geometry_msgs/Twist` | in: velocity setpoint, heading frame (set `<command_frame>world</command_frame>` for the world frame) |
+| `/cmd_vel` | `geometry_msgs/Twist` | in: velocity setpoint, heading frame (launch with `command_frame:=world` for the world frame, as `trajectory_controller_node` needs) |
 | `/drone/arm` | `std_msgs/Bool` | in: arm / disarm |
 | `/drone/set_wind` | `geometry_msgs/Vector3` | in: mean wind [m/s], world frame |
 | `/odom` | `nav_msgs/Odometry` | out, 100 Hz: ground-truth pose; twist in the body frame |
