@@ -46,7 +46,7 @@ source /opt/ros/humble/setup.bash && source install/setup.bash
 ros2 run interceptor_drone stereo_sync_node
 ```
 
-**Tests:** `make test` runs the GTest unit tests in `interceptor_drone/test/` (`test_math_utils`, `test_mission`, `test_groundtruth_sensor`, `test_flight_dynamics`, `test_imm_filter`, `test_track_manager`, `test_frame_assembler`, `test_target_selector`, `test_trajectory_controller`) plus the ament linters (uncrustify, cpplint, cppcheck, flake8, pep257, lint_cmake, xmllint). `ament_copyright` is excluded because the sources have no license headers yet. The GTest target for guidance is still commented out in `CMakeLists.txt` until those tests exist. To auto-fix C++ formatting inside the container: `ament_uncrustify --reformat src include test` (from the package directory).
+**Tests:** `make test` runs the GTest unit tests in `interceptor_drone/test/` (`test_math_utils`, `test_mission`, `test_groundtruth_sensor`, `test_flight_dynamics`, `test_imm_filter`, `test_track_manager`, `test_frame_assembler`, `test_target_selector`, `test_trajectory_controller`, `test_safety_filter`) plus the ament linters (uncrustify, cpplint, cppcheck, flake8, pep257, lint_cmake, xmllint). `ament_copyright` is excluded because the sources have no license headers yet. The GTest target for guidance is still commented out in `CMakeLists.txt` until those tests exist. To auto-fix C++ formatting inside the container: `ament_uncrustify --reformat src include test` (from the package directory).
 
 **CI:** `.github/workflows/ci.yml` runs on every PR and on pushes to `main`. It has two jobs: a fast static-checks job (yamllint, shellcheck, Python syntax) and a build-and-test job in the `ros:humble-perception` container (`colcon build` with `-Werror`, then `colcon test`). The container has no CUDA, so code must also build without GPU support.
 
@@ -69,6 +69,7 @@ Perception → Estimation → Guidance → Control → Platform
 | Perception | `groundtruth_target_node` | Gazebo entity poses (`/get_entity_state`) + noise, dropout and tree occlusion → `/target/detection_3d` (used when `perception_source:=groundtruth`) |
 | Estimation | `target_tracker_node` | IMM-EKF library: frames by stamp → tracks; `/tracks`, selected `/target/state`, `/tracks/markers` |
 | Guidance | `guidance_controller_node` | PN / augmented PN on the line of sight, phase machine SEARCH → PURSUE → CAPTURE → DONE |
+| Safety | `safety_filter_node` | `/setpoint/raw` + `/tracks` + `/odom` → `/setpoint/safe`: keep-out barrier for every person/vehicle track and static obstacle (inflated by the track covariance), speed/altitude/geofence limits, latching e-stop, INTERCEPT engagement gate. Logic in the ROS-free `safety::SafetyFilter` (`include/safety/`) |
 | Simulation | `target_drone_behavior_node` | Flies the target drone (the intruder) with an accelerating, curving profile, kinematically through `/set_entity_state` |
 | Control | `trajectory_controller_node` | `/setpoint/safe` + `/odom` → `/cmd_vel` (world-frame velocity + yaw rate): position PID with velocity feed-forward, anti-windup (integral zone, clamp, back-calculation), yaw P with rate limit, 0.3 s setpoint timeout. Logic in the ROS-free `control::TrajectoryController` (`include/control/`) |
 | Evasion | `evasion_controller_node` | Target evasion strategies (skeleton) |
@@ -107,6 +108,20 @@ Its defaults match `config/ekf_params.yaml`; they were tuned on the synthetic tr
 `guidance_controller_node` wraps it: the SEARCH → PURSUE → CAPTURE → DONE phase machine, the engagement gate, the setpoint and the `GuidanceCommand` telemetry. The capture is detected, not flown: switching to a relative-velocity match inside the capture radius loses the lateral correction and the range then oscillates instead of shrinking.
 
 The guidance also commands the yaw: the stereo camera hangs off the front of the airframe, so the nose has to follow the target for the cameras to see it. The yaw setpoint is the bearing of the target in the world frame.
+
+### Safety filter library
+
+`interceptor_drone_safety` (`include/safety/`, `src/safety/`) is plain C++/Eigen with no ROS dependency, like the flight and estimation libraries:
+- `safety_filter.hpp` — the keep-out barrier and the flight limits. The barrier is a half-space in the *velocity*, because the controller flies a velocity loop.
+
+**The barrier is relative degree 2, not 1.** The plan's condition `ḣ ≥ −α·h` constrains the
+*commanded* velocity, but the distance depends on the *achieved* velocity, and the
+autopilot's velocity loop lags: the time constant measured on the X500 flight model is
+0.34 s. The relative degree 1 form overshoots the keep-out margin by up to 6 m against a
+5 m standoff, so the filter takes the stricter of the plan's bound and the lag correction
+`c_cmd ≤ c·(1 − 2ω·τ) + ω²·τ·h`. `velocity_lag_tau` and `barrier_omega` are in
+`config/safety_params.yaml`; `docs/SAFETY.md` has the sweep and says what to re-check
+after changing them.
 
 ### TF structure
 
@@ -170,7 +185,7 @@ Every file uses `<node_name>: ros__parameters:` and is loaded by the launch file
 | `groundtruth_params.yaml` | entities + classes, `rate_hz=30`, `pos_noise_std=0.2`, `dropout_prob=0.05`, tree occlusion cylinders |
 | `gazebo_params.yaml` | gzserver `/clock` rate (250 Hz; the 10 Hz default caps every sim-time timer) |
 | `controller_params.yaml` | `kp/ki/kd_pos=1.0/0.05/0.2`, anti-windup (`integral_zone=2m`, `max_integral_velocity=1m/s`), `kp_yaw=1.5`, output limits, `setpoint_timeout=0.3s` |
-| `safety_params.yaml` | `d_min_horizontal=5.0`, speed caps 15 / 30 m/s |
+| `safety_params.yaml` | `d_min_horizontal=5.0`, `d_obstacle_min=3.0`, speed caps 15 / 30 m/s, the obstacle list (the trees and benches of the world file), `velocity_lag_tau=0.5` and `barrier_omega=3.0` (the lag correction, `docs/SAFETY.md`) |
 | `follow_params.yaml` | preset `BEHIND`, eligible `person, bicycle, car` |
 | `intercept_params.yaml` | `guidance.law=apn` (`pn`/`apn`), `nav_constant=4.0`, `max_accel=15`, `target_accel_gain=0.5` (the textbook (N/2) factor), `capture_radius=1.5`, `capture_max_rel_speed=5.0`, eligible `uav`; `target_drone_behavior_node`: `final_speed=6`, `accel_time=4`, `turn_rate=1.2` |
 
@@ -193,12 +208,15 @@ interceptor_ws/
       include/common/           # Shared headers (types, params, math)
       include/flight/           # Flight dynamics headers
       include/estimation/       # IMM-EKF and track management headers
+      include/control/          # Trajectory controller headers
+      include/safety/           # Safety filter headers
       src/
         common/                 # Shared library sources
         perception/             # stereo_sync, depth_processor, 3d_localizer, target_detector.py, groundtruth_target_node
         estimation/             # IMM-EKF library (no ROS) + target_tracker_node
         guidance/               # guidance_controller_node (PN)
         control/                # trajectory_controller
+        safety/                 # safety filter library (no ROS) + safety_filter_node
         evasion/                # evasion_controller_node
         mission/                # mission_manager_node
         flight/                 # flight dynamics library (no ROS)

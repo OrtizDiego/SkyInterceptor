@@ -7,17 +7,16 @@
  *
  *     SEARCH -> PURSUE (PN or APN) -> CAPTURE -> DONE
  *
- * and publishes the resulting setpoint on /setpoint/raw and /setpoint/safe, plus
- * GuidanceCommand telemetry.
+ * and publishes the resulting setpoint on /setpoint/raw, plus GuidanceCommand telemetry.
  *
  * The guidance law itself lives in the ROS-free library include/guidance/pn_guidance.hpp.
  * This node only does the plumbing: the phase logic, the setpoint, the telemetry and
  * the arming of the drone.
  *
- * /setpoint/raw and /setpoint/safe carry the same setpoint because safety_filter_node
- * does not exist yet (plan 2.2): without it there is nothing between the planner and
- * the trajectory controller. When the safety filter lands it takes over /setpoint/raw
- * and this node must stop publishing on /setpoint/safe.
+ * The setpoint goes on /setpoint/raw only. safety_filter_node (plan 2.2) is between the
+ * planner and the trajectory controller and has the final say, so it owns /setpoint/safe.
+ * Publishing on both would put two publishers on the topic the controller reads, and the
+ * controller would sometimes fly an unfiltered setpoint.
  */
 
 #include <Eigen/Geometry>
@@ -96,7 +95,6 @@ public:
     const double rate_hz = declare_parameter("rate_hz", 50.0);
 
     pub_setpoint_raw_ = create_publisher<FlightSetpointMsg>("/setpoint/raw", 10);
-    pub_setpoint_safe_ = create_publisher<FlightSetpointMsg>("/setpoint/safe", 10);
     pub_command_ = create_publisher<GuidanceCommandMsg>("/guidance/command", 10);
     pub_arm_ = create_publisher<BoolMsg>("/drone/arm", 10);
     pub_markers_ = create_publisher<visualization_msgs::msg::MarkerArray>(
@@ -377,10 +375,8 @@ private:
     msg.yaw_rate = 0.0;
     msg.source = FlightSetpointMsg::SOURCE_INTERCEPT;
 
-    // safety_filter_node does not exist yet: the raw setpoint is also published on
-    // /setpoint/safe so the trajectory controller can use it.
+    // Only the raw setpoint: safety_filter_node owns /setpoint/safe.
     pub_setpoint_raw_->publish(msg);
-    pub_setpoint_safe_->publish(msg);
   }
 
   /// The heading that points the interceptor's nose at the target.
@@ -548,7 +544,6 @@ private:
   bool arm_on_start_ = true;
 
   rclcpp::Publisher<FlightSetpointMsg>::SharedPtr pub_setpoint_raw_;
-  rclcpp::Publisher<FlightSetpointMsg>::SharedPtr pub_setpoint_safe_;
   rclcpp::Publisher<GuidanceCommandMsg>::SharedPtr pub_command_;
   rclcpp::Publisher<BoolMsg>::SharedPtr pub_arm_;
   rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr pub_markers_;

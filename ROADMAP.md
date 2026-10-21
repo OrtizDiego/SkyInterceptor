@@ -106,12 +106,12 @@ Any agent or person can read and edit this file: Claude Code, Codex, Cursor, a s
 
 ### P2.2 – Safety filter
 
-- **Status:** todo
+- **Status:** review
 - **Depends on:** P2.1, P1.2
-- **PR:** —
-- **Branch:** —
+- **PR:** 21
+- **Branch:** feat/p2-2-safety-filter
 - **Scope:** safety_filter_node: keep-out CBF for every person/vehicle track and static obstacle, covariance inflation, speed/altitude/geofence limits, e-stop, INTERCEPT gate hook; randomized property test.
-- **Notes:** —
+- **Notes:** ROS-free `safety::SafetyFilter` in `include/safety/` with 24 gtests; the node is the thin ROS wrapper (`/setpoint/raw` -> `/setpoint/safe`, `/mission/status`, `/safety/keepouts` markers). Verified: clean `colcon build` with `-Werror` and `colcon test` in the container, 345 tests, 0 failures, all ament linters green. The plan's barrier had to be made relative degree 2: it constrains the *commanded* velocity, but the distance depends on the *achieved* one and the autopilot's velocity loop lags (measured 0.34 s on the X500 flight model), so the relative degree 1 form overshoots the keep-out by up to 6 m against a 5 m standoff. The filter now takes the stricter of the plan's bound and a lag correction, and a randomized property test closes the loop through the lag to check the distance never drops below d_min. Still open: P3.4 adds the altitude and geofence conditions to the engagement gate and the abort logic; the gate here only checks the mode, the arming and the class of the selected target. Not yet run in Gazebo.
 
 ### P2.3 – Follow planner
 
@@ -169,7 +169,7 @@ Any agent or person can read and edit this file: Claude Code, Codex, Cursor, a s
 - **PR:** 22
 - **Branch:** demo/interception-drone
 - **Scope:** intercept_guidance_node: phases, APN, capture logic, GuidanceCommand telemetry.
-- **Notes:** The law lives in a ROS-free library (pure PN and augmented PN with the (N/2) * a_T_perp term, validated by a numerical sweep). guidance_controller_node runs SEARCH -> PURSUE -> CAPTURE -> DONE with the engagement gate and the GuidanceCommand telemetry, and commands the yaw so the stereo cameras keep the intruder in frame. Still open: the capture is detected, not flown - the interceptor reaches the capture envelope at about 1.3 m but at 12 m/s relative speed, above the 5 m/s limit, so the terminal law for the last few metres is the open problem. The node is still called guidance_controller_node rather than the planned intercept_guidance_node, and it does not depend on P2.2 yet: safety_filter_node does not exist, so the guidance publishes the same setpoint on /setpoint/raw and /setpoint/safe.
+- **Notes:** The law lives in a ROS-free library (pure PN and augmented PN with the (N/2) * a_T_perp term, validated by a numerical sweep). guidance_controller_node runs SEARCH -> PURSUE -> CAPTURE -> DONE with the engagement gate and the GuidanceCommand telemetry, and commands the yaw so the stereo cameras keep the intruder in frame. Still open: the capture is detected, not flown - the interceptor reaches the capture envelope at about 1.3 m but at 12 m/s relative speed, above the 5 m/s limit, so the terminal law for the last few metres is the open problem. The node is still called guidance_controller_node rather than the planned intercept_guidance_node. With P2.2 merged (PR 21) the guidance now publishes only on /setpoint/raw and the safety filter owns /setpoint/safe, so the two are in series instead of the guidance writing both.
 
 ### P3.4 – Engagement gate and abort
 
