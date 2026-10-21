@@ -1,9 +1,14 @@
 # SkyInterceptor – Implementation Plan v2.1
 
 **Version:** 2.1
-**Last Updated:** 2026-10-03
+**Last Updated:** 2026-10-21
 **Platform:** Simulation (ROS 2 Humble + Gazebo Classic 11)
 **Replaces:** v1.0 (2026-02-05)
+
+> **Progress is tracked in [`ROADMAP.md`](ROADMAP.md)**, not here: it says which task is
+> done and what is still open, and it wins over this document if the two disagree.
+> `python3 scripts/roadmap.py ready` lists the tasks whose dependencies are met.
+> This document says *how* each task works.
 
 ---
 
@@ -31,28 +36,32 @@ The project now has **two mission modes** that share one perception → tracking
 
 ---
 
-## 2. Status quo (2026-09-24)
+## 2. Status quo (2026-10-21)
 
 | Area | State | Notes |
 |---|---|---|
 | Docker image | ✅ Builds | `make build` (log written to `logs/docker-build.log`, not committed) |
-| Workspace build | ❓ Never verified | No `colcon build` on record. Humble header and include fixes pushed in `feat/funny-albattani-l2q2c6` |
+| Workspace build | ✅ Green | `colcon build` clean in the container; CI builds with `-Werror` on every PR (green on `main`) |
 | Interfaces | ✅ Done (P0.2) | `TargetStateArray`, `FlightSetpoint`, `MissionMode`, `MissionStatus`, `SetMissionMode` added; class constants in `TargetDetection` |
 | `stereo_sync_node` | ✅ Done | Timestamp bug fixed (kept the capture stamp) |
 | `stereo_depth_processor` | ✅ Done (CPU) | SGBM + WLS on CPU, realistically 10–20 FPS rather than 60. Needs `opencv_ximgproc` (contrib) in the image |
-| `target_detector.py` | ✅ Done | COCO person/car/truck on **CPU**. No `bicycle`, and COCO has no drone class |
+| `target_detector.py` | ✅ Done | COCO person/car/truck, CUDA when available with a CPU fallback. No `bicycle`, and COCO has no drone class |
 | `target_3d_localizer` | ✅ Done | Needs a TF path from the camera frame to `map` (not published yet: no odometry) |
 | `target_tracker_node` | ✅ Done (P1.1, P1.2) | IMM-EKF library `interceptor_drone_estimation` with tests, node publishes `/tracks`, the selected `/target/state` and `/tracks/markers`; detections are grouped into frames by stamp (`docs/TRACKER.md`). Not yet run against `groundtruth_target_node` in Gazebo |
 | `guidance_controller_node` | ❌ Stub | Replaced by `follow_planner_node` and `intercept_guidance_node` |
 | `trajectory_controller_node` | ✅ Done (P2.1) | `/setpoint/safe` + `/odom` → `/cmd_vel`. ROS-free `control::TrajectoryController` with tests, also closed-loop on the 6-DOF model |
 | `hector_interface_node` | 🗑️ Deleted | Superseded by the `quadrotor_dynamics` Gazebo plugin |
 | `evasion_controller_node` | ❌ Stub | Becomes `target_drone_behavior_node` |
+| `safety_filter_node` | ❌ Not built | The next task (P2.2). Nothing sits between the planner and the controller yet |
 | Simulation | ✅ Flies | `quadrotor_dynamics` Gazebo plugin: rotor thrust and torques, motor lag, airframe and rotor drag, wind with gusts, ground effect, plus an onboard velocity → attitude → rate controller. Publishes `/odom` and TF. Keyboard teleop node. See `docs/FLIGHT_DYNAMICS.md`. World has a walking `target_person` actor and no target drone |
 | Parameters | ✅ Done (P0.2) | Launch files load `config/*.yaml` (`<node>: ros__parameters:`); keys for stub nodes are marked reserved for their task. Static `Parameters` class removed. `mission_mode` and `perception_source` launch args |
 | `mission_manager_node` | ✅ Done (P0.2) | Serves `/mission/set_mode`, latches `/mission/mode` (`MissionMode`, transient local). Starts disarmed; only INTERCEPT can be armed |
-| Tests | ❌ None | gtest targets are commented out in `CMakeLists.txt` |
+| Tests | ✅ 355 passing | 9 gtest binaries (common, estimation, flight, control) plus the ament linters. `test_guidance` and a safety test do not exist yet |
 
-**Critical path:** the drone can't fly and nothing downstream of perception exists. The fastest route is (1) a kinematic flyable drone, (2) a ground-truth target source so control work doesn't wait for vision, (3) FOLLOW mode end-to-end, then (4) INTERCEPT mode.
+**Critical path:** the tracker, the drone and the controller are done; what is missing is
+the layer between them. `safety_filter_node` (P2.2) has to come before the planners
+(P2.3, P3.3), because the safety distance is the top-level rule and it is enforced
+there — no planner may be flown until something with the final say sits in the loop.
 
 ---
 
@@ -90,7 +99,7 @@ The project now has **two mission modes** that share one perception → tracking
 | `mission_manager_node` (new) | ✅ done: `/mission/set_mode` → latched `/mission/mode` | both |
 | `follow_planner_node` (new) | | FOLLOW |
 | `intercept_guidance_node` (replaces `guidance_controller_node`) | | INTERCEPT |
-| `safety_filter_node` (new) | | both |
+| `safety_filter_node` (new) | P2.2, next | both |
 | `trajectory_controller_node` | ✅ done | both |
 | `quadrotor_dynamics` Gazebo plugin (replaces `hector_interface_node`) | ✅ done | both |
 | `target_drone_behavior_node` (replaces `evasion_controller_node`) | | INTERCEPT sim only |
@@ -137,6 +146,23 @@ The project now has **two mission modes** that share one perception → tracking
 - Publishes `MissionStatus` with `safety_active=true` whenever it modifies the command.
 - INTERCEPT engagement gate (§4.4) is also enforced here, so a planner bug cannot bypass it.
 
+**Implementation notes (P2.2).** The barrier is a half-space in the *velocity*, because the
+controller flies a velocity loop: `n·(v_xy − v_t,xy) ≥ −α·h` becomes `n·v_xy ≥ b` with
+`b = n·v_t,xy − α·h`. Several half-spaces are satisfied by sequential projection
+(projection onto convex sets), iterating until every one holds or `max_projection_iterations`
+(10) are used up. `h < 0` — the drone already inside the keep-out — makes `b` positive, so
+the constraint pushes the drone back out instead of only braking.
+
+The filter always works on velocity: a position setpoint is converted first
+(`v = kp·(p_sp − p) + v_ff`, with `kp` the controller's `kp_pos`), and the output always
+carries `position_valid = false`, so the controller tracks the *filtered* velocity instead
+of adding its own position term on top of it.
+
+Precedence when limits and the keep-out disagree: **the keep-out wins** and the conflict is
+reported in `MissionStatus.reason`. The speed cap is applied to the requested velocity
+before the projection, and again afterwards, but never at the cost of a barrier.
+
+
 ### 4.4 INTERCEPT guidance
 - Phases: `SEARCH` (loiter or scan) → `PURSUE` (APN) → `CAPTURE` → `DONE` / `ABORT`.
 - PURSUE: augmented PN on the line of sight, using standard textbook forms (`a = N'·V_c·ω + (N'/2)·a_t⊥`), with N' ∈ [3, 5] and saturation at `max_accel`.
@@ -164,25 +190,27 @@ The project now has **two mission modes** that share one perception → tracking
 ## 5. Phases (fastest path)
 
 Estimates assume one developer. The dependency graph below shows what can run in parallel.
+The ✅ marks say what is merged; `ROADMAP.md` says what is *open* in each task, including
+the parts of a merged task that are still missing.
 
 ### Phase 0 – Build, fly, and decouple (blocking, ~3–4 days)
-- **0.1** Get `colcon build` green in the container. Fix compile and link errors (ximgproc availability, include paths). Add `scripts/check.sh` that runs build and tests.
+- **0.1** ✅ Get `colcon build` green in the container. Fix compile and link errors (ximgproc availability, include paths). CI builds with `-Werror` and runs the tests on every PR. Still open: `scripts/check.sh` and a `make check` target.
 - **0.2** ✅ Interface changes from §3. Move all launch parameters into `config/*.yaml`, load them from launch files, and delete keys that aren't used. Add launch arg `mission_mode:=follow|intercept` and new files `follow_params.yaml`, `intercept_params.yaml`, `safety_params.yaml`.
 - **0.3** ✅ Flyable drone + TF + `/odom`: done with the `quadrotor_dynamics` plugin and `drone_teleop_keyboard.py`. `hector_interface_node` deleted.
 - **0.4** ✅ `groundtruth_target_node`: target poses from Gazebo (`/get_entity_state` for the `target_person` actor and `target_drone`) with configurable Gaussian noise and dropout. It publishes `TargetDetection` on `/target/detection_3d`. Selected by `perception_source`.
-- **0.5** Re-enable gtest in CMake with one smoke test per library.
+- **0.5** ✅ Re-enable gtest in CMake with one smoke test per library. Still open: a guidance test and a safety test (neither library exists yet).
 
 **Exit:** `make build-ws && make test` passes. With `teleop_twist_keyboard` publishing to `/cmd_vel`, the drone flies in Gazebo and RViz shows its TF and odometry.
 
 ### Phase 1 – Tracker (~2–3 days, after 0.2)
-- **1.1** IMM-EKF library (`include/estimation/`, `src/estimation/`), pure C++ with no ROS dependency, plus unit tests on synthetic trajectories.
+- **1.1** ✅ IMM-EKF library (`include/estimation/`, `src/estimation/`), pure C++ with no ROS dependency, plus unit tests on synthetic trajectories.
 - **1.2** ✅ `target_tracker_node`: multi-track, publishes `/tracks` and the selected `/target/state`, plus RViz markers. Groups single-detection messages into frames by stamp.
 
 **Exit:** on synthetic CV, CA and turn trajectories, position RMSE < 0.3 m at σ_meas = 0.3 m. The track survives a 2 s dropout.
 
 ### Phase 2 – FOLLOW mode (first demo, ~5 days)
-- **2.1** `trajectory_controller_node` (shared).
-- **2.2** `safety_filter_node` (keep-out CBF for tracks and static obstacles, covariance inflation, limits, e-stop), with unit tests for the projection.
+- **2.1** ✅ `trajectory_controller_node` (shared).
+- **2.2** ⬅️ **next** `safety_filter_node` (keep-out CBF for tracks and static obstacles, covariance inflation, limits, e-stop), with unit tests for the projection.
 - **2.3** `follow_planner_node` (presets, heading smoothing, lost-track handling).
 - **2.4** World scenarios: walking person (1.4 m/s), jogger (4 m/s) with turns, occlusion behind trees, plus a second bystander actor. Add a `metrics_recorder` script that computes min distance (to every person, vehicle and obstacle), framing error and track retention from a rosbag.
 - **2.5** Vision in the loop: `perception_source:=vision`, add COCO class 1 (`bicycle`), run YOLO on CUDA.
@@ -211,6 +239,8 @@ Estimates assume one developer. The dependency graph below shows what can run in
                          0.3 ─► 3.1 ─► 3.2 (parallel with Phase 2)
 ```
 
+**Ready to start now:** 2.2 and 3.1 (see `python3 scripts/roadmap.py ready`).
+
 Parallel agents after 0.2: {0.3, 0.4, 1.1, 0.5}. After 0.3: {2.1, 3.1}. Wall clock with 3–4 parallel agents: about **2–2.5 weeks**. One developer, sequential: about **4 weeks**.
 
 ---
@@ -233,6 +263,10 @@ safety:
   setpoint_timeout: 0.3        # s
   odom_timeout: 0.3            # s
   speed_cap: {follow: 15.0, intercept: 30.0}
+  coast_timeout: 2.0           # s, a stale track keeps its keep-out this long
+  max_projection_iterations: 10
+  kp_pos: 1.0                  # the controller's gain, to turn a position setpoint into a velocity
+```
 
 # follow_params.yaml
 follow:
