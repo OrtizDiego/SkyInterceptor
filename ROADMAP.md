@@ -26,12 +26,12 @@ Any agent or person can read and edit this file: Claude Code, Codex, Cursor, a s
 
 ### P0.1 – Make the workspace build
 
-- **Status:** in_progress
+- **Status:** done
 - **Depends on:** —
-- **PR:** —
+- **PR:** 23
 - **Branch:** feat/p0-1-build-and-check
 - **Scope:** Get colcon build green in the container, fix warnings, add scripts/check.sh and a make check target.
-- **Notes:** Build is green: CI builds with -Werror and runs colcon test on every PR (PR #3, #4). scripts/check.sh and `make check` are written (they mirror CI in a scratch workspace inside the container, so they test the checkout you point them at even when the container's src is mounted from elsewhere); they are being verified now.
+- **Notes:** Build is green: CI builds with -Werror and runs colcon test on every PR (PR #3, #4). `scripts/check.sh` and `make check` are the local mirror of CI: the static checks, then a `-Werror` build and the full test suite, run in a scratch workspace inside the container so the check tests the tree it is pointed at and leaves the shared build volumes alone. Verified: 392 tests, 0 failures, all linters green.
 
 ### P0.2 – Interfaces, parameters, mission mode
 
@@ -62,12 +62,12 @@ Any agent or person can read and edit this file: Claude Code, Codex, Cursor, a s
 
 ### P0.5 – Test infrastructure
 
-- **Status:** in_progress
+- **Status:** done
 - **Depends on:** P0.2
-- **PR:** —
+- **PR:** 23
 - **Branch:** feat/p0-1-build-and-check
 - **Scope:** Re-enable gtest; one test file per library area with at least a smoke test.
-- **Notes:** gtest is enabled for every library area: test_math_utils, test_mission, test_groundtruth_sensor, test_flight_dynamics, test_imm_filter, test_track_manager, test_frame_assembler, test_target_selector, test_trajectory_controller, test_guidance, test_safety_filter. The guidance and safety smoke tests that were open have landed (PR #21 and PR #22), so only the final tally is outstanding.
+- **Notes:** gtest is enabled for every library area: test_math_utils, test_mission, test_groundtruth_sensor, test_flight_dynamics, test_imm_filter, test_track_manager, test_frame_assembler, test_target_selector, test_trajectory_controller, test_guidance, test_safety_filter. 392 tests, 0 failures.
 
 ## Phase 1 – Tracker
 
