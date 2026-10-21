@@ -1,0 +1,98 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="target_drone">
+
+  <!--
+    Target drone: a Bitcraze Crazyflie 2.1, the quadrotor a counter-UAS system is
+    meant to catch. 92 mm motor-to-motor diagonal, 27 g, brushed motors with 43 mm
+    props.
+
+    The model is the counter-UAS intruder of the INTERCEPT scenario. It is moved
+    kinematically by target_drone_behavior_node through Gazebo's /set_entity_state,
+    so it carries no flight dynamics: the point of the scenario is the guidance
+    law, not the target's own flight controller.
+
+    Visual meshes are the official Crazyflie 2.1 Collada files from
+    bitcraze/crazyflie-simulation (MIT licence), see meshes/crazyflie/README.md.
+    Inertia and mass are the upstream crazyflie_description values.
+
+    Every link and joint is prefixed with "target_": the interceptor publishes TF for
+    its own base_link, and two models with the same link names would fight over the
+    same TF frame.
+  -->
+
+  <xacro:property name="mesh_dir" value="file://$(find interceptor_drone)/meshes/crazyflie/collada_files"/>
+
+  <!-- Motors at 31 mm from the centre (upstream crazyflie_description) -->
+  <xacro:property name="motor_offset" value="0.031"/>
+
+  <!--
+    Propeller macro. The prop is a visual on its own link so it can be spun around
+    the joint axis, exactly like the interceptor's props.
+  -->
+  <xacro:macro name="cf_prop" params="name x y prop">
+    <link name="target_prop_${name}">
+      <inertial>
+        <mass value="0.0008"/>
+        <inertia ixx="8.33333e-09" iyy="1.08333e-07" izz="1.13333e-07"
+                 ixy="0.0" ixz="0.0" iyz="0.0"/>
+      </inertial>
+      <visual>
+        <origin xyz="0 0 0" rpy="0 0 0"/>
+        <geometry>
+          <mesh filename="${mesh_dir}/${prop}.dae"/>
+        </geometry>
+      </visual>
+    </link>
+    <joint name="target_prop_${name}_joint" type="continuous">
+      <parent link="target_base_link"/>
+      <child link="target_prop_${name}"/>
+      <origin xyz="${x} ${y} 0.021" rpy="0 0 0"/>
+      <axis xyz="0 0 1"/>
+      <limit effort="1.0" velocity="120.0"/>
+    </joint>
+  </xacro:macro>
+
+  <!--
+    Base link. The mesh origin is the body centre; the inertial origin is the
+    centre of mass, 17.4 mm above it (upstream crazyflie_description).
+  -->
+  <link name="target_base_link">
+    <inertial>
+      <origin xyz="0 0 0.017425" rpy="0 0 0"/>
+      <mass value="0.025"/>
+      <inertia ixx="1.6571710e-05" iyy="1.6655602e-05" izz="2.9261652e-05"
+               ixy="8.30806e-07" ixz="7.18277e-07" iyz="1.800197e-06"/>
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0.017425" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="${mesh_dir}/cf2_assembly.dae"/>
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0.017425" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.10 0.10 0.03485"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <!--
+    PX4 quad-X numbering: the front-right prop spins clockwise, seen from above.
+    The Crazyflie mounts its motors diagonally, so the offsets are +/- 31 mm.
+  -->
+  <xacro:cf_prop name="fr" x="${motor_offset}" y="${-motor_offset}" prop="cw_prop"/>
+  <xacro:cf_prop name="fl" x="${-motor_offset}" y="${-motor_offset}" prop="ccw_prop"/>
+  <xacro:cf_prop name="rl" x="${motor_offset}" y="${motor_offset}" prop="ccw_prop"/>
+  <xacro:cf_prop name="rr" x="${-motor_offset}" y="${motor_offset}" prop="cw_prop"/>
+
+  <!--
+    The drone is kinematic: it is moved by target_drone_behavior_node through
+    /set_entity_state, so it must not fall under gravity and it carries no
+    flight dynamics of its own.
+  -->
+  <gazebo>
+    <static>false</static>
+  </gazebo>
+
+</robot>

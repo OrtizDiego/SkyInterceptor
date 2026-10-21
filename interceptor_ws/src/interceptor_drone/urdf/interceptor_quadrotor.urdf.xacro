@@ -412,6 +412,23 @@
       <max_horizontal_speed>8.0</max_horizontal_speed>
       <max_vertical_speed>3.0</max_vertical_speed>
       <max_yaw_rate>1.5</max_yaw_rate>
+      <!--
+        How far the internal heading setpoint may run ahead of the vehicle's
+        actual heading. The guidance law commands a heading that follows the
+        target, and the vehicle turns at a limited rate, so a small window makes
+        the drone fly the target side-on: the nose then lags the line of sight
+        and the cameras look away from the intruder. A wider window lets the
+        nose catch up.
+      -->
+      <max_yaw_error>1.6</max_yaw_error>
+      <!--
+        Body-rate limit [rad/s]. The mixer gives the yaw torque whatever the
+        roll and pitch did not need, so a low limit starves the yaw exactly when
+        the drone accelerates hardest: the nose lags the line of sight and the
+        cameras lose the target. The default of 2 rad/s on the yaw axis is too
+        tight for that.
+      -->
+      <max_body_rate>3.5</max_body_rate>
       <max_tilt>0.61</max_tilt>
       <idle_rotor_speed>100.0</idle_rotor_speed>
       <start_armed>false</start_armed>

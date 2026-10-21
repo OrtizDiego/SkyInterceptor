@@ -290,5 +290,24 @@
       <update_rate>10.0</update_rate>
     </plugin>
 
+    <!--
+      Initial camera of the Gazebo GUI.
+
+      The engagement happens over the pedestrian's patrol square, so the GUI
+      starts looking at the middle of the park from a raised three-quarter
+      view: both drones, the pedestrian and the camera feeds are in frame from
+      the first second, instead of the default view from the world origin.
+
+      The pose is the camera position (x y z) and its orientation (roll pitch
+      yaw) in radians. Gazebo Classic reads the <pose> element of the camera
+      directly; the older <origin> spelling is not understood.
+    -->
+    <gui>
+      <camera name="user_camera">
+        <view_controller type="orbit"/>
+        <pose pose="6 -16 18 0 0.5 0.05"/>
+      </camera>
+    </gui>
+
   </world>
 </sdf>

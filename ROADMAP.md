@@ -146,12 +146,12 @@ Any agent or person can read and edit this file: Claude Code, Codex, Cursor, a s
 
 ### P3.1 – Target drone and behaviours
 
-- **Status:** todo
+- **Status:** review
 - **Depends on:** P0.3
-- **PR:** —
-- **Branch:** —
+- **PR:** 22
+- **Branch:** demo/interception-drone
 - **Scope:** target_drone model in the world and target_drone_behavior_node (hover, waypoints, straight, weave).
-- **Notes:** —
+- **Notes:** A Crazyflie 2.1 with the official Bitcraze meshes, moved kinematically through /set_entity_state, with an accelerating and curving profile (the manoeuvre pure PN cannot follow). The published position is the exact integral of the published velocity, so the tracker's estimate of the target's velocity and acceleration matches what the drone does. The behaviour node also broadcasts map -> target_base_link, because robot_state_publisher never publishes a transform for its root link. The hover, waypoints and weave behaviours of the plan are not implemented: the demo uses a single profile.
 
 ### P3.2 – UAS detector
 
@@ -164,12 +164,12 @@ Any agent or person can read and edit this file: Claude Code, Codex, Cursor, a s
 
 ### P3.3 – Intercept guidance
 
-- **Status:** todo
+- **Status:** review
 - **Depends on:** P1.2, P2.1, P2.2
-- **PR:** —
-- **Branch:** —
+- **PR:** 22
+- **Branch:** demo/interception-drone
 - **Scope:** intercept_guidance_node: phases, APN, capture logic, GuidanceCommand telemetry.
-- **Notes:** —
+- **Notes:** The law lives in a ROS-free library (pure PN and augmented PN with the (N/2) * a_T_perp term, validated by a numerical sweep). guidance_controller_node runs SEARCH -> PURSUE -> CAPTURE -> DONE with the engagement gate and the GuidanceCommand telemetry, and commands the yaw so the stereo cameras keep the intruder in frame. Still open: the capture is detected, not flown - the interceptor reaches the capture envelope at about 1.3 m but at 12 m/s relative speed, above the 5 m/s limit, so the terminal law for the last few metres is the open problem. The node is still called guidance_controller_node rather than the planned intercept_guidance_node. With P2.2 merged (PR 21) the guidance now publishes only on /setpoint/raw and the safety filter owns /setpoint/safe, so the two are in series instead of the guidance writing both.
 
 ### P3.4 – Engagement gate and abort
 
