@@ -13,13 +13,16 @@ trajectory_controller_node:
     max_integral_velocity: 1.0      # m/s, clamp on the integral term
     integral_zone: 2.0              # m, the integral only accumulates inside this error
 
-    # Yaw loop
-    kp_yaw: 1.5
+    # Yaw loop: yaw_rate = kp * wrap(yaw_sp - yaw), rate limited below.
+    # The INTERCEPT guidance commands a heading that follows the target, so the
+    # nose has to keep up with a target that circles: a high gain turns the
+    # drone onto the line of sight instead of letting it fly the target side-on.
+    kp_yaw: 3.0
 
     # Output limits (/cmd_vel)
     max_horizontal_velocity: 30.0   # m/s
     max_vertical_velocity: 5.0      # m/s
-    max_yaw_rate: 1.5               # rad/s
+    max_yaw_rate: 2.5               # rad/s
 
     setpoint_timeout: 0.3           # s, then command zero velocity
     odom_timeout: 0.3               # s, stale /odom also commands zero velocity

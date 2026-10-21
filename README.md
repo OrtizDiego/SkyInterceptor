@@ -36,10 +36,33 @@ An independent **safety filter** has the final say on every setpoint, so neither
 - **Realistic onboard controller.** Velocity PI → attitude P (SO(3)) → body-rate PI → motor mixer, wrapped as a Gazebo plugin that publishes `/odom` and TF.
 - **Stereo-vision perception.** Time-synchronized stereo pair, SGBM depth, YOLOv8 detection and 3D back-projection of detections.
 - **Multi-target IMM-EKF tracker.** CV / constant-acceleration / coordinated-turn models mixed by an IMM, chi-square gating, global-nearest-neighbour association and M-of-N track management, as a ROS-free library tested on synthetic trajectories, plus mode-aware target selection ([`docs/TRACKER.md`](docs/TRACKER.md)).
-- **Planned guidance.** A follow planner and proportional-navigation intercept guidance (see the roadmap below).
+- **Proportional-navigation intercept guidance.** Pure PN (`a = N·V_c·λ̇`) and augmented PN with the target acceleration from the tracker, in a ROS-free library unit-tested on synthetic geometry, driving a `SEARCH → PURSUE → CAPTURE → DONE` phase machine ([`docs/INTERCEPT.md`](docs/INTERCEPT.md)).
 - **Engineering discipline.** Fully containerized (CUDA 11.8 + ROS 2 Humble), GTest unit tests, ament linters, and CI that builds with `-Werror`.
 
 ## Demo
+
+### The interception
+
+A Crazyflie intruder accelerates from a standstill and curves while the interceptor
+climbs and engages it with proportional navigation:
+
+```bash
+ros2 launch interceptor_drone intercept_demo.launch.py                  # augmented PN
+ros2 launch interceptor_drone intercept_demo.launch.py guidance_law:=pn # pure PN
+```
+
+The demo arms the mission on its own, so it runs unattended. It starts in the
+middle of the park, with the interceptor behind the intruder, so the whole
+engagement is in view of the Gazebo GUI and of the stereo cameras.
+
+RViz shows the two drones as robot models, the tracks and the guidance vectors in
+the world, and the left camera, the right camera, the depth map and the detection
+overlay as image panels. The guidance telemetry is on `/guidance/command` (the
+acceleration command, closing speed, time to go, the zero-effort miss and the
+phase) and the line of sight and commanded acceleration are drawn in RViz on
+`/guidance/vectors`. See [`docs/INTERCEPT.md`](docs/INTERCEPT.md).
+
+### Fly it yourself
 
 Fly the drone yourself in two terminals (details in [Flying the drone](#flying-the-drone)):
 
@@ -81,11 +104,12 @@ Perception  →  Estimation  →  Guidance  →  Control  →  Platform (Gazebo)
 
 ## Roadmap
 
-The perception layer, the flight simulation and the tracker work today. Next up, in order (full details in [`IMPLEMENTATION_PLAN.md`](IMPLEMENTATION_PLAN.md)):
+The perception layer, the flight simulation, the tracker and the INTERCEPT guidance work
+today. Next up, in order (full details in [`IMPLEMENTATION_PLAN.md`](IMPLEMENTATION_PLAN.md)):
 
-1. A ground-truth target source, so the tracker and planners can run without vision
-2. **FOLLOW** mode end to end (first autonomous demo)
-3. **INTERCEPT** mode with proportional-navigation guidance
+1. A ground-truth target source, so the tracker and planners can run without vision ✅
+2. **INTERCEPT** mode with proportional-navigation guidance ✅
+3. **FOLLOW** mode end to end
 4. Independent safety filter, integration and docs
 
 ## Tech stack
@@ -221,6 +245,7 @@ ros2 launch interceptor_drone guidance.launch.py        # Tracker + guidance onl
 ros2 launch interceptor_drone interceptor_full.launch.py mission_mode:=follow perception_source:=groundtruth
 ros2 launch interceptor_drone follow.launch.py          # Full system in FOLLOW mode
 ros2 launch interceptor_drone intercept.launch.py       # Full system in INTERCEPT mode
+ros2 launch interceptor_drone intercept_demo.launch.py  # INTERCEPT demo: the intruder accelerates and curves
 ```
 
 A single node:

@@ -30,6 +30,13 @@ def generate_launch_description():
         ' command_frame:=', LaunchConfiguration('command_frame'),
     ]), value_type=str)
 
+    # Target drone (the intruder): a Crazyflie 2.1 spawned next to the interceptor.
+    # robot_state_publisher always publishes on /robot_description, so the target
+    # description is published by a plain node on its own topic.
+    target_desc = ParameterValue(Command([
+        'xacro ', os.path.join(pkg_interceptor, 'urdf', 'target_drone.urdf.xacro'),
+    ]), value_type=str)
+
     # Gazebo launch
     gazebo = IncludeLaunchDescription(
         PythonLaunchDescriptionSource([
@@ -45,6 +52,11 @@ def generate_launch_description():
 
     # Spawn interceptor drone on its skids, next to the person's patrol square and
     # facing it (the person walks the 15 x 15 m square with corners (0, 0) and (15, 15))
+    #
+    # The timeout is generous on purpose: gzserver first fetches the online Gazebo
+    # model database, which on a cold or slow network takes well over a minute, and
+    # /spawn_entity is not available until the world has finished loading. The
+    # default 30 s timeout makes the spawn fail on a slow start.
     spawn_drone = Node(
         package='gazebo_ros',
         executable='spawn_entity.py',
@@ -53,8 +65,26 @@ def generate_launch_description():
             '-entity', 'interceptor',
             '-x', LaunchConfiguration('x'),
             '-y', LaunchConfiguration('y'),
-            '-z', '0.3',
+            '-z', LaunchConfiguration('z'),
             '-Y', LaunchConfiguration('yaw'),
+            '-timeout', LaunchConfiguration('spawn_timeout'),
+        ],
+        output='screen'
+    )
+
+    # Spawn the target drone. It is kinematic: target_drone_behavior_node moves it
+    # with /set_entity_state, so it needs no flight dynamics of its own.
+    spawn_target = Node(
+        package='gazebo_ros',
+        executable='spawn_entity.py',
+        arguments=[
+            '-topic', 'target_description',
+            '-entity', 'target_drone',
+            '-x', LaunchConfiguration('target_x'),
+            '-y', LaunchConfiguration('target_y'),
+            '-z', LaunchConfiguration('target_z'),
+            '-Y', LaunchConfiguration('target_yaw'),
+            '-timeout', LaunchConfiguration('spawn_timeout'),
         ],
         output='screen'
     )
@@ -68,6 +98,9 @@ def generate_launch_description():
     )
 
     # Robot state publisher (propeller joint angles come from the dynamics plugin)
+    #
+    # The interceptor's propeller joints are published by the dynamics plugin on
+    # /joint_states, so this publisher reads them from there.
     robot_state_publisher = Node(
         package='robot_state_publisher',
         executable='robot_state_publisher',
@@ -75,6 +108,30 @@ def generate_launch_description():
         output='screen',
         parameters=[{
             'robot_description': robot_desc,
+            'use_sim_time': use_sim_time
+        }],
+        remappings=[('joint_states', '/joint_states')]
+    )
+
+    # The target drone needs its own state publisher for the spinning propellers.
+    # robot_state_publisher always publishes the model on /robot_description, so it
+    # cannot be used twice: the target description goes on its own topic instead.
+    #
+    # The target's propeller joints are published by target_drone_behavior_node on
+    # /target_drone/joint_states, and its root pose by the same node on the
+    # map -> target_base_link transform. Reading the global /joint_states here
+    # instead would be wrong: those names belong to the interceptor's propellers.
+    target_state_publisher = Node(
+        package='robot_state_publisher',
+        executable='robot_state_publisher',
+        name='target_robot_state_publisher',
+        output='screen',
+        remappings=[
+            ('robot_description', 'target_description'),
+            ('joint_states', '/target_drone/joint_states'),
+        ],
+        parameters=[{
+            'robot_description': target_desc,
             'use_sim_time': use_sim_time
         }]
     )
@@ -91,9 +148,18 @@ def generate_launch_description():
             description='Full path to world file'
         ),
         DeclareLaunchArgument('gui', default_value='true', description='Start the Gazebo GUI'),
-        DeclareLaunchArgument('x', default_value='-3.0', description='Spawn x [m]'),
-        DeclareLaunchArgument('y', default_value='-3.0', description='Spawn y [m]'),
-        DeclareLaunchArgument('yaw', default_value='0.785', description='Spawn yaw [rad]'),
+        DeclareLaunchArgument('x', default_value='2.0', description='Spawn x [m]'),
+        DeclareLaunchArgument('y', default_value='5.0', description='Spawn y [m]'),
+        DeclareLaunchArgument('z', default_value='0.3', description='Spawn z [m]'),
+        DeclareLaunchArgument('yaw', default_value='0.0', description='Spawn yaw [rad]'),
+        DeclareLaunchArgument('target_x', default_value='10.0',
+                              description='Target drone spawn x [m]'),
+        DeclareLaunchArgument('target_y', default_value='5.0',
+                              description='Target drone spawn y [m]'),
+        DeclareLaunchArgument('target_z', default_value='12.0',
+                              description='Target drone spawn z [m]'),
+        DeclareLaunchArgument('target_yaw', default_value='0.0',
+                              description='Target drone spawn yaw [rad]'),
         DeclareLaunchArgument(
             'wind_x', default_value='0.0', description='Mean wind towards +x (east) [m/s]'),
         DeclareLaunchArgument(
@@ -107,8 +173,15 @@ def generate_launch_description():
             'command_frame', default_value='heading', choices=['heading', 'world'],
             description='Frame of /cmd_vel: heading (keyboard teleop) or world '
                         '(trajectory_controller_node)'),
+        DeclareLaunchArgument(
+            'spawn_timeout', default_value='180.0',
+            description='Seconds to wait for /spawn_entity. gzserver fetches the '
+                        'online model database on start, which can take a minute '
+                        'before the world is loaded and the service exists.'),
         gazebo,
         spawn_drone,
+        spawn_target,
         static_tf,
         robot_state_publisher,
+        target_state_publisher,
     ])
