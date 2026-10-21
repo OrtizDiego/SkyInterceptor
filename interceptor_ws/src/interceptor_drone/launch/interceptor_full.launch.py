@@ -13,6 +13,7 @@ def generate_launch_description():
     pkg_interceptor = get_package_share_directory('interceptor_drone')
     launch_dir = os.path.join(pkg_interceptor, 'launch')
     controller_params = os.path.join(pkg_interceptor, 'config', 'controller_params.yaml')
+    safety_params = os.path.join(pkg_interceptor, 'config', 'safety_params.yaml')
 
     use_sim_time = LaunchConfiguration('use_sim_time')
     mission_mode = LaunchConfiguration('mission_mode')
@@ -58,6 +59,16 @@ def generate_launch_description():
         }.items()
     )
 
+    # The safety filter: /setpoint/raw -> /setpoint/safe. It sits between the
+    # planner and the controller and has the final say on every setpoint.
+    safety_filter = Node(
+        package='interceptor_drone',
+        executable='safety_filter_node',
+        name='safety_filter_node',
+        output='screen',
+        parameters=[safety_params, {'use_sim_time': use_sim_time}],
+    )
+
     trajectory_controller = Node(
         package='interceptor_drone',
         executable='trajectory_controller_node',
@@ -98,6 +109,7 @@ def generate_launch_description():
         groundtruth,
         mission_manager,
         guidance,
+        safety_filter,
         trajectory_controller,
         rviz,
     ])

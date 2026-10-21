@@ -85,6 +85,14 @@ add_library(${PROJECT_NAME}_estimation SHARED
 )
 target_link_libraries(${PROJECT_NAME}_estimation Eigen3::Eigen)
 
+# Safety filter library: the keep-out control barrier function and the global flight
+# limits. Plain C++ and Eigen, no ROS, so the projection can be unit tested on
+# synthetic geometry.
+add_library(${PROJECT_NAME}_safety SHARED
+  src/safety/safety_filter.cpp
+)
+target_link_libraries(${PROJECT_NAME}_safety Eigen3::Eigen)
+
 # Gazebo plugin that flies the drone with the flight dynamics library
 add_library(quadrotor_dynamics_plugin SHARED src/simulation/quadrotor_dynamics_plugin.cpp)
 # Gazebo's own headers are not -Wpedantic clean: include them as system headers
@@ -148,6 +156,19 @@ add_executable(mission_manager_node src/mission/mission_manager_node.cpp)
 target_link_libraries(mission_manager_node ${PROJECT_NAME}_lib)
 ament_target_dependencies(mission_manager_node rclcpp interceptor_interfaces)
 
+# Safety filter node: /setpoint/raw -> /setpoint/safe, the last word between the
+# planners and the controller (plan 4.3).
+add_executable(safety_filter_node src/safety/safety_filter_node.cpp)
+target_link_libraries(safety_filter_node ${PROJECT_NAME}_lib ${PROJECT_NAME}_safety)
+ament_target_dependencies(safety_filter_node
+  rclcpp
+  geometry_msgs
+  nav_msgs
+  std_msgs
+  visualization_msgs
+  interceptor_interfaces
+)
+
 # Evasion node
 add_executable(evasion_controller_node src/evasion/evasion_controller_node.cpp)
 target_link_libraries(evasion_controller_node ${PROJECT_NAME}_lib)
@@ -163,6 +184,7 @@ install(TARGETS
   guidance_controller_node
   trajectory_controller_node
   mission_manager_node
+  safety_filter_node
   evasion_controller_node
   DESTINATION lib/${PROJECT_NAME}
 )
@@ -171,6 +193,7 @@ install(TARGETS
   ${PROJECT_NAME}_lib
   ${PROJECT_NAME}_flight
   ${PROJECT_NAME}_estimation
+  ${PROJECT_NAME}_safety
   quadrotor_dynamics_plugin
   LIBRARY DESTINATION lib
 )
@@ -258,8 +281,11 @@ if(BUILD_TESTING)
 
   ament_add_gtest(test_trajectory_controller test/test_trajectory_controller.cpp)
   target_link_libraries(test_trajectory_controller ${PROJECT_NAME}_lib ${PROJECT_NAME}_flight)
+
+  ament_add_gtest(test_safety_filter test/test_safety_filter.cpp)
+  target_link_libraries(test_safety_filter ${PROJECT_NAME}_safety)
 endif()
 
 ament_export_include_directories(include)
-ament_export_libraries(${PROJECT_NAME}_lib)
+ament_export_libraries(${PROJECT_NAME}_lib ${PROJECT_NAME}_safety)
 ament_package()

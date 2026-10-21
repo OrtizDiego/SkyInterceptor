@@ -162,6 +162,34 @@ Precedence when limits and the keep-out disagree: **the keep-out wins** and the 
 reported in `MissionStatus.reason`. The speed cap is applied to the requested velocity
 before the projection, and again afterwards, but never at the cost of a barrier.
 
+**The barrier is relative degree 2, not 1 (P2.2, measured).** The condition above is
+relative degree 1 with respect to the *commanded* velocity, but the distance depends on the
+*achieved* velocity, and the autopilot's velocity loop lags: the time constant measured on
+the X500 flight model is **0.34 s** (63 % of a 4 m/s step at 0.60 s). A barrier that only
+constrains the command is satisfied instantly and then coasted past, and the drone
+overshoots the keep-out margin by up to 6 m against a 5 m standoff.
+
+The filter therefore uses the stricter of the plan's bound and a relative degree 2
+correction on the achieved motion,
+
+```
+c_cmd ≤ min( α·h , c·(1 − 2ω·τ) + ω²·τ·h )
+```
+
+where `c` is the achieved closing speed, `τ` the assumed velocity-loop time constant and
+`ω` the correction's natural frequency. The correction bites exactly when the drone is
+closing too fast to stop in time: `c·(1 − 2ω·τ)` is negative, so the bound goes below zero
+and the drone is told to open the distance. Swept numerically over the plant's time
+constant, over a mismatch between the assumed and the real `τ`, and with 0.3 m/s of noise
+on the measured speed, this holds the margin **exactly** for every state from which
+stopping is physically possible — where the relative degree 1 form alone overshoots in the
+same states. A third term makes the drone *yield* when the target is closing on it: the
+closing speed is then not allowed to grow.
+
+`velocity_lag_tau` (default 0.5 s, conservative against the measured 0.34 s) and
+`barrier_omega` (default 3.0 /s) are in `config/safety_params.yaml`.
+
+
 
 ### 4.4 INTERCEPT guidance
 - Phases: `SEARCH` (loiter or scan) → `PURSUE` (APN) → `CAPTURE` → `DONE` / `ABORT`.
@@ -266,6 +294,9 @@ safety:
   coast_timeout: 2.0           # s, a stale track keeps its keep-out this long
   max_projection_iterations: 10
   kp_pos: 1.0                  # the controller's gain, to turn a position setpoint into a velocity
+  velocity_lag_tau: 0.5        # s, the assumed velocity-loop time constant (measured 0.34 s)
+  barrier_omega: 3.0           # 1/s, the natural frequency of the lag correction
+  drone_radius: 0.3            # m, so the standoffs are surface to surface
 ```
 
 # follow_params.yaml

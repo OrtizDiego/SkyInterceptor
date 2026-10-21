@@ -1,14 +1,78 @@
 # Safety filter (plan §4.3, §4.4)
-# Reserved for P2.2/P3.4: safety_filter_node does not exist yet.
+#
+# The safety filter is the last word between the planners and the trajectory
+# controller: whatever the planner commands, the drone never comes closer to a
+# person, a vehicle or a static obstacle than the standoff below.
+#
+# Safety distance is the top-level rule. A threshold is never lowered to make a
+# command feasible: when the constraints conflict, the filter holds position and
+# says so in /mission/status.
+
 safety_filter_node:
   ros__parameters:
+    rate_hz: 50.0
+
     safety:
+      # --- Keep-out distances ---------------------------------------------
       d_min_horizontal: 5.0         # m, to ANY person/vehicle track
+      d_obstacle_min: 3.0           # m, to the surface of any static obstacle
       h_min_above: 3.0              # m, vertical clearance above target
-      cbf_alpha: 1.0                # 1/s
+      # The standoff is inflated by the track's position uncertainty, so a
+      # poorly tracked person gets a bigger margin.
+      uncertainty_gain: 2.0         # k in d_eff = d_min + k * sigma_pos
+      # The distances are surface to surface, so the drone's own radius comes
+      # off the distance to the centre of a track or an obstacle.
+      drone_radius: 0.3             # m
+
+      # --- The barrier ------------------------------------------------------
+      cbf_alpha: 1.0                # 1/s, the rate at which the barrier is enforced
+      max_projection_iterations: 10 # how often the half-spaces are projected onto
+      # The lag correction. The autopilot's velocity loop has a time constant of
+      # 0.34 s (measured on the X500 flight model), and the drone's actual motion
+      # lags the command, so the barrier has to be relative degree 2 on the
+      # achieved motion. The defaults are deliberately conservative: the filter
+      # assumes a slower vehicle than it is.
+      velocity_lag_tau: 0.5         # s, the assumed time constant of the velocity loop
+      barrier_omega: 3.0            # 1/s, the natural frequency of the lag correction
+
+      # --- The global limits ------------------------------------------------
       altitude_floor: 2.0           # m AGL
       altitude_ceiling: 120.0       # m AGL
       geofence: {x_min: -100.0, x_max: 100.0, y_min: -100.0, y_max: 100.0}
-      setpoint_timeout: 0.3         # s
-      odom_timeout: 0.3             # s
+      geofence_margin: 1.0          # m, the boundary is enforced this far before it
       speed_cap: {follow: 15.0, intercept: 30.0}
+      max_vertical_speed: 5.0       # m/s
+
+      # --- The timeouts -----------------------------------------------------
+      setpoint_timeout: 0.3         # s, no fresh setpoint: brake to hover
+      odom_timeout: 0.3             # s, stale odometry: brake to hover
+      # A track that disappears from the tracker output keeps its keep-out this
+      # long: the coasting prediction is the best estimate available.
+      coast_timeout: 2.0            # s
+
+      # The controller's kp_pos, used to turn a position setpoint into a
+      # velocity. It has to match controller_params.yaml, so the filter and
+      # the controller agree on how fast a setpoint is approached.
+      kp_pos: 1.0
+
+      # The static obstacles, as a flat list of x, y, radius, height in metres
+      # (four numbers per obstacle, because a parameter server cannot hold a
+      # list of dictionaries). The values come from the world file
+      # (worlds/intercept_scenario.world): the tree canopies and the benches.
+      # The radius is the obstacle's own radius: the tree canopies are the
+      # same cylinders the ground-truth sensor uses for its occlusion test
+      # (config/groundtruth_params.yaml), so the two agree on where a tree is.
+      obstacles: [
+        # x,    y,   radius, height
+        20.0,  7.0,  4.0,  6.5,   # oak_1
+        7.0,  22.0,  4.0,  6.5,   # oak_2
+        -4.0, 10.0,  4.0,  6.5,   # oak_3
+        18.0, 23.0,  4.0,  6.5,   # oak_4
+        24.0, 14.0,  4.0,  6.5,   # oak_5
+        4.0,  -5.0,  1.6,  5.1,   # pine_1
+        27.0, 6.0,   1.6,  5.1,   # pine_2
+        -3.0, 22.0,  1.6,  5.1,   # pine_3
+        26.0, 26.0,  1.6,  5.1,   # pine_4
+        6.0,  3.0,   0.75, 0.5,   # bench_1 (1.5 x 0.4 m box, half-diagonal)
+        3.0,  12.0,  0.75, 0.5,   # bench_2 (rotated 90 degrees)
+      ]
