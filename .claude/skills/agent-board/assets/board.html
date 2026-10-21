@@ -1,0 +1,602 @@
+<title>{{BOARD_TITLE}}</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=Barlow:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: an ATC strip board. One flight strip per plan task, racked by phase; activity log on the right. */
+:root {
+  --board: #e4e8ee;
+  --strip: #fbfaf6;
+  --ink: #1c2330;
+  --muted: #5b6474;
+  --rule: #c6ccd7;
+  --accent: #2456c9;
+  --ph0: #f1e3bf; --ph1: #d6e5f5; --ph2: #dcebd2; --ph3: #f3d8d8; --ph4: #e5def2; --ph5: #d9eeee;
+  --st-todo: #7d8798; --st-todo-bg: #eceff3;
+  --st-prog: #a86a00; --st-prog-bg: #fbedd0;
+  --st-rev: #2456c9; --st-rev-bg: #dfe8fb;
+  --st-done: #2a7d45; --st-done-bg: #dcf0e2;
+  --st-block: #b53a26; --st-block-bg: #f8dcd6;
+  --ready: #2a7d45;
+  --font-display: "Barlow Condensed", "Arial Narrow", "Helvetica Neue", sans-serif;
+  --font-body: "Barlow", "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --board: #11151c; --strip: #1a2029; --ink: #e3e7ee; --muted: #98a1b0; --rule: #2d3543; --accent: #7fa3ff;
+    --ph0: #3b3320; --ph1: #1f2d40; --ph2: #22331f; --ph3: #3b2326; --ph4: #2d2742; --ph5: #1d3535;
+    --st-todo: #9aa3b2; --st-todo-bg: #252c37;
+    --st-prog: #f0b34a; --st-prog-bg: #3a2d14;
+    --st-rev: #8fb0ff; --st-rev-bg: #1e2a47;
+    --st-done: #6fcf8e; --st-done-bg: #173322;
+    --st-block: #ff8a73; --st-block-bg: #42201b;
+    --ready: #6fcf8e;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --board: #11151c; --strip: #1a2029; --ink: #e3e7ee; --muted: #98a1b0; --rule: #2d3543; --accent: #7fa3ff;
+  --ph0: #3b3320; --ph1: #1f2d40; --ph2: #22331f; --ph3: #3b2326; --ph4: #2d2742; --ph5: #1d3535;
+  --st-todo: #9aa3b2; --st-todo-bg: #252c37;
+  --st-prog: #f0b34a; --st-prog-bg: #3a2d14;
+  --st-rev: #8fb0ff; --st-rev-bg: #1e2a47;
+  --st-done: #6fcf8e; --st-done-bg: #173322;
+  --st-block: #ff8a73; --st-block-bg: #42201b;
+  --ready: #6fcf8e;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+body { background: var(--board); color: var(--ink); font-family: var(--font-body); font-size: 15px; line-height: 1.5; }
+.wrap { max-width: 1240px; margin: 0 auto; padding-inline: 20px; padding-block: 28px 56px; }
+h1, h2, h3 { font-family: var(--font-display); font-weight: 700; letter-spacing: 0.01em; text-wrap: balance; margin: 0; }
+h1 { font-size: 2.4rem; line-height: 1.05; }
+h2 { font-size: 1.45rem; }
+h3 { font-size: 1.05rem; text-transform: uppercase; letter-spacing: 0.08em; }
+.mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+a { color: var(--accent); }
+button, select, input, textarea { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.head { display: flex; flex-wrap: wrap; gap: 16px 32px; align-items: flex-end; justify-content: space-between; }
+.head p { margin: 6px 0 0; color: var(--muted); max-width: 62ch; }
+.tally { display: flex; gap: 24px; }
+.tally div { display: grid; }
+.tally b { font-family: var(--font-display); font-size: 2rem; line-height: 1; }
+.tally span { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); }
+.rack { display: flex; gap: 3px; margin-top: 18px; }
+.rack i { flex: 1; height: 12px; background: var(--st-todo-bg); border: 1px solid var(--rule); }
+.rack i.s-in_progress { background: var(--st-prog); border-color: var(--st-prog); }
+.rack i.s-review { background: var(--st-rev); border-color: var(--st-rev); }
+.rack i.s-done { background: var(--st-done); border-color: var(--st-done); }
+.rack i.s-blocked { background: var(--st-block); border-color: var(--st-block); }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 16px; margin-top: 8px; font-size: 0.8rem; color: var(--muted); }
+
+.grid { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 32px; margin-top: 32px; align-items: start; }
+@media (max-width: 980px) { .grid { grid-template-columns: minmax(0, 1fr); } }
+
+.phase { display: grid; gap: 10px; margin-bottom: 30px; }
+.phase-head { display: flex; flex-wrap: wrap; gap: 4px 14px; align-items: baseline; }
+.phase-head .count { font-family: var(--font-mono); font-size: 0.85rem; color: var(--muted); }
+.exit { margin: 0; color: var(--muted); font-size: 0.9rem; max-width: 80ch; }
+.exit b { color: var(--ink); font-weight: 600; }
+.lane-label { font-family: var(--font-display); font-weight: 600; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.12em; color: var(--muted); }
+
+.strip { background: var(--strip); border: 1px solid var(--rule); display: grid; grid-template-columns: 76px minmax(0, 1fr) 128px 132px; min-height: 58px; }
+.strip > .cell { padding: 8px 12px; border-left: 1px solid var(--rule); display: flex; flex-direction: column; justify-content: center; gap: 6px; min-width: 0; }
+.strip > .cell:first-child { border-left: 0; }
+.code { font-family: var(--font-mono); font-weight: 500; font-size: 1rem; align-items: center; }
+.ph0 { background: var(--ph0); } .ph1 { background: var(--ph1); } .ph2 { background: var(--ph2); } .ph3 { background: var(--ph3); } .ph4 { background: var(--ph4); } .ph5 { background: var(--ph5); }
+.toggle { all: unset; cursor: pointer; display: grid; gap: 2px; min-width: 0; }
+.toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; }
+.title { font-weight: 600; overflow-wrap: anywhere; }
+.sub { font-size: 0.82rem; color: var(--muted); }
+.sub .ready { color: var(--ready); font-weight: 600; }
+.sub .wait { color: var(--st-prog); }
+.sub .agent { color: var(--accent); font-weight: 600; }
+.pill { display: inline-block; padding: 2px 9px; font-size: 0.78rem; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; border: 1px solid currentColor; white-space: nowrap; align-self: flex-start; }
+.pill.s-todo { color: var(--st-todo); background: var(--st-todo-bg); }
+.pill.s-in_progress { color: var(--st-prog); background: var(--st-prog-bg); }
+.pill.s-review { color: var(--st-rev); background: var(--st-rev-bg); }
+.pill.s-done { color: var(--st-done); background: var(--st-done-bg); }
+.pill.s-blocked { color: var(--st-block); background: var(--st-block-bg); }
+.ref { font-family: var(--font-mono); font-size: 0.8rem; color: var(--muted); }
+.ref a { font-weight: 500; }
+.ref .branch { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.strip.done .title { color: var(--muted); }
+.spin { align-self: flex-start; background: transparent; border: 1px solid var(--accent); color: var(--accent); padding: 1px 9px; font-size: 0.78rem; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; cursor: pointer; white-space: nowrap; }
+.spin:hover { background: var(--accent); color: var(--strip); }
+@media (max-width: 640px) {
+  .strip { grid-template-columns: 64px minmax(0, 1fr) auto; }
+  .strip > .ref { grid-column: 2 / -1; border-left: 1px solid var(--rule); border-top: 1px solid var(--rule); }
+}
+
+.detail { background: var(--strip); border: 1px solid var(--rule); border-top: 0; padding: 14px 16px 16px; display: grid; gap: 14px; margin-top: -10px; }
+.detail p { margin: 0; max-width: 75ch; }
+.detail .k { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); font-weight: 600; }
+.form { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px 14px; }
+.form label { display: grid; gap: 4px; font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); font-weight: 600; }
+.form .wide { grid-column: 1 / -1; }
+@media (max-width: 640px) { .form { grid-template-columns: minmax(0, 1fr); } }
+input, select, textarea { background: var(--board); border: 1px solid var(--rule); padding: 7px 9px; text-transform: none; letter-spacing: normal; font-weight: 400; font-size: 0.92rem; width: 100%; min-width: 0; }
+textarea { min-height: 96px; resize: vertical; }
+.actions { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+.btn { background: var(--ink); color: var(--strip); border: 1px solid var(--ink); padding: 7px 16px; font-weight: 600; cursor: pointer; }
+.btn:disabled { opacity: 0.5; cursor: default; }
+.btn.ghost { background: transparent; color: var(--ink); }
+.msg { font-size: 0.85rem; color: var(--muted); }
+.msg.err { color: var(--st-block); }
+.meta { font-size: 0.8rem; color: var(--muted); }
+.yolo { margin-top: 14px; display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; font-size: 0.88rem; }
+.yolo.on { border: 1px solid var(--st-block); background: var(--st-block-bg); color: var(--st-block); padding: 8px 12px; font-weight: 600; }
+.yolo .btn { padding: 4px 12px; font-size: 0.82rem; }
+.yolo .warn { color: var(--st-block); font-weight: 600; }
+.agentbox { border: 1px solid var(--rule); padding: 12px 14px; display: grid; gap: 10px; background: var(--board); }
+.agentbox textarea { min-height: 120px; font-family: var(--font-mono); font-size: 0.78rem; }
+.agentbox .state { font-weight: 600; }
+
+aside { display: grid; gap: 28px; }
+.panel { display: grid; gap: 12px; }
+.log { list-style: none; margin: 0; padding: 0; display: grid; border-top: 1px solid var(--rule); }
+.log li { padding: 10px 0; border-bottom: 1px solid var(--rule); display: grid; gap: 3px; }
+.log .line { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; font-size: 0.8rem; color: var(--muted); }
+.log .tag { font-family: var(--font-mono); font-weight: 500; color: var(--ink); padding: 0 5px; border: 1px solid var(--rule); }
+.log .text { font-size: 0.9rem; overflow-wrap: anywhere; }
+.logform { display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 8px; }
+.logform .btn { grid-column: 1 / -1; justify-self: start; }
+details.agents { background: var(--strip); border: 1px solid var(--rule); padding: 12px 14px; }
+details.agents summary { cursor: pointer; font-family: var(--font-display); font-weight: 700; font-size: 1.05rem; text-transform: uppercase; letter-spacing: 0.08em; }
+details.agents p, details.agents li { font-size: 0.88rem; }
+details.agents ul { padding-left: 18px; margin: 6px 0; }
+pre { background: var(--board); border: 1px solid var(--rule); padding: 10px; overflow-x: auto; font-family: var(--font-mono); font-size: 0.78rem; line-height: 1.45; margin: 8px 0; }
+code { font-family: var(--font-mono); font-size: 0.85em; }
+.empty { background: var(--strip); border: 1px dashed var(--rule); padding: 22px; color: var(--muted); }
+.empty b { color: var(--ink); }
+@media (prefers-reduced-motion: no-preference) { .detail { animation: drop .15s ease-out; } @keyframes drop { from { opacity: .4; transform: translateY(-4px); } } }
+</style>
+
+<div class="wrap">
+  <header class="head">
+    <div>
+      <h1 id="h-title">{{BOARD_TITLE}}</h1>
+      <p id="h-blurb">{{BOARD_BLURB}}</p>
+    </div>
+    <div class="tally" id="tally"></div>
+  </header>
+  <div class="rack" id="rack" aria-hidden="true"></div>
+  <div class="legend" id="legend"></div>
+  <div class="yolo" id="yolo"></div>
+
+  <div class="grid">
+    <main id="board">
+      <div class="empty"><b>Loading the plan…</b><br>The phases and tasks load from this page's shared data. If nothing appears, open the page in Claude while signed in.</div>
+    </main>
+    <aside>
+      <section class="panel">
+        <h3>Activity</h3>
+        <form class="logform" id="logform" hidden>
+          <select id="log-task" aria-label="Task"></select>
+          <input id="log-text" placeholder="What happened" aria-label="Log entry" maxlength="500">
+          <button class="btn" type="submit">Add entry</button>
+        </form>
+        <ul class="log" id="log"><li class="text meta">No activity yet.</li></ul>
+      </section>
+      <details class="agents" id="agents">
+        <summary>For Claude agents</summary>
+        <div id="agents-body"></div>
+      </details>
+    </aside>
+  </div>
+</div>
+
+<script>
+(function () {
+  const STATUS = {
+    todo: 'To do', in_progress: 'In progress', review: 'In review', done: 'Done', blocked: 'Blocked',
+  };
+  const LAUNCH = {
+    requested: 'Agent requested, waiting for the dispatcher',
+    launched: 'Agent launched',
+    declined: 'Launch declined',
+    failed: 'Launch failed',
+  };
+  const state = {
+    meta: {}, settings: {}, yoloAsk: false, phases: [], tasks: [], log: [], launch: {},
+    loaded: { phases: false, tasks: false },
+    open: null, drafts: {}, canWrite: false, canAdmin: false, failed: false, msg: {},
+  };
+  let db = null, user = null, myId = null;
+  const names = {};
+
+  const $ = (id) => document.getElementById(id);
+  const esc = (v) => String(v == null ? '' : v).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const fmt = (iso) => {
+    if (!iso) return '';
+    const d = new Date(iso);
+    if (isNaN(d)) return '';
+    return d.toLocaleString(undefined, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+  };
+  const slug = (s) => String(s).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40);
+  const byLabel = (o) => (o.updated_by_user && names[o.updated_by_user]) || (o.by_user && names[o.by_user]) || o.updated_by || o.by || '';
+
+  function taskMap() { const m = {}; state.tasks.forEach((t) => { m[t.id] = t; }); return m; }
+  function readiness(t, m) {
+    const deps = Array.isArray(t.depends_on) ? t.depends_on : [];
+    const open = deps.filter((d) => !m[d] || m[d].status !== 'done');
+    return { deps, open, ready: t.status === 'todo' && open.length === 0 };
+  }
+
+  // ---- agent prompt, copy command, protocol -------------------------------
+  function protocolText() {
+    const url = state.meta.board_url || '<board URL>';
+    return 'Progress board: ' + url + '\n' +
+      'Use the ArtifactData tool with that URL. Before starting, `get` tasks/<code> and read it. ' +
+      'Then `update` it with if_version=<version you read>: status "in_progress", your branch, updated_at (ISO 8601), updated_by.\n' +
+      'When you open a PR: status "review" and pr (number). After it is merged: status "done", and put in notes what you verified and what is still open. Never mark a task done before its PR is merged. If you are stuck, set status "blocked" and say why in notes.\n' +
+      (state.meta.roadmap_file ? state.meta.roadmap_file + ' in the repo is the source of truth and wins over this board: in the same PR as your work, update the task section there (Status, PR, Branch, Notes). The board is the live view for work in flight.\n' : '') +
+      'Add one line per milestone with `set` on log/<YYYYMMDDTHHMMSSZ>-<code>: {at, task, by, text}. Use `update`, not `set`, on tasks so other fields survive.';
+  }
+  function buildPrompt(t) {
+    if (t.prompt) return t.prompt;
+    const m = state.meta;
+    const deps = (t.depends_on || []).length ? 'Depends on: ' + t.depends_on.join(', ') + '.\n' : '';
+    return (m.preamble ? m.preamble + '\n\n' : '') +
+      'Your task: ' + t.id + ' - ' + t.title + '\n' +
+      (t.summary ? t.summary + '\n' : '') + deps +
+      (m.plan_file ? 'The full plan is in ' + m.plan_file + '; read it first and stay within the scope of this task.\n' : '') +
+      '\n' + protocolText();
+  }
+  function buildCommand(t) {
+    const name = t.id + ' ' + t.title;
+    return 'claude --worktree ' + slug(name) + ' --name "' + name.replace(/["$`\\]/g, '') + '" "$(cat <<\'AGENT_PROMPT\'\n' +
+      buildPrompt(t) + '\nAGENT_PROMPT\n)"';
+  }
+
+  // ---- render ------------------------------------------------------------
+  function renderHeader() {
+    if (state.meta.title) { $('h-title').textContent = state.meta.title; document.title = state.meta.title; }
+    if (state.meta.blurb) $('h-blurb').textContent = state.meta.blurb;
+    const total = state.tasks.length;
+    const count = (s) => state.tasks.filter((t) => t.status === s).length;
+    const m = taskMap();
+    const ready = state.tasks.filter((t) => readiness(t, m).ready).length;
+    $('tally').innerHTML = total ? [
+      ['Done', count('done') + ' / ' + total],
+      ['Active', count('in_progress') + count('review')],
+      ['Blocked', count('blocked')],
+      ['Ready', ready],
+    ].map(([k, v]) => '<div><b class="mono">' + esc(v) + '</b><span>' + k + '</span></div>').join('') : '';
+    $('rack').innerHTML = state.tasks.map((t) => '<i class="s-' + esc(t.status) + '" title="' + esc(t.id + ' · ' + (STATUS[t.status] || t.status)) + '"></i>').join('');
+    $('legend').innerHTML = total ? Object.keys(STATUS).map((s) => '<span><span class="pill s-' + s + '">' + STATUS[s] + '</span></span>').join('') : '';
+    $('agents-body').innerHTML =
+      '<p>This board is the shared status of the plan. Agents read it before starting a task and update it as they go.</p>' +
+      '<ul><li><code>tasks/&lt;code&gt;</code>: <code>status</code> (todo, in_progress, review, done, blocked), <code>pr</code>, <code>branch</code>, <code>notes</code>, <code>depends_on</code>, <code>updated_at</code>, <code>updated_by</code></li>' +
+      '<li><code>launch/&lt;code&gt;</code>: agent launch requests (<code>requested</code>, <code>launched</code>, <code>declined</code>, <code>failed</code>)</li>' +
+      '<li><code>phases/&lt;n&gt;</code>, <code>log/&lt;stamp&gt;-&lt;code&gt;</code>, <code>meta/board</code></li></ul>' +
+      '<pre>' + esc(protocolText()) + '</pre>';
+  }
+
+  function renderYolo() {
+    const on = !!state.settings.auto_approve;
+    const el = $('yolo');
+    if (on) {
+      el.className = 'yolo on';
+      el.innerHTML = '<span>YOLO mode is on: Spin agent starts agents without asking, once a dispatcher is running.</span>' +
+        (state.canAdmin ? '<button class="btn ghost" data-yolo="off">Turn off</button>' : '');
+    } else if (state.canAdmin) {
+      el.className = 'yolo';
+      el.innerHTML = state.yoloAsk
+        ? '<span class="warn">Agents will start without your approval and can edit code and open PRs.</span><button class="btn" data-yolo="on">Enable YOLO mode</button><button class="btn ghost" data-yolo="cancel">Cancel</button>'
+        : '<button class="btn ghost" data-yolo="ask">YOLO mode: spin agents without approval</button><span class="meta">Off: every launch waits for your approval.</span>';
+    } else { el.className = 'yolo'; el.innerHTML = ''; }
+  }
+
+  async function setYolo(on) {
+    state.yoloAsk = false;
+    const body = { auto_approve: on, max_parallel: state.settings.max_parallel || 3, set_at: stamp() };
+    if (myId) body.set_by_user = myId;
+    try { await db.doc('meta/settings').set(body); await addLog('', on ? 'YOLO mode enabled: agents launch without approval' : 'YOLO mode disabled'); }
+    catch (e) { /* the snapshot shows the real state */ }
+    renderYolo();
+  }
+
+  function launchSub(t) {
+    const l = state.launch[t.id];
+    return l && LAUNCH[l.status] ? '<span class="agent">' + esc(LAUNCH[l.status]) + '</span>' : '';
+  }
+  function canSpin(t) {
+    const l = state.launch[t.id];
+    return state.canAdmin && (t.status === 'todo' || t.status === 'blocked') && !(l && (l.status === 'requested' || l.status === 'launched'));
+  }
+
+  function stripHtml(t, m) {
+    const r = readiness(t, m);
+    let sub;
+    if (t.status === 'done') sub = t.pr ? 'Merged' : 'Complete';
+    else if (launchSub(t)) sub = launchSub(t);
+    else if (r.ready) sub = '<span class="ready">Ready to start</span>';
+    else if (r.open.length && t.status === 'todo') sub = '<span class="wait">Waiting on ' + esc(r.open.join(', ')) + '</span>';
+    else sub = r.deps.length ? 'After ' + esc(r.deps.join(', ')) : 'No dependencies';
+    const repo = state.meta.repo_url;
+    const ref = (t.pr ? (repo ? '<a href="' + esc(repo) + '/pull/' + encodeURIComponent(t.pr) + '" target="_blank" rel="noopener">PR #' + esc(t.pr) + '</a>' : '<span>PR #' + esc(t.pr) + '</span>') : '<span>No PR</span>') +
+      (t.branch ? '<span class="branch" title="' + esc(t.branch) + '">' + esc(t.branch) + '</span>' : '');
+    const isOpen = state.open === t.id;
+    let html = '<article class="strip' + (t.status === 'done' ? ' done' : '') + '">' +
+      '<div class="cell code ph' + esc(Number(t.phase) % 6 || 0) + '">' + esc(t.id) + '</div>' +
+      '<div class="cell"><button class="toggle" data-toggle="' + esc(t.id) + '" aria-expanded="' + isOpen + '">' +
+      '<span class="title">' + esc(t.title) + '</span><span class="sub">' + sub + '</span></button></div>' +
+      '<div class="cell"><span class="pill s-' + esc(t.status) + '">' + esc(STATUS[t.status] || t.status) + '</span>' +
+      (canSpin(t) ? '<button class="spin" data-spin="' + esc(t.id) + '">Spin agent</button>' : '') + '</div>' +
+      '<div class="cell ref">' + ref + '</div></article>';
+    if (isOpen) html += detailHtml(t, m);
+    return html;
+  }
+
+  function agentBoxHtml(t, m) {
+    const l = state.launch[t.id];
+    const r = readiness(t, m);
+    let st = '';
+    if (l && LAUNCH[l.status]) {
+      st = '<div class="state">' + esc(LAUNCH[l.status]) + (l.decided_at || l.requested_at ? ' · ' + esc(fmt(l.decided_at || l.requested_at)) : '') + '</div>' +
+        (l.note ? '<div class="meta">' + esc(l.note) + '</div>' : '');
+    }
+    const warn = r.open.length && t.status === 'todo' ? '<div class="msg err">Dependencies still open: ' + esc(r.open.join(', ')) + '. The agent will have to stub them.</div>' : '';
+    const buttons = '<div class="actions">' +
+      (canSpin(t) ? '<button class="btn" data-spin="' + esc(t.id) + '">' + (state.settings.auto_approve ? 'Spin agent (no approval, YOLO)' : 'Spin agent (needs your approval)') + '</button>' : '') +
+      (l && l.status === 'requested' && state.canAdmin ? '<button class="btn ghost" data-cancel="' + esc(t.id) + '">Cancel request</button>' : '') +
+      '<button class="btn ghost" data-copy="prompt">Copy prompt</button>' +
+      '<button class="btn ghost" data-copy="command">Copy command</button>' +
+      (state.msg[t.id + ':copy'] ? '<span class="msg">' + esc(state.msg[t.id + ':copy'].text) + '</span>' : '') +
+      '</div>';
+    return '<div class="agentbox"><div class="k">Agent</div>' + st + warn + buttons +
+      '<details><summary class="meta">Show the prompt and command</summary>' +
+      '<div class="k" style="margin-top:8px">Prompt</div><textarea id="x-prompt" readonly>' + esc(buildPrompt(t)) + '</textarea>' +
+      '<div class="k" style="margin-top:8px">Terminal command</div><textarea id="x-command" readonly>' + esc(buildCommand(t)) + '</textarea></details></div>';
+  }
+
+  function detailHtml(t, m) {
+    const d = state.drafts[t.id] || {};
+    const val = (k) => (d[k] !== undefined ? d[k] : (t[k] == null ? '' : t[k]));
+    const dis = state.canWrite ? '' : ' disabled';
+    const by = byLabel(t);
+    const msg = state.msg[t.id];
+    return '<div class="detail">' +
+      (t.summary ? '<div><div class="k">Scope</div><p>' + esc(t.summary) + '</p></div>' : '') +
+      agentBoxHtml(t, m) +
+      '<div class="form">' +
+      '<label>Status<select id="f-status"' + dis + '>' + Object.keys(STATUS).map((s) => '<option value="' + s + '"' + (val('status') === s ? ' selected' : '') + '>' + STATUS[s] + '</option>').join('') + '</select></label>' +
+      '<label>Pull request<input id="f-pr" inputmode="numeric" placeholder="e.g. 19" value="' + esc(val('pr')) + '"' + dis + '></label>' +
+      '<label>Branch<input id="f-branch" placeholder="feat/…" value="' + esc(val('branch')) + '"' + dis + '></label>' +
+      '<label class="wide">Notes<textarea id="f-notes" placeholder="What was verified, what is still open, what is blocking"' + dis + '>' + esc(val('notes')) + '</textarea></label>' +
+      '</div>' +
+      '<div class="actions">' +
+      (state.canWrite ? '<button class="btn" data-save="' + esc(t.id) + '">Save</button><button class="btn ghost" data-close="1">Close</button>' : '<span class="msg">You can view this board but not change it.</span>') +
+      (msg ? '<span class="msg' + (msg.err ? ' err' : '') + '">' + esc(msg.text) + '</span>' : '') +
+      '</div>' +
+      ((t.updated_at || by) ? '<div class="meta">Last updated ' + esc(fmt(t.updated_at)) + (by ? ' by ' + esc(by) : '') + '</div>' : '') +
+      '</div>';
+  }
+
+  function renderBoard() {
+    const board = $('board');
+    if (state.failed) {
+      board.innerHTML = '<div class="empty"><b>The plan could not be loaded.</b><br>Open this page in Claude while signed in to see and update it.</div>';
+      return;
+    }
+    if (!state.loaded.tasks || !state.loaded.phases) return;
+    if (!state.tasks.length) {
+      board.innerHTML = '<div class="empty"><b>No tasks yet.</b><br>Ask Claude to seed the board from your plan, or add <code>tasks/&lt;code&gt;</code> documents with ArtifactData.</div>';
+      return;
+    }
+    const active = document.activeElement;
+    const focusId = active && active.id && active.id.startsWith('f-') ? active.id : null;
+    const sel = focusId && 'selectionStart' in active ? [active.selectionStart, active.selectionEnd] : null;
+    const wasOpen = !!document.querySelector('.agentbox details[open]');
+
+    const m = taskMap();
+    const ready = state.tasks.filter((t) => readiness(t, m).ready);
+    let html = '';
+    if (ready.length) {
+      html += '<section class="phase"><div class="lane-label">Ready to start · dependencies done</div>' +
+        ready.map((t) => stripHtml(t, m)).join('') + '</section>';
+    }
+    const phases = state.phases.length ? state.phases : [...new Set(state.tasks.map((t) => String(t.phase)))].map((n) => ({ id: n, n: n, name: '' }));
+    phases.forEach((p) => {
+      const tasks = state.tasks.filter((t) => String(t.phase) === String(p.n != null ? p.n : p.id));
+      if (!tasks.length) return;
+      const done = tasks.filter((t) => t.status === 'done').length;
+      html += '<section class="phase"><div class="phase-head"><h2>' + (p.name ? esc(p.name) : 'Phase ' + esc(p.n != null ? p.n : p.id)) + '</h2>' +
+        '<span class="count">' + done + ' / ' + tasks.length + ' done</span></div>' +
+        (p.exit ? '<p class="exit"><b>Exit:</b> ' + esc(p.exit) + '</p>' : '') +
+        tasks.filter((t) => !(readiness(t, m).ready)).map((t) => stripHtml(t, m)).join('') +
+        '</section>';
+    });
+    board.innerHTML = html;
+    if (wasOpen) { const dt = document.querySelector('.agentbox details'); if (dt) dt.open = true; }
+    if (focusId && $(focusId)) {
+      const el = $(focusId);
+      el.focus();
+      if (sel && el.setSelectionRange) { try { el.setSelectionRange(sel[0], sel[1]); } catch (e) { /* select */ } }
+    }
+  }
+
+  function renderLog() {
+    const list = $('log');
+    if (!state.log.length) { list.innerHTML = '<li class="text meta">No activity yet.</li>'; }
+    else {
+      list.innerHTML = state.log.map((e) => '<li><div class="line"><span class="tag">' + esc(e.task || '—') + '</span><span>' + esc(fmt(e.at)) + '</span>' +
+        (byLabel(e) ? '<span>' + esc(byLabel(e)) + '</span>' : '') + '</div><div class="text">' + esc(e.text) + '</div></li>').join('');
+    }
+    const form = $('logform');
+    form.hidden = !state.canWrite || !state.tasks.length;
+    const select = $('log-task');
+    const current = select.value;
+    select.innerHTML = '<option value="">General</option>' + state.tasks.map((t) => '<option value="' + esc(t.id) + '">' + esc(t.id) + '</option>').join('');
+    select.value = current;
+  }
+
+  function render() { renderHeader(); renderYolo(); renderBoard(); renderLog(); resolveNames(); }
+
+  async function resolveNames() {
+    if (!user || !user.profiles) return;
+    const ids = new Set();
+    state.tasks.forEach((t) => t.updated_by_user && ids.add(t.updated_by_user));
+    state.log.forEach((e) => e.by_user && ids.add(e.by_user));
+    const missing = [...ids].filter((id) => !(id in names));
+    if (!missing.length) return;
+    missing.forEach((id) => { names[id] = ''; });
+    try {
+      const ps = await user.profiles(missing);
+      missing.forEach((id) => { names[id] = (ps && ps[id] && ps[id].name) || 'Someone'; });
+      renderBoard(); renderLog();
+    } catch (e) { /* names stay blank */ }
+  }
+
+  // ---- writes ------------------------------------------------------------
+  function stamp() { return new Date().toISOString().replace(/\.\d{3}Z$/, 'Z'); }
+  function logId(at, task) { return at.replace(/[-:]/g, '') + '-' + (task || 'general').replace(/[^A-Za-z0-9_.~@+-]/g, ''); }
+
+  async function addLog(task, text) {
+    const at = stamp();
+    const body = { at: at, task: task || '', text: text, by: '' };
+    if (myId) body.by_user = myId;
+    await db.collection('log').doc(logId(at, task)).set(body);
+  }
+
+  async function save(id) {
+    const t = taskMap()[id];
+    if (!t || !db) return;
+    const status = $('f-status').value;
+    const prRaw = $('f-pr').value.trim().replace(/^#/, '');
+    const pr = prRaw === '' ? null : Number(prRaw);
+    if (prRaw !== '' && !(Number.isInteger(pr) && pr > 0)) {
+      state.msg[id] = { text: 'Enter the PR number, e.g. 19.', err: true }; renderBoard(); return;
+    }
+    const patch = {
+      status: status, pr: pr, branch: $('f-branch').value.trim(), notes: $('f-notes').value,
+      updated_at: stamp(), updated_by: '',
+    };
+    if (myId) patch.updated_by_user = myId;
+    state.msg[id] = { text: 'Saving…' }; renderBoard();
+    try {
+      await db.doc('tasks/' + id).update(patch);
+      if (status !== t.status) await addLog(id, 'Status: ' + (STATUS[t.status] || t.status) + ' → ' + STATUS[status]);
+      else if (pr && pr !== t.pr) await addLog(id, 'Linked PR #' + pr);
+      delete state.drafts[id];
+      state.msg[id] = { text: 'Saved' };
+    } catch (e) {
+      if (e && e.code === 'invalid_argument') { state.canWrite = false; state.msg[id] = { text: 'You can view this board but not change it.', err: true }; }
+      else state.msg[id] = { text: 'Not saved. Try again in a moment.', err: true };
+    }
+    renderBoard(); renderLog();
+  }
+
+  async function spin(id) {
+    if (!db) return;
+    const at = stamp();
+    const body = { status: 'requested', mode: 'dispatch', requested_at: at };
+    if (myId) body.requested_by_user = myId;
+    state.msg[id] = { text: 'Requesting…' };
+    try {
+      await db.doc('launch/' + id).set(body);
+      await addLog(id, state.settings.auto_approve ? 'Agent requested (YOLO)' : 'Agent requested, waiting for approval');
+      state.msg[id] = { text: state.settings.auto_approve ? 'Requested. The dispatcher will start it.' : 'Requested. Approve it in the Claude session that runs the dispatcher.' };
+    } catch (e) {
+      state.msg[id] = { text: 'Could not request the agent. Only editors can.', err: true };
+    }
+    renderBoard();
+  }
+  async function cancel(id) {
+    try { await db.doc('launch/' + id).delete(); await addLog(id, 'Agent request cancelled'); } catch (e) { /* stays */ }
+  }
+
+  async function copyText(which) {
+    const el = $('x-' + which);
+    if (!el) return;
+    const text = el.value;
+    let ok = false;
+    try { await navigator.clipboard.writeText(text); ok = true; } catch (e) { /* fall through */ }
+    if (!ok) {
+      const dt = el.closest('details'); if (dt) dt.open = true;
+      el.focus(); el.select();
+      try { ok = document.execCommand('copy'); } catch (e) { ok = false; }
+    }
+    state.msg[state.open + ':copy'] = { text: ok ? 'Copied ' + which : 'Select the text in the box and copy it' };
+    renderBoard();
+  }
+
+  document.addEventListener('click', (ev) => {
+    const tg = ev.target.closest('[data-toggle]');
+    if (tg) {
+      const id = tg.getAttribute('data-toggle');
+      state.open = state.open === id ? null : id;
+      delete state.msg[id]; delete state.msg[id + ':copy'];
+      renderBoard();
+      return;
+    }
+    const yo = ev.target.closest('[data-yolo]');
+    if (yo) {
+      const a = yo.getAttribute('data-yolo');
+      if (a === 'ask') { state.yoloAsk = true; renderYolo(); }
+      else if (a === 'cancel') { state.yoloAsk = false; renderYolo(); }
+      else setYolo(a === 'on');
+      return;
+    }
+    const sp = ev.target.closest('[data-spin]');
+    if (sp) { spin(sp.getAttribute('data-spin')); return; }
+    const ca = ev.target.closest('[data-cancel]');
+    if (ca) { cancel(ca.getAttribute('data-cancel')); return; }
+    const cp = ev.target.closest('[data-copy]');
+    if (cp) { copyText(cp.getAttribute('data-copy')); return; }
+    const sv = ev.target.closest('[data-save]');
+    if (sv) { save(sv.getAttribute('data-save')); return; }
+    if (ev.target.closest('[data-close]')) { if (state.open) delete state.drafts[state.open]; state.open = null; renderBoard(); }
+  });
+  document.addEventListener('input', (ev) => {
+    const el = ev.target;
+    if (!state.open || !el.id || !el.id.startsWith('f-')) return;
+    const d = state.drafts[state.open] || (state.drafts[state.open] = {});
+    d[el.id.slice(2)] = el.value;
+  });
+  $('logform').addEventListener('submit', async (ev) => {
+    ev.preventDefault();
+    const text = $('log-text').value.trim();
+    if (!text || !db) return;
+    try { await addLog($('log-task').value, text); $('log-text').value = ''; } catch (e) { /* stays in the field */ }
+  });
+
+  (async function start() {
+    const c = window.claude;
+    if (!c || !c.use) { state.failed = true; render(); return; }
+    const [dbNs, userNs] = await Promise.all([c.use('db'), c.use('user')]);
+    db = dbNs; user = userNs;
+    if (!db) { state.failed = true; render(); return; }
+    if (user) {
+      try { myId = await user.id(); } catch (e) { myId = null; }
+      try { const w = await user.can('data.write'); state.canWrite = w !== false; } catch (e) { state.canWrite = true; }
+      try { state.canAdmin = !!user.canEdit(); } catch (e) { state.canAdmin = false; }
+    } else state.canWrite = true;
+    const fail = () => { state.failed = true; render(); };
+    db.doc('meta/board').onSnapshot((s) => { state.meta = s.exists ? s.data() : {}; render(); }, () => {});
+    db.doc('meta/settings').onSnapshot((s) => { state.settings = s.exists ? s.data() : {}; renderYolo(); renderBoard(); }, () => {});
+    db.collection('phases').onSnapshot((s) => {
+      state.phases = s.docs.map((d) => Object.assign({ id: d.id }, d.data())).sort((a, b) => (a.order || 0) - (b.order || 0));
+      state.loaded.phases = true; render();
+    }, fail);
+    db.collection('tasks').orderBy('order').onSnapshot((s) => {
+      state.tasks = s.docs.map((d) => Object.assign({ id: d.id }, d.data()));
+      state.loaded.tasks = true; render();
+    }, fail);
+    db.collection('launch').onSnapshot((s) => {
+      state.launch = {};
+      s.docs.forEach((d) => { state.launch[d.id] = d.data(); });
+      renderBoard();
+    }, () => {});
+    db.collection('log').orderBy('at', 'desc').limit(60).onSnapshot((s) => {
+      state.log = s.docs.map((d) => Object.assign({ id: d.id }, d.data()));
+      renderLog(); resolveNames();
+    }, () => {});
+  })();
+})();
+</script>
