@@ -1,15 +1,40 @@
 # FOLLOW mode (plan §4.2)
-# Reserved for P2.3: follow_planner_node does not exist yet.
+# The framing presets of the follow planner and the class whitelist of the tracker.
 # Shared on purpose (/**): the launch files pass this file to follow_planner_node and to
 # target_tracker_node, which reads follow.eligible_classes for target selection (P1.2).
 /**:
   ros__parameters:
     follow:
-      preset: "BEHIND"              # BEHIND | SIDE | LEAD | ORBIT
-      offset: {behind: 8.0, side: 0.0, height: 5.0}
-      orbit_rate: 0.2               # rad/s
-      heading_tau: 0.8              # s, heading low-pass
+      # The framing preset: BEHIND | SIDE | LEAD | ORBIT
+      preset: "BEHIND"
+      # The framing offsets, in the target's heading frame [m]
+      offset: {behind: 8.0, side: 6.0, height: 5.0}
+      # The ORBIT angular rate [rad/s]. The orbit starts behind the target.
+      orbit_rate: 0.2
+      # The low-pass time constant of the target's heading [s]. It keeps the framing
+      # point from whipping around when the target turns.
+      heading_tau: 0.8
+      # The gain of the position term: v_des = v_t + kp * (p_des - p)
       kp_pos: 0.8
-      lost_hold_time: 2.0           # s -> HOLD
-      lost_rtl_time: 10.0           # s -> RTL
+      # The speed caps [m/s]. The vertical one is the safety filter's climb limit.
+      max_speed: 15.0
+      max_vertical_speed: 5.0
+      # The lost-track machine: the drone coasts, then hovers, then goes back to the
+      # position the follow started from [s]
+      lost_hold_time: 2.0
+      lost_rtl_time: 10.0
+      # A target message older than this counts as a lost track [s]
+      target_timeout: 0.5
+      # Below this speed the target's heading is meaningless, so the heading filter is
+      # held [m/s]
+      heading_min_speed: 0.3
       eligible_classes: ["person", "bicycle", "car"]
+
+# The follow planner's own parameters
+follow_planner_node:
+  ros__parameters:
+    rate_hz: 50.0
+    # The planner stops publishing when the odometry is older than this [s]: it does
+    # not know where the drone is, and the safety filter brakes to hover on a stale
+    # setpoint.
+    odom_timeout: 0.3

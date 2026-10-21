@@ -47,6 +47,24 @@ def generate_launch_description():
         condition=IfCondition(PythonExpression(["'", mission_mode, "' == 'intercept'"])),
     )
 
+    # FOLLOW planner: the framing presets (BEHIND, SIDE, LEAD, ORBIT) of plan 4.2. It
+    # publishes on /setpoint/raw, like the intercept guidance, and the safety filter
+    # is between the planner and the controller. Only one of the two planners runs in
+    # a launch, so they never fight over the topic.
+    follow_planner = Node(
+        package='interceptor_drone',
+        executable='follow_planner_node',
+        name='follow_planner_node',
+        output='screen',
+        parameters=[
+            follow_params,
+            {
+                'use_sim_time': use_sim_time,
+            },
+        ],
+        condition=IfCondition(PythonExpression(["'", mission_mode, "' == 'follow'"])),
+    )
+
     # Target drone behaviour: the intruder accelerates and curves. Simulation only.
     target_behavior = Node(
         package='interceptor_drone',
@@ -77,5 +95,6 @@ def generate_launch_description():
         ),
         target_tracker,
         guidance_controller,
+        follow_planner,
         target_behavior,
     ])

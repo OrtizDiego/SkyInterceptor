@@ -100,6 +100,14 @@ add_library(${PROJECT_NAME}_safety SHARED
 )
 target_link_libraries(${PROJECT_NAME}_safety Eigen3::Eigen)
 
+# Follow planner library: the framing presets in the target's heading frame, the
+# filtered heading and the lost-track state machine. Plain C++ and Eigen, no ROS, so
+# the geometry can be unit tested on synthetic poses.
+add_library(${PROJECT_NAME}_follow SHARED
+  src/follow/follow_planner.cpp
+)
+target_link_libraries(${PROJECT_NAME}_follow Eigen3::Eigen)
+
 # Gazebo plugin that flies the drone with the flight dynamics library
 add_library(quadrotor_dynamics_plugin SHARED src/simulation/quadrotor_dynamics_plugin.cpp)
 # Gazebo's own headers are not -Wpedantic clean: include them as system headers
@@ -177,6 +185,16 @@ add_executable(trajectory_controller_node src/control/trajectory_controller_node
 target_link_libraries(trajectory_controller_node ${PROJECT_NAME}_lib ${PROJECT_NAME}_flight)
 ament_target_dependencies(trajectory_controller_node rclcpp geometry_msgs nav_msgs interceptor_interfaces)
 
+# Follow planner node: /target/state + /odom -> /setpoint/raw (plan 4.2)
+add_executable(follow_planner_node src/follow/follow_planner_node.cpp)
+target_link_libraries(follow_planner_node ${PROJECT_NAME}_lib ${PROJECT_NAME}_follow)
+ament_target_dependencies(follow_planner_node
+  rclcpp
+  geometry_msgs
+  nav_msgs
+  interceptor_interfaces
+)
+
 # Mission node
 add_executable(mission_manager_node src/mission/mission_manager_node.cpp)
 target_link_libraries(mission_manager_node ${PROJECT_NAME}_lib)
@@ -210,6 +228,7 @@ install(TARGETS
   guidance_controller_node
   target_drone_behavior_node
   trajectory_controller_node
+  follow_planner_node
   mission_manager_node
   safety_filter_node
   evasion_controller_node
@@ -222,6 +241,7 @@ install(TARGETS
   ${PROJECT_NAME}_estimation
   ${PROJECT_NAME}_guidance
   ${PROJECT_NAME}_safety
+  ${PROJECT_NAME}_follow
   quadrotor_dynamics_plugin
   LIBRARY DESTINATION lib
 )
@@ -313,8 +333,11 @@ if(BUILD_TESTING)
 
   ament_add_gtest(test_safety_filter test/test_safety_filter.cpp)
   target_link_libraries(test_safety_filter ${PROJECT_NAME}_safety)
+
+  ament_add_gtest(test_follow_planner test/test_follow_planner.cpp)
+  target_link_libraries(test_follow_planner ${PROJECT_NAME}_follow)
 endif()
 
 ament_export_include_directories(include)
-ament_export_libraries(${PROJECT_NAME}_lib ${PROJECT_NAME}_safety)
+ament_export_libraries(${PROJECT_NAME}_lib ${PROJECT_NAME}_safety ${PROJECT_NAME}_follow)
 ament_package()
