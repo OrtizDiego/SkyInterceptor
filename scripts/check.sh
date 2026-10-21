@@ -73,7 +73,7 @@ else
 fi
 
 if command -v shellcheck > /dev/null 2>&1; then
-  # shellcheck the scripts of this checkout, not of the container image
+  # Lint the scripts of this checkout, not of the container image.
   if (cd "${REPO_ROOT}" && git ls-files '*.sh' | xargs -r shellcheck --severity=warning); then
     echo "shellcheck: OK"
   else
