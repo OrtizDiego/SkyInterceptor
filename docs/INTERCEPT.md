@@ -100,6 +100,15 @@ ros2 launch interceptor_drone intercept_demo.launch.py
 ros2 launch interceptor_drone intercept_demo.launch.py guidance_law:=pn
 ```
 
+Inside the container, source the workspace overlay first: the entrypoint does it
+for the container's own shell, but a `docker exec` shell starts fresh and would
+otherwise report `Package 'interceptor_drone' not found`.
+
+```bash
+docker exec -it interceptor bash
+source /workspace/interceptor_ws/install/setup.bash
+```
+
 `intercept_demo.launch.py` arms the mission automatically (`auto_arm:=true`), so the
 engagement starts on its own. In `interceptor_full.launch.py` the same argument
 exists but defaults to `false`: the mission manager always starts disarmed, and
@@ -112,10 +121,31 @@ Telemetry:
 | `/guidance/command` | `GuidanceCommand`: the acceleration command, `V_c`, `t_go`, the zero-effort miss, the law and the phase. |
 | `/guidance/vectors` | RViz markers: the line of sight and the commanded acceleration. |
 | `/setpoint/raw`, `/setpoint/safe` | The velocity setpoint. |
+| `/target_drone/odom`, `/target_drone/accel` | The intruder's true state, published by the behaviour node for reference only. The guidance never reads them: it only sees the tracker's estimate. |
 
 Both setpoint topics carry the same message because `safety_filter_node` does not
 exist yet (plan §2.2). When it lands it takes over `/setpoint/raw` and the guidance
 node must stop publishing on `/setpoint/safe`.
+
+To watch the engagement from the outside, independently of the guidance node's own
+telemetry, run the recorder in a second shell:
+
+```bash
+ros2 run interceptor_drone record_intercept.py
+```
+
+It prints the range, the closing speed, the relative speed and the phase on every
+sample.
+
+### The first launch is slow
+
+`gzserver` fetches the Gazebo model database from the internet the first time it
+starts, and `/spawn_entity` only becomes available once the world has finished
+loading. That can take well over a minute on a cold start, which is longer than
+`spawn_entity`'s default 30 s timeout, and the drones then never appear. The
+launch files pass `spawn_timeout` (180 s by default) for exactly this reason. If
+the drones do not appear, check the Gazebo log for the model-database download
+before suspecting anything else.
 
 ## The comparison
 
@@ -139,3 +169,18 @@ between, where the guidance law is what decides the outcome.
 Note that the comparison is sensitive to the tracker's velocity and acceleration
 estimates: the guidance sees the *estimated* target state, not the truth, so a
 laggy estimate eats into the margin that separates the two laws.
+
+### What the demo does and does not achieve
+
+In the simulator the interceptor reaches a closest approach of about 1.5 m and
+enters the capture radius, but it does so at 10 m/s relative speed, so the capture
+is *not* confirmed: the guidance is a pursuit law and it flies through the target
+rather than arriving gently. The node says so explicitly ("overflying the
+target") instead of claiming a capture it did not get.
+
+Closing that gap needs a terminal law for the last few metres, which the plan
+puts in the capture phase (§4.4). The version tried here — switching to a
+relative-velocity match inside the capture radius — was measured to be worse: it
+loses the lateral correction and the range then oscillates instead of shrinking.
+That is why the capture is detected rather than flown.
+

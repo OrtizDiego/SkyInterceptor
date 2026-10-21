@@ -207,8 +207,6 @@ private:
 
   void onTimer()
   {
-    const double t = now().seconds();
-
     if (!has_odom_) {
       return;  // nothing to fly yet
     }
@@ -223,8 +221,8 @@ private:
     }
 
     updatePhase();
-    publishSetpoint(t);
-    publishTelemetry(t);
+    publishSetpoint();
+    publishTelemetry();
     publishMarkers();
   }
 
@@ -294,7 +292,7 @@ private:
   }
 
   /// The velocity setpoint for the current phase.
-  Eigen::Vector3d computeVelocity(double t)
+  Eigen::Vector3d computeVelocity()
   {
     switch (phase_) {
       case Phase::SEARCH: {
@@ -359,9 +357,9 @@ private:
     return out;
   }
 
-  void publishSetpoint(double t)
+  void publishSetpoint()
   {
-    const Eigen::Vector3d velocity = computeVelocity(t);
+    const Eigen::Vector3d velocity = computeVelocity();
 
     FlightSetpointMsg msg;
     msg.header.stamp = now();
@@ -384,7 +382,7 @@ private:
     pub_setpoint_safe_->publish(msg);
   }
 
-  void publishTelemetry(double t)
+  void publishTelemetry()
   {
     GuidanceCommandMsg msg;
     msg.header.stamp = now();

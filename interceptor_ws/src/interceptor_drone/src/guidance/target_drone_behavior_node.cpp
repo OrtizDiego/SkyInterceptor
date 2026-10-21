@@ -23,6 +23,7 @@
 #include <vector>
 
 #include <gazebo_msgs/srv/set_entity_state.hpp>
+#include <geometry_msgs/msg/accel_stamped.hpp>
 #include <nav_msgs/msg/odometry.hpp>
 #include <rclcpp/rclcpp.hpp>
 #include <sensor_msgs/msg/joint_state.hpp>
@@ -55,6 +56,10 @@ public:
 
     client_ = create_client<SetEntityState>("/set_entity_state");
     pub_odom_ = create_publisher<nav_msgs::msg::Odometry>("/target_drone/odom", 10);
+    // The true acceleration of the intruder. It is not fed to the guidance: the
+    // guidance only ever reads the tracker's estimate. It is published so the
+    // profile can be checked against what the tracker believes.
+    pub_accel_ = create_publisher<geometry_msgs::msg::AccelStamped>("/target_drone/accel", 10);
     // The propellers are visual only: the target is kinematic, so the joint angles
     // are published here and read by robot_state_publisher.
     pub_joints_ = create_publisher<sensor_msgs::msg::JointState>("/target_drone/joint_states", 10);
@@ -193,6 +198,14 @@ private:
     odom.twist.twist.linear.y = velocity.y();
     odom.twist.twist.linear.z = velocity.z();
     pub_odom_->publish(odom);
+
+    geometry_msgs::msg::AccelStamped accel_msg;
+    accel_msg.header.stamp = odom.header.stamp;
+    accel_msg.header.frame_id = "map";
+    accel_msg.accel.linear.x = acceleration.x();
+    accel_msg.accel.linear.y = acceleration.y();
+    accel_msg.accel.linear.z = acceleration.z();
+    pub_accel_->publish(accel_msg);
   }
 
   std::string entity_name_;
@@ -214,6 +227,7 @@ private:
 
   rclcpp::Client<SetEntityState>::SharedPtr client_;
   rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr pub_odom_;
+  rclcpp::Publisher<geometry_msgs::msg::AccelStamped>::SharedPtr pub_accel_;
   rclcpp::Publisher<sensor_msgs::msg::JointState>::SharedPtr pub_joints_;
   rclcpp::TimerBase::SharedPtr timer_;
 };

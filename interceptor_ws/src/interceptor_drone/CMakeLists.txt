@@ -155,7 +155,7 @@ ament_target_dependencies(guidance_controller_node
 # curving profile. It is not part of the interceptor's own control loop.
 add_executable(target_drone_behavior_node src/guidance/target_drone_behavior_node.cpp)
 target_link_libraries(target_drone_behavior_node ${PROJECT_NAME}_lib)
-ament_target_dependencies(target_drone_behavior_node rclcpp nav_msgs gazebo_msgs)
+ament_target_dependencies(target_drone_behavior_node rclcpp geometry_msgs nav_msgs gazebo_msgs)
 
 # Control nodes
 add_executable(trajectory_controller_node src/control/trajectory_controller_node.cpp)
@@ -199,6 +199,7 @@ install(TARGETS
 install(PROGRAMS
   src/perception/target_detector.py
   src/teleop/drone_teleop_keyboard.py
+  src/tools/record_intercept.py
   DESTINATION lib/${PROJECT_NAME}
 )
 

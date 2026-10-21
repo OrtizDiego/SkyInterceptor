@@ -8,7 +8,8 @@ from launch.substitutions import LaunchConfiguration
 
 
 def generate_launch_description():
-    """The INTERCEPT demo scenario, ready to run.
+    """
+    Launch the INTERCEPT demo scenario, ready to run.
 
     A Crazyflie intruder accelerates from a standstill and curves while the
     interceptor climbs and engages it with proportional navigation. The interceptor

@@ -75,6 +75,7 @@ Perception → Estimation → Guidance → Control → Platform
 | Mission | `mission_manager_node` | Serves `/mission/set_mode` (`SetMissionMode`), latches `/mission/mode` (`MissionMode`, transient local); always starts disarmed |
 | Platform | `quadrotor_dynamics` (Gazebo plugin, `libquadrotor_dynamics_plugin.so`) | Rotor/aero/wind model + onboard flight controller; `/cmd_vel` in, `/odom` + TF out |
 | Platform | `drone_teleop_keyboard.py` | Keyboard teleop: `/cmd_vel` + `/drone/arm` |
+| Tooling | `record_intercept.py` | Prints the range, closing speed, relative speed and phase of an engagement, for checking the intercept from outside the guidance node |
 
 ### Flight dynamics library
 
@@ -152,7 +153,7 @@ Every file uses `<node_name>: ros__parameters:` and is loaded by the launch file
 - `interceptor_full.launch.py` — Full system (simulation + perception + mission manager + guidance + control + RViz). Args: `mission_mode:=follow|intercept` (default follow), `perception_source:=vision|groundtruth` (default groundtruth; vision launches the perception pipeline), `guidance_law:=pn|apn`, `auto_arm:=true|false`
 - `follow.launch.py` / `intercept.launch.py` — `interceptor_full` with the mode set
 - `intercept_demo.launch.py` — The INTERCEPT demo: the Crazyflie intruder accelerates and curves while the interceptor engages it with PN or augmented PN. Arms the mission automatically
-- `simulation.launch.py` — Gazebo + drone + target drone (args: `gui`, `x`, `y`, `yaw`, `target_x`, `target_y`, `target_z`, `target_yaw`, `wind_x`, `wind_y`, `wind_z`, `wind_gust_stddev`, `command_frame`: `heading` for the keyboard teleop (default), `world` for `trajectory_controller_node`; `interceptor_full` sets `world`)
+- `simulation.launch.py` — Gazebo + drone + target drone (args: `gui`, `x`, `y`, `yaw`, `target_x`, `target_y`, `target_z`, `target_yaw`, `wind_x`, `wind_y`, `wind_z`, `wind_gust_stddev`, `spawn_timeout` (default 180 s: `gzserver` fetches the Gazebo model database on the first start, so `/spawn_entity` is not available for over a minute), `command_frame`: `heading` for the keyboard teleop (default), `world` for `trajectory_controller_node`; `interceptor_full` sets `world`)
 - `perception.launch.py` — Perception pipeline only (`perception_source:=vision`)
 - `groundtruth.launch.py` — `groundtruth_target_node` only (`perception_source:=groundtruth`)
 - `guidance.launch.py` — Tracker, plus the guidance node in intercept mode

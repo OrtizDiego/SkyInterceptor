@@ -52,6 +52,11 @@ def generate_launch_description():
 
     # Spawn interceptor drone on its skids, next to the person's patrol square and
     # facing it (the person walks the 15 x 15 m square with corners (0, 0) and (15, 15))
+    #
+    # The timeout is generous on purpose: gzserver first fetches the online Gazebo
+    # model database, which on a cold or slow network takes well over a minute, and
+    # /spawn_entity is not available until the world has finished loading. The
+    # default 30 s timeout makes the spawn fail on a slow start.
     spawn_drone = Node(
         package='gazebo_ros',
         executable='spawn_entity.py',
@@ -62,6 +67,7 @@ def generate_launch_description():
             '-y', LaunchConfiguration('y'),
             '-z', '0.3',
             '-Y', LaunchConfiguration('yaw'),
+            '-timeout', LaunchConfiguration('spawn_timeout'),
         ],
         output='screen'
     )
@@ -78,6 +84,7 @@ def generate_launch_description():
             '-y', LaunchConfiguration('target_y'),
             '-z', LaunchConfiguration('target_z'),
             '-Y', LaunchConfiguration('target_yaw'),
+            '-timeout', LaunchConfiguration('spawn_timeout'),
         ],
         output='screen'
     )
@@ -153,6 +160,11 @@ def generate_launch_description():
             'command_frame', default_value='heading', choices=['heading', 'world'],
             description='Frame of /cmd_vel: heading (keyboard teleop) or world '
                         '(trajectory_controller_node)'),
+        DeclareLaunchArgument(
+            'spawn_timeout', default_value='180.0',
+            description='Seconds to wait for /spawn_entity. gzserver fetches the '
+                        'online model database on start, which can take a minute '
+                        'before the world is loaded and the service exists.'),
         gazebo,
         spawn_drone,
         spawn_target,
