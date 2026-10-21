@@ -108,7 +108,7 @@ Any agent or person can read and edit this file: Claude Code, Codex, Cursor, a s
 
 - **Status:** review
 - **Depends on:** P2.1, P1.2
-- **PR:** —
+- **PR:** 21
 - **Branch:** feat/p2-2-safety-filter
 - **Scope:** safety_filter_node: keep-out CBF for every person/vehicle track and static obstacle, covariance inflation, speed/altitude/geofence limits, e-stop, INTERCEPT gate hook; randomized property test.
 - **Notes:** ROS-free `safety::SafetyFilter` in `include/safety/` with 24 gtests; the node is the thin ROS wrapper (`/setpoint/raw` -> `/setpoint/safe`, `/mission/status`, `/safety/keepouts` markers). Verified: clean `colcon build` with `-Werror` and `colcon test` in the container, 345 tests, 0 failures, all ament linters green. The plan's barrier had to be made relative degree 2: it constrains the *commanded* velocity, but the distance depends on the *achieved* one and the autopilot's velocity loop lags (measured 0.34 s on the X500 flight model), so the relative degree 1 form overshoots the keep-out by up to 6 m against a 5 m standoff. The filter now takes the stricter of the plan's bound and a lag correction, and a randomized property test closes the loop through the lag to check the distance never drops below d_min. Still open: P3.4 adds the altitude and geofence conditions to the engagement gate and the abort logic; the gate here only checks the mode, the arming and the class of the selected target. Not yet run in Gazebo.
