@@ -106,7 +106,7 @@ Any agent or person can read and edit this file: Claude Code, Codex, Cursor, a s
 
 ### P2.2 – Safety filter
 
-- **Status:** review
+- **Status:** done
 - **Depends on:** P2.1, P1.2
 - **PR:** 21
 - **Branch:** feat/p2-2-safety-filter
@@ -146,7 +146,7 @@ Any agent or person can read and edit this file: Claude Code, Codex, Cursor, a s
 
 ### P3.1 – Target drone and behaviours
 
-- **Status:** review
+- **Status:** in_progress
 - **Depends on:** P0.3
 - **PR:** 22
 - **Branch:** demo/interception-drone
@@ -164,7 +164,7 @@ Any agent or person can read and edit this file: Claude Code, Codex, Cursor, a s
 
 ### P3.3 – Intercept guidance
 
-- **Status:** review
+- **Status:** in_progress
 - **Depends on:** P1.2, P2.1, P2.2
 - **PR:** 22
 - **Branch:** demo/interception-drone
