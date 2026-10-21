@@ -87,8 +87,51 @@ on the target at several m/s, so 3 m/s is not reachable with this platform.
   `accel_time` (the tangential acceleration);
 - it turns at a constant `turn_rate` the whole time (the lateral acceleration).
 
+The position is the exact integral of that velocity, so the published velocity
+really is d(position)/dt and the tracker's estimate of the target's velocity
+and acceleration matches what the intruder does.
+
+The intruder is moved by `/set_entity_state`, so no Gazebo plugin publishes its
+pose. The behaviour node therefore broadcasts the `map -> target_base_link`
+transform itself: without it `robot_state_publisher` has no root to hang the
+propeller frames on and RViz reports the propeller transforms as missing.
+
 The guidance never reads this node: it only ever sees the tracker's estimate on
 `/target/state`, so the whole perception and estimation chain stays in the loop.
+
+## The scenario
+
+The interceptor spawns *behind* the intruder on the same line, both in the middle
+of the park above the pedestrian's patrol square:
+
+| | position | heading |
+|---|---|---|
+| interceptor | (2, 5) m | +x, towards the intruder |
+| intruder | (10, 5) m | +x |
+
+The line of sight therefore runs along the interceptor's nose from the start, so
+the stereo cameras keep the intruder in frame through the approach. The
+intruder still has to accelerate and curve, so the guidance law is what decides
+the outcome: pure PN misses it by about 4 m, augmented PN reaches the capture
+envelope.
+
+Both spawn points are clear of the trees (the nearest canopy edge is 2.6 m away
+at the intruder's start) and well above them (the tallest canopy is 6.5 m, the
+drones fly at 12 m).
+
+## The cameras
+
+The stereo camera hangs off the front of the airframe, so the nose has to follow
+the target for the cameras to see it. The guidance commands that heading: the
+yaw setpoint is the bearing of the target in the world frame.
+
+Getting the nose onto the target takes two things beyond the yaw setpoint:
+
+- the trajectory controller's yaw gain (`kp_yaw`) and rate limit, and
+- the flight controller's `max_yaw_error`, the window its internal heading
+  setpoint may run ahead of the airframe. The mixer allocates the yaw torque
+  last, so a tight limit starves the yaw exactly when the drone accelerates
+  hardest and the nose lags the line of sight.
 
 ## Running it
 
@@ -113,6 +156,10 @@ source /workspace/interceptor_ws/install/setup.bash
 engagement starts on its own. In `interceptor_full.launch.py` the same argument
 exists but defaults to `false`: the mission manager always starts disarmed, and
 arming is an operator decision.
+
+The Gazebo GUI starts on a raised three-quarter view of the middle of the park
+(the world file's `<gui><camera>` block), so both drones, the pedestrian and the
+camera feeds are in frame from the first second.
 
 Telemetry:
 

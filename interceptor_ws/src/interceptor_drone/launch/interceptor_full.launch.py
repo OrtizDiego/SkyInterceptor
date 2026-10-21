@@ -21,12 +21,14 @@ def generate_launch_description():
     # The mission manager always starts disarmed. The demo arms it after a delay so
     # the engagement starts on its own.
     auto_arm = LaunchConfiguration('auto_arm', default='false')
-    # Where the interceptor and the target drone start. The demo scenario puts the
-    # interceptor off to one side so it has to lead the target, not chase it.
-    interceptor_x = LaunchConfiguration('interceptor_x', default='-10.0')
-    interceptor_y = LaunchConfiguration('interceptor_y', default='25.0')
-    target_x = LaunchConfiguration('target_x', default='30.0')
-    target_y = LaunchConfiguration('target_y', default='0.0')
+    # Where the interceptor and the target drone start. The interceptor starts
+    # behind the intruder on the same line, so the line of sight runs along its
+    # nose: the stereo cameras then keep the intruder in frame for the whole
+    # approach, and the guidance still has to lead the target's turn.
+    interceptor_x = LaunchConfiguration('interceptor_x', default='2.0')
+    interceptor_y = LaunchConfiguration('interceptor_y', default='5.0')
+    target_x = LaunchConfiguration('target_x', default='10.0')
+    target_y = LaunchConfiguration('target_y', default='5.0')
     use_vision = PythonExpression(["'", perception_source, "' == 'vision'"])
     use_groundtruth = PythonExpression(["'", perception_source, "' == 'groundtruth'"])
 
@@ -128,22 +130,22 @@ def generate_launch_description():
         ),
         DeclareLaunchArgument(
             'interceptor_x',
-            default_value='-10.0',
+            default_value='2.0',
             description='Interceptor spawn x [m]',
         ),
         DeclareLaunchArgument(
             'interceptor_y',
-            default_value='25.0',
+            default_value='5.0',
             description='Interceptor spawn y [m]',
         ),
         DeclareLaunchArgument(
             'target_x',
-            default_value='30.0',
+            default_value='10.0',
             description='Target drone spawn x [m]',
         ),
         DeclareLaunchArgument(
             'target_y',
-            default_value='0.0',
+            default_value='5.0',
             description='Target drone spawn y [m]',
         ),
         simulation,

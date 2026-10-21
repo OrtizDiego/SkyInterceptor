@@ -13,6 +13,7 @@
  * augmented PN compensates.
  */
 
+#include <tf2_ros/transform_broadcaster.h>
 #include <Eigen/Dense>
 #include <Eigen/Geometry>
 
@@ -53,6 +54,12 @@ public:
     vertical_rate_ = declare_parameter("vertical_rate", 0.0);
 
     const double rate_hz = declare_parameter("rate_hz", 50.0);
+    // The frames of the target drone's own TF tree. The drone is moved by
+    // /set_entity_state, so nothing else publishes its pose: this node is the
+    // only source of the world -> target_base_link transform, and without it
+    // robot_state_publisher has no root to hang the propeller frames on.
+    world_frame_ = declare_parameter("world_frame", "map");
+    base_frame_ = declare_parameter("base_frame", "target_base_link");
 
     client_ = create_client<SetEntityState>("/set_entity_state");
     pub_odom_ = create_publisher<nav_msgs::msg::Odometry>("/target_drone/odom", 10);
@@ -63,6 +70,11 @@ public:
     // The propellers are visual only: the target is kinematic, so the joint angles
     // are published here and read by robot_state_publisher.
     pub_joints_ = create_publisher<sensor_msgs::msg::JointState>("/target_drone/joint_states", 10);
+
+    // The target drone's pose. The interceptor's own dynamics plugin publishes
+    // odom -> base_link, so the target needs the same treatment: a map ->
+    // target_base_link transform, broadcast from here.
+    tf_broadcaster_ = std::make_unique<tf2_ros::TransformBroadcaster>(*this);
 
     // On the node clock, so the profile follows simulation time.
     timer_ = rclcpp::create_timer(
@@ -78,48 +90,69 @@ public:
 private:
   /// The state of the intruder at time t, integrated from the start.
   ///
-  /// The speed ramps linearly from 0 to final_speed over accel_time and the heading
-  /// turns at a constant rate, so the acceleration has two parts: the tangential one
-  /// from the speed ramp and the lateral one from the turn.
+  /// The manoeuvre: the drone starts nearly stationary and accelerates to
+  /// final_speed over accel_time, while it turns at a constant turn_rate the
+  /// whole time. The acceleration therefore has two parts: the tangential one
+  /// from the speed ramp and the lateral one from the turn. That combination is
+  /// what pure proportional navigation cannot follow and what augmented PN
+  /// compensates.
+  ///
+  /// The position is the exact integral of the velocity, so the published
+  /// velocity really is d(position)/dt: the tracker's estimate of the target's
+  /// velocity and acceleration then matches what the drone actually does.
   void stateAt(
     double t, Eigen::Vector3d & position, Eigen::Vector3d & velocity,
     Eigen::Vector3d & acceleration, double & yaw) const
   {
-    const double ramp = std::min(1.0, t / std::max(accel_time_, 1e-6));
-    const double speed = final_speed_ * ramp;
-    const double speed_rate =
-      (t < accel_time_) ? final_speed_ / std::max(accel_time_, 1e-6) : 0.0;
+    const double ramp_time = std::max(accel_time_, 1e-6);
+    const double heading0 = start_yaw_;
+    const double turn_rate = turn_rate_;
 
-    const double heading = start_yaw_ + turn_rate_ * t;
+    // The heading turns at a constant rate from the start.
+    const double heading = heading0 + turn_rate * t;
     const double cos_h = std::cos(heading);
     const double sin_h = std::sin(heading);
+
+    // Speed: the ramp, then constant.
+    const bool ramping = t < ramp_time;
+    const double speed = ramping ? final_speed_ * t / ramp_time : final_speed_;
+    const double speed_rate = ramping ? final_speed_ / ramp_time : 0.0;
 
     velocity = Eigen::Vector3d(speed * cos_h, speed * sin_h, vertical_rate_);
 
     // d(velocity)/dt: the speed ramp along the heading plus the turn rate across it.
     acceleration = Eigen::Vector3d(
-      speed_rate * cos_h - speed * turn_rate_ * sin_h,
-      speed_rate * sin_h + speed * turn_rate_ * cos_h,
+      speed_rate * cos_h - speed * turn_rate * sin_h,
+      speed_rate * sin_h + speed * turn_rate * cos_h,
       0.0);
 
-    // Position: integrate the heading analytically. The drone flies along a straight
-    // line at the start heading while it accelerates, then turns on a circle of radius
-    // final_speed / turn_rate.
-    const double t1 = std::min(t, accel_time_);
-    // Distance covered during the ramp: the average speed times the ramp time.
-    const double ramp_distance = 0.5 * final_speed_ * t1 * t1 / std::max(accel_time_, 1e-6);
-    const double heading0 = start_yaw_;
+    // Position: the exact integral of the velocity.
+    double dx = 0.0;
+    double dy = 0.0;
+    if (std::abs(turn_rate) > 1e-9) {
+      // The ramp: int_0^{t1} (v/T) * t * [cos(h0 + w t), sin(h0 + w t)] dt
+      const double t1 = std::min(t, ramp_time);
+      const double h1 = heading0 + turn_rate * t1;
+      const double k = final_speed_ / (ramp_time * turn_rate * turn_rate);
+      dx += k * ((h1 - heading0) * std::sin(h1) + std::cos(h1) - std::cos(heading0));
+      dy += k * (-(h1 - heading0) * std::cos(h1) + std::sin(h1) - std::sin(heading0));
 
-    double px = start_x_ + ramp_distance * std::cos(heading0);
-    double py = start_y_ + ramp_distance * std::sin(heading0);
-
-    const double t2 = std::max(0.0, t - accel_time_);
-    if (t2 > 0.0 && turn_rate_ > 1e-6) {
-      const double radius = final_speed_ / turn_rate_;
-      px += radius * (std::sin(heading0 + turn_rate_ * t2) - std::sin(heading0));
-      py += -radius * (std::cos(heading0 + turn_rate_ * t2) - std::cos(heading0));
+      // After the ramp the speed is constant, so the path is a circular arc.
+      if (t > ramp_time) {
+        const double radius = final_speed_ / turn_rate;
+        dx += radius * (std::sin(heading) - std::sin(h1));
+        dy += -radius * (std::cos(heading) - std::cos(h1));
+      }
+    } else {
+      // No turn: a straight line.
+      const double t1 = std::min(t, ramp_time);
+      const double distance =
+        0.5 * final_speed_ * t1 * t1 / ramp_time + final_speed_ * std::max(0.0, t - ramp_time);
+      dx = distance * std::cos(heading0);
+      dy = distance * std::sin(heading0);
     }
-    position = Eigen::Vector3d(px, py, start_z_ + vertical_rate_ * t);
+
+    position = Eigen::Vector3d(start_x_ + dx, start_y_ + dy, start_z_ + vertical_rate_ * t);
     yaw = heading;
   }
 
@@ -140,6 +173,30 @@ private:
     sendPose(position, yaw);
     publishOdom(position, velocity, acceleration, yaw);
     publishJoints(t);
+    publishTransform(position, yaw);
+  }
+
+  /// Broadcasts the world -> target_base_link transform.
+  ///
+  /// The target drone is moved by /set_entity_state, so no Gazebo plugin
+  /// publishes its pose and robot_state_publisher has no root transform to
+  /// attach the propeller frames to. Publishing it here completes the target's
+  /// TF tree: map -> target_base_link -> target_prop_*_link.
+  void publishTransform(const Eigen::Vector3d & position, double yaw)
+  {
+    geometry_msgs::msg::TransformStamped tf;
+    tf.header.stamp = now();
+    tf.header.frame_id = world_frame_;
+    tf.child_frame_id = base_frame_;
+    tf.transform.translation.x = position.x();
+    tf.transform.translation.y = position.y();
+    tf.transform.translation.z = position.z();
+    const Eigen::Quaterniond q(Eigen::AngleAxisd(yaw, Eigen::Vector3d::UnitZ()));
+    tf.transform.rotation.x = q.x();
+    tf.transform.rotation.y = q.y();
+    tf.transform.rotation.z = q.z();
+    tf.transform.rotation.w = q.w();
+    tf_broadcaster_->sendTransform(tf);
   }
 
   /// Spins the propeller joints so the intruder reads as a flying drone.
@@ -209,6 +266,8 @@ private:
   }
 
   std::string entity_name_;
+  std::string world_frame_ = "map";
+  std::string base_frame_ = "target_base_link";
   double start_x_ = 20.0;
   double start_y_ = 0.0;
   double start_z_ = 12.0;
@@ -230,6 +289,7 @@ private:
   rclcpp::Publisher<geometry_msgs::msg::AccelStamped>::SharedPtr pub_accel_;
   rclcpp::Publisher<sensor_msgs::msg::JointState>::SharedPtr pub_joints_;
   rclcpp::TimerBase::SharedPtr timer_;
+  std::unique_ptr<tf2_ros::TransformBroadcaster> tf_broadcaster_;
 };
 
 }  // namespace interceptor

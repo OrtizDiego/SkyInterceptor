@@ -65,7 +65,7 @@ def generate_launch_description():
             '-entity', 'interceptor',
             '-x', LaunchConfiguration('x'),
             '-y', LaunchConfiguration('y'),
-            '-z', '0.3',
+            '-z', LaunchConfiguration('z'),
             '-Y', LaunchConfiguration('yaw'),
             '-timeout', LaunchConfiguration('spawn_timeout'),
         ],
@@ -98,6 +98,9 @@ def generate_launch_description():
     )
 
     # Robot state publisher (propeller joint angles come from the dynamics plugin)
+    #
+    # The interceptor's propeller joints are published by the dynamics plugin on
+    # /joint_states, so this publisher reads them from there.
     robot_state_publisher = Node(
         package='robot_state_publisher',
         executable='robot_state_publisher',
@@ -106,18 +109,27 @@ def generate_launch_description():
         parameters=[{
             'robot_description': robot_desc,
             'use_sim_time': use_sim_time
-        }]
+        }],
+        remappings=[('joint_states', '/joint_states')]
     )
 
     # The target drone needs its own state publisher for the spinning propellers.
-    # robot_state_publisher only ever publishes on /robot_description, so it cannot
-    # be used twice: the target description goes on its own topic instead.
+    # robot_state_publisher always publishes the model on /robot_description, so it
+    # cannot be used twice: the target description goes on its own topic instead.
+    #
+    # The target's propeller joints are published by target_drone_behavior_node on
+    # /target_drone/joint_states, and its root pose by the same node on the
+    # map -> target_base_link transform. Reading the global /joint_states here
+    # instead would be wrong: those names belong to the interceptor's propellers.
     target_state_publisher = Node(
         package='robot_state_publisher',
         executable='robot_state_publisher',
         name='target_robot_state_publisher',
         output='screen',
-        remappings=[('robot_description', 'target_description')],
+        remappings=[
+            ('robot_description', 'target_description'),
+            ('joint_states', '/target_drone/joint_states'),
+        ],
         parameters=[{
             'robot_description': target_desc,
             'use_sim_time': use_sim_time
@@ -136,12 +148,13 @@ def generate_launch_description():
             description='Full path to world file'
         ),
         DeclareLaunchArgument('gui', default_value='true', description='Start the Gazebo GUI'),
-        DeclareLaunchArgument('x', default_value='-3.0', description='Spawn x [m]'),
-        DeclareLaunchArgument('y', default_value='-3.0', description='Spawn y [m]'),
-        DeclareLaunchArgument('yaw', default_value='0.785', description='Spawn yaw [rad]'),
-        DeclareLaunchArgument('target_x', default_value='30.0',
+        DeclareLaunchArgument('x', default_value='2.0', description='Spawn x [m]'),
+        DeclareLaunchArgument('y', default_value='5.0', description='Spawn y [m]'),
+        DeclareLaunchArgument('z', default_value='0.3', description='Spawn z [m]'),
+        DeclareLaunchArgument('yaw', default_value='0.0', description='Spawn yaw [rad]'),
+        DeclareLaunchArgument('target_x', default_value='10.0',
                               description='Target drone spawn x [m]'),
-        DeclareLaunchArgument('target_y', default_value='0.0',
+        DeclareLaunchArgument('target_y', default_value='5.0',
                               description='Target drone spawn y [m]'),
         DeclareLaunchArgument('target_z', default_value='12.0',
                               description='Target drone spawn z [m]'),

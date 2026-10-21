@@ -167,6 +167,7 @@ private:
     interceptor_velocity_ = orientation.normalized() * Eigen::Vector3d(v.x, v.y, v.z);
     interceptor_position_ = Eigen::Vector3d(
       msg.pose.pose.position.x, msg.pose.pose.position.y, msg.pose.pose.position.z);
+    odom_orientation_ = orientation.normalized();
     has_odom_ = true;
   }
 
@@ -372,7 +373,7 @@ private:
     msg.acceleration_ff.x = last_result_.acceleration.x();
     msg.acceleration_ff.y = last_result_.acceleration.y();
     msg.acceleration_ff.z = last_result_.acceleration.z();
-    msg.yaw = 0.0;
+    msg.yaw = targetYaw();
     msg.yaw_rate = 0.0;
     msg.source = FlightSetpointMsg::SOURCE_INTERCEPT;
 
@@ -380,6 +381,40 @@ private:
     // /setpoint/safe so the trajectory controller can use it.
     pub_setpoint_raw_->publish(msg);
     pub_setpoint_safe_->publish(msg);
+  }
+
+  /// The heading that points the interceptor's nose at the target.
+  ///
+  /// The stereo camera hangs off the front of the airframe, so the nose has to
+  /// follow the target for the cameras to see it: without this the drone flies
+  /// the guidance law side-on and the camera stares into the sky. The heading is
+  /// the bearing of the target in the world frame, which is the same convention
+  /// the trajectory controller's yaw loop expects.
+  ///
+  /// Before the engagement there is no target yet, so the drone holds the
+  /// heading it was spawned with rather than swinging to an arbitrary one.
+  double targetYaw() const
+  {
+    if (!has_target_ || !target_valid_) {
+      return currentYaw();
+    }
+    const Eigen::Vector3d offset = target_position_ - interceptor_position_;
+    if (offset.head<2>().norm() < 1e-3) {
+      return currentYaw();
+    }
+    return std::atan2(offset.y(), offset.x());
+  }
+
+  /// The interceptor's current heading, from its odometry.
+  double currentYaw() const
+  {
+    if (!has_odom_) {
+      return 0.0;
+    }
+    const auto & q = odom_orientation_;
+    return std::atan2(
+      2.0 * (q.w() * q.z() + q.x() * q.y()),
+      1.0 - 2.0 * (q.y() * q.y() + q.z() * q.z()));
   }
 
   void publishTelemetry()
@@ -497,6 +532,7 @@ private:
   Eigen::Vector3d target_acceleration_ = Eigen::Vector3d::Zero();
   Eigen::Vector3d interceptor_position_ = Eigen::Vector3d::Zero();
   Eigen::Vector3d interceptor_velocity_ = Eigen::Vector3d::Zero();
+  Eigen::Quaterniond odom_orientation_ = Eigen::Quaterniond::Identity();
 
   // Parameters
   double capture_start_range_ = 10.0;

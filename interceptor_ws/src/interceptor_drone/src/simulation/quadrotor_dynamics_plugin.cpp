@@ -204,8 +204,17 @@ private:
     c.max_horizontal_speed = sdfParam(sdf, "max_horizontal_speed", c.max_horizontal_speed);
     c.max_vertical_speed = sdfParam(sdf, "max_vertical_speed", c.max_vertical_speed);
     c.max_yaw_rate = sdfParam(sdf, "max_yaw_rate", c.max_yaw_rate);
+    c.max_yaw_error = sdfParam(sdf, "max_yaw_error", c.max_yaw_error);
     c.max_tilt = sdfParam(sdf, "max_tilt", c.max_tilt);
     c.idle_rotor_speed = sdfParam(sdf, "idle_rotor_speed", c.idle_rotor_speed);
+    // The body-rate limit bounds how fast the airframe can turn. The mixer
+    // allocates the yaw torque last, so a tight limit starves the yaw when the
+    // drone is also accelerating sideways: the nose then lags the line of sight
+    // and the cameras look away from the target.
+    const double max_body_rate = sdfParam(sdf, "max_body_rate", 0.0);
+    if (max_body_rate > 0.0) {
+      c.max_body_rate = Eigen::Vector3d::Constant(max_body_rate);
+    }
     return c;
   }
 

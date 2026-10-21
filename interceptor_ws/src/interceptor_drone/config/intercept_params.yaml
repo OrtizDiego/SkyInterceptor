@@ -50,8 +50,13 @@
 target_drone_behavior_node:
   ros__parameters:
     entity_name: "target_drone"
-    start_x: 30.0
-    start_y: 0.0
+    # The intruder starts in the middle of the park, above the pedestrian's patrol
+    # square, so the whole engagement happens in view of the cameras and of RViz.
+    # It heads along +x at first, and the interceptor starts behind it on the same
+    # line, so the line of sight runs along the interceptor's nose and the stereo
+    # cameras keep the intruder in frame.
+    start_x: 10.0
+    start_y: 5.0
     start_z: 12.0
     start_yaw: 0.0
     # The intruder accelerates from a standstill and curves at a constant rate.
@@ -62,3 +67,7 @@ target_drone_behavior_node:
     turn_rate: 1.2             # rad/s, the constant curve
     vertical_rate: 0.0         # m/s, the drone flies level
     rate_hz: 50.0
+    # The TF frames of the target. The drone is moved by /set_entity_state, so this
+    # node is the only source of the target's pose in TF.
+    world_frame: "map"
+    base_frame: "target_base_link"

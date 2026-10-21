@@ -51,10 +51,16 @@ ros2 launch interceptor_drone intercept_demo.launch.py                  # augmen
 ros2 launch interceptor_drone intercept_demo.launch.py guidance_law:=pn # pure PN
 ```
 
-The demo arms the mission on its own, so it runs unattended. The guidance telemetry
-is on `/guidance/command` (the acceleration command, closing speed, time to go, the
-zero-effort miss and the phase) and the line of sight and commanded acceleration are
-drawn in RViz on `/guidance/vectors`. See [`docs/INTERCEPT.md`](docs/INTERCEPT.md).
+The demo arms the mission on its own, so it runs unattended. It starts in the
+middle of the park, with the interceptor behind the intruder, so the whole
+engagement is in view of the Gazebo GUI and of the stereo cameras.
+
+RViz shows the two drones as robot models, the tracks and the guidance vectors in
+the world, and the left camera, the right camera, the depth map and the detection
+overlay as image panels. The guidance telemetry is on `/guidance/command` (the
+acceleration command, closing speed, time to go, the zero-effort miss and the
+phase) and the line of sight and commanded acceleration are drawn in RViz on
+`/guidance/vectors`. See [`docs/INTERCEPT.md`](docs/INTERCEPT.md).
 
 ### Fly it yourself
 
