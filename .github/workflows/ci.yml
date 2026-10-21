@@ -39,6 +39,9 @@ jobs:
       - name: Python syntax
         run: git ls-files '*.py' | xargs python -m py_compile
 
+      - name: Roadmap
+        run: python scripts/roadmap.py check
+
   # Builds the ROS 2 workspace and runs `colcon test`, which covers the GTest
   # unit tests plus the ament linters (uncrustify, cpplint, cppcheck, flake8,
   # pep257, lint_cmake, xmllint).

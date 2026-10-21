@@ -234,6 +234,7 @@ code { font-family: var(--font-mono); font-size: 0.85em; }
       'Use the ArtifactData tool with that URL. Before starting, `get` tasks/<code> and read it. ' +
       'Then `update` it with if_version=<version you read>: status "in_progress", your branch, updated_at (ISO 8601), updated_by.\n' +
       'When you open a PR: status "review" and pr (number). After it is merged: status "done", and put in notes what you verified and what is still open. Never mark a task done before its PR is merged. If you are stuck, set status "blocked" and say why in notes.\n' +
+      (state.meta.roadmap_file ? state.meta.roadmap_file + ' in the repo is the source of truth and wins over this board: in the same PR as your work, update the task section there (Status, PR, Branch, Notes). The board is the live view for work in flight.\n' : '') +
       'Add one line per milestone with `set` on log/<YYYYMMDDTHHMMSSZ>-<code>: {at, task, by, text}. Use `update`, not `set`, on tasks so other fields survive.';
   }
   function buildPrompt(t) {

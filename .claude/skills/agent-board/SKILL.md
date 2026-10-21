@@ -6,6 +6,8 @@ argument-hint: "[create | dispatch | sync] [plan file]"
 
 # agent-board
 
+**Source of truth.** When the project has a `ROADMAP.md` (the `create` mode makes one), that file is canonical for what is done and what is left, because any agent or person can edit it and it is versioned with the code. The board is the live view and the launch pad: it shows work in flight (which `main` can't), and holds launch requests. If the two disagree, the file wins (see `sync`).
+
 A plan becomes a board: one strip per task, grouped by phase, with a **Ready** lane for tasks whose dependencies are done. People edit status, PR, branch and notes on the page. Agents read and update the same data with `ArtifactData`. Each task has a **Spin agent** button (queues a launch that you approve in your Claude session) and **Copy prompt** / **Copy command** buttons (you start the agent yourself).
 
 Nothing needs installing: the board is an artifact, its data lives in the artifact db, and the dispatcher is this skill.
@@ -17,7 +19,7 @@ Mode is the first word of the arguments: `create` (default), `dispatch`, `sync`.
 | Path | Fields |
 |---|---|
 | `meta/settings` | `auto_approve` (YOLO mode, set by the button on the page), `max_parallel` (default 3), `set_at`, `set_by_user` |
-| `meta/board` | `title`, `blurb`, `board_url`, `repo_url` (for PR links), `plan_file`, `base_branch`, `preamble` (text put before every generated agent prompt) |
+| `meta/board` | `roadmap_file` (usually `ROADMAP.md`), `title`, `blurb`, `board_url`, `repo_url` (for PR links), `plan_file`, `base_branch`, `preamble` (text put before every generated agent prompt) |
 | `phases/<n>` | `n`, `name`, `exit` (exit criteria), `order` |
 | `tasks/<code>` | `order`, `phase`, `title`, `summary`, `depends_on[]`, `prompt` (optional, overrides the generated prompt), `status` (todo, in_progress, review, done, blocked), `pr`, `branch`, `notes`, `updated_at`, `updated_by` |
 | `launch/<code>` | `status` (requested, launched, declined, failed), `mode`, `requested_at`, `requested_by_user`, `decided_at`, `note` |
@@ -37,8 +39,9 @@ Task codes are short ids that are valid doc ids (`P2.1`, `T7`, `auth-login`).
    The rules keep launch requests and settings (including YOLO mode) to people with edit access; everyone with write access can still update task status and notes. Pass `icon: "kanban"`.
 5. **Seed** with `ArtifactData` `batch` (50 writes per call, `set` for new docs): `meta/board` (with the `board_url` you just got, `repo_url` from `git remote get-url origin` as an https URL, `plan_file`, `base_branch`, and a `preamble` that tells an agent the project rules: for example "Read CLAUDE.md first. Stay within the task scope. Run the tests before you finish."), `meta/settings` (`{"auto_approve": false, "max_parallel": 3}`), then `phases/*`, `tasks/*`, and one `log/*` line "Board created".
 6. **Verify** (once): `list` `tasks` and `launch`, and `list` `launch` with `as_level: "interact"` to confirm Contributors can't write it. Tell the user in one line what you checked.
-7. **Wire it in** so later sessions and agents find it: add a "Progress board" paragraph to CLAUDE.md with the URL and the update protocol (the text the page shows under "For Claude agents"), and save a `reference` memory with the URL. Do not commit unless asked.
-8. Tell the user: the URL, how many tasks are Ready, and that **Spin agent** requests only run once a dispatcher runs. Two ways, both optional: `/agent-board dispatch` for a single pass whenever they want control, or `/agent-board dispatch watch` to keep a session polling every 2 minutes. The **YOLO mode** button on the page skips the approval question.
+7. **Write the roadmap file** (skip if the project already has one; then only set `roadmap_file`). Create `ROADMAP.md` at the repo root from the same data: copy this repo's `ROADMAP.md` for the exact layout (header with the rules, `## Phase N – Name` + `**Exit:**`, one `### CODE – Title` section per task with `- **Status:**`, `Depends on`, `PR`, `Branch`, `Scope`, `Notes`). Set statuses from git, not from the plan: merged work is `done` with its PR number. Copy `assets/roadmap.py` to `scripts/roadmap.py` (`check`, `ready`, `summary`, `json`; Python standard library only) and run `python3 scripts/roadmap.py check`. Add `python scripts/roadmap.py check` as a CI step if the project has CI. Create `AGENTS.md` (or add to it) telling any agent to read `ROADMAP.md`, run `scripts/roadmap.py ready`, and update the task section in the same PR; add a one-line pointer in CLAUDE.md. Set `roadmap_file` in `meta/board`.
+8. **Wire it in** so later sessions and agents find it: add a "Progress board" paragraph to CLAUDE.md with the URL and the update protocol (the text the page shows under "For Claude agents"), and save a `reference` memory with the URL. Do not commit unless asked.
+9. Tell the user: the URL, how many tasks are Ready, and that **Spin agent** requests only run once a dispatcher runs. Two ways, both optional: `/agent-board dispatch` for a single pass whenever they want control, or `/agent-board dispatch watch` to keep a session polling every 2 minutes. The **YOLO mode** button on the page skips the approval question.
 
 ## dispatch
 
@@ -57,24 +60,26 @@ One pass over pending launch requests. Two ways to run it, both optional:
 3. **Ask for approval** (skipped in YOLO mode as described above) with `AskUserQuestion`, one request per question: show the task, whether its dependencies are done, the branch name you will use, and the full prompt in the option preview. Options: Approve and launch, Decline, Later. If the dependencies are not done, say so in the question.
 4. **Approve:** set `launch/<code>` to `launched` (with `decided_at`, `note` = branch name), and set `tasks/<code>` to `in_progress` with the branch, in that order, each with `if_version`. This prevents a second dispatcher from launching the same task. Then start the agent with the Agent tool: `subagent_type: "general-purpose"`, `isolation: "worktree"`, `run_in_background: true`, the prompt from step 2, and `description` = the task code and a short title (`P2.1 Trajectory controller`) so each agent is identifiable in the task list. There is no tool to rename the dispatcher session itself; if the user wants one named session per task, tell them to use **Copy command** (it starts a separate session named after the task). If starting fails, set the launch doc to `failed` with the reason and put the task back to `todo`.
    **Decline:** set `launch/<code>` to `declined` with `decided_at`. **Later:** leave it.
-5. When an agent finishes (you get a notification), `get` its task. If the agent did not move it to `review`, `done` or `blocked`, set `blocked` with a `note` saying the agent ended without reporting, and add a `log/` line. If the board says `review`/`done` but git or the PR disagrees, trust git and correct the board.
+5. When an agent finishes (you get a notification), `get` its task. If the agent did not move it to `review`, `done` or `blocked`, set `blocked` with a `note` saying the agent ended without reporting, and add a `log/` line. If the board says `review`/`done` but git, the PR or `ROADMAP.md` disagrees, trust those and correct the board. If the project has a roadmap file, check that the agent's PR also updated its task section there; if not, tell the user.
 
-Board protocol to include in every agent prompt (fill in the URL):
+Board protocol to include in every agent prompt (fill in the URL; keep the roadmap sentence only if `meta/board.roadmap_file` is set):
 
 ```
 Progress board: <board_url>. Use the ArtifactData tool with that URL.
 Before starting, `get` tasks/<code>. `update` it with if_version=<version you read>: status "in_progress", branch, updated_at (ISO 8601), updated_by.
 PR opened: status "review" and pr (number). After the PR is merged: status "done", and put in notes what you verified and what is still open. Never mark a task done before its PR is merged. If you are stuck, set status "blocked" and say why in notes.
+ROADMAP.md in the repo is the source of truth and wins over this board: in the same PR as your work, update the task section there (Status, PR, Branch, Notes). The board is the live view for work in flight.
 Add one line per milestone with `set` on log/<YYYYMMDDTHHMMSSZ>-<code>: {at, task, by, text}. Use `update`, not `set`, on tasks so other fields survive.
 ```
 
 ## sync
 
-Reconcile the board with reality, for example after a session without the board or before a standup:
+Reconcile the board with the repo, for example after other agents worked without the board or before a standup. Direction: **the roadmap file and git win; the board follows.**
 
-1. `list` `tasks`. List branches and PRs (`git branch -a`, `gh pr list --state all --json number,title,headRefName,state,mergedAt`).
-2. Match tasks to branches/PRs by `branch`, the code in the branch or title, or the PR body. Merged PR → `done` (with `pr`), open PR → `review`, a branch with commits but no PR → `in_progress`.
-3. Show the proposed changes as a short table and apply them after the user agrees. Add a `log/` line per change. Git is the source of truth; never change git to match the board.
+1. Read `ROADMAP.md` (`python3 scripts/roadmap.py json`) and `list` `tasks` on the board. If the project has no roadmap file, use git only (step 2).
+2. Check merged work: `git branch -a` and `gh pr list --state all --json number,title,headRefName,state,mergedAt`. A task whose PR is merged but whose roadmap section says otherwise is a roadmap bug: propose the fix to `ROADMAP.md` (a normal edit for the user to commit; never push or commit it yourself unasked).
+3. Compare each task's `status`, `pr`, `branch`, `notes` between the file and the board. Show the differences as a short table. Rules: a value in the file replaces the board's value. A board value that is *newer* (the board has `in_progress` or `review` for a task the file says `todo`, which is normal for work in flight) is kept, not overwritten. A board `done` that the file doesn't have is only believed if a merged PR confirms it, and then the file needs the fix from step 2.
+4. Apply the board changes after the user agrees (`update` with `if_version`), one `log/` line per change. Tasks added to the file are created on the board; never delete board tasks that the file lacks, ask first.
 
 ## Notes
 

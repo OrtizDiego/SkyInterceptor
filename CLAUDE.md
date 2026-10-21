@@ -11,6 +11,8 @@ SkyInterceptor is a ROS2-based autonomous drone system written in C++17 with two
 
 It uses stereo vision, a YOLO-based detector (Python), an IMM-EKF tracker, mode-specific planners (follow planner / PN-based intercept guidance), and an independent safety filter node that has the final say on every setpoint. Everything runs in simulation (Gazebo Classic). Agent task prompts live in `docs/AGENT_PROMPTS.md`.
 
+**Roadmap:** [`ROADMAP.md`](ROADMAP.md) is the source of truth for what is done and what is still to do (one section per plan task). Run `python3 scripts/roadmap.py ready` to see what can start, and update the task's section in the same PR as the work (rules at the top of the file). Any progress board is only a view of it; if they disagree, the file wins.
+
 **Status note:** the tables below describe the current code. The target architecture (new nodes such as `safety_filter_node` and `follow_planner_node`) is in `IMPLEMENTATION_PLAN.md` §3.
 
 All development runs inside a Docker container with CUDA 11.8 + ROS2 Humble.
