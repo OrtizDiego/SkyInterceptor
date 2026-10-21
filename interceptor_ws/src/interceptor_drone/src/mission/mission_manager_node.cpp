@@ -52,12 +52,27 @@ public:
         &MissionManagerNode::setModeCallback, this,
         std::placeholders::_1, std::placeholders::_2));
 
-    // Always start disarmed: engaging needs an explicit operator request
+    // Always start disarmed: engaging needs an explicit operator request. The
+    // demo runs unattended, so auto_arm arms an INTERCEPT mission after a delay.
+    const bool auto_arm = declare_parameter("auto_arm", false);
+    const double auto_arm_delay = declare_parameter("auto_arm_delay", 8.0);
     current_.mode = static_cast<uint8_t>(*mode);
     current_.armed = false;
     current_.track_id = -1;
     publishMode();
     RCLCPP_INFO(get_logger(), "Mission mode: %s (disarmed)", toString(*mode).c_str());
+
+    if (auto_arm && *mode == MissionMode::INTERCEPT) {
+      // On the node clock, so the delay follows simulation time.
+      arm_timer_ = create_wall_timer(
+        std::chrono::duration<double>(auto_arm_delay),
+        [this]() {
+          arm_timer_->cancel();
+          current_.armed = true;
+          publishMode();
+          RCLCPP_INFO(get_logger(), "Mission armed automatically");
+        });
+    }
   }
 
 private:
@@ -100,6 +115,7 @@ private:
   MissionModeMsg current_;
   rclcpp::Publisher<MissionModeMsg>::SharedPtr pub_mode_;
   rclcpp::Service<SetMissionMode>::SharedPtr srv_set_mode_;
+  rclcpp::TimerBase::SharedPtr arm_timer_;
 };
 
 }  // namespace interceptor

@@ -30,6 +30,13 @@ def generate_launch_description():
         ' command_frame:=', LaunchConfiguration('command_frame'),
     ]), value_type=str)
 
+    # Target drone (the intruder): a Crazyflie 2.1 spawned next to the interceptor.
+    # robot_state_publisher always publishes on /robot_description, so the target
+    # description is published by a plain node on its own topic.
+    target_desc = ParameterValue(Command([
+        'xacro ', os.path.join(pkg_interceptor, 'urdf', 'target_drone.urdf.xacro'),
+    ]), value_type=str)
+
     # Gazebo launch
     gazebo = IncludeLaunchDescription(
         PythonLaunchDescriptionSource([
@@ -59,6 +66,22 @@ def generate_launch_description():
         output='screen'
     )
 
+    # Spawn the target drone. It is kinematic: target_drone_behavior_node moves it
+    # with /set_entity_state, so it needs no flight dynamics of its own.
+    spawn_target = Node(
+        package='gazebo_ros',
+        executable='spawn_entity.py',
+        arguments=[
+            '-topic', 'target_description',
+            '-entity', 'target_drone',
+            '-x', LaunchConfiguration('target_x'),
+            '-y', LaunchConfiguration('target_y'),
+            '-z', LaunchConfiguration('target_z'),
+            '-Y', LaunchConfiguration('target_yaw'),
+        ],
+        output='screen'
+    )
+
     # Static TF: map to odom
     static_tf = Node(
         package='tf2_ros',
@@ -79,6 +102,21 @@ def generate_launch_description():
         }]
     )
 
+    # The target drone needs its own state publisher for the spinning propellers.
+    # robot_state_publisher only ever publishes on /robot_description, so it cannot
+    # be used twice: the target description goes on its own topic instead.
+    target_state_publisher = Node(
+        package='robot_state_publisher',
+        executable='robot_state_publisher',
+        name='target_robot_state_publisher',
+        output='screen',
+        remappings=[('robot_description', 'target_description')],
+        parameters=[{
+            'robot_description': target_desc,
+            'use_sim_time': use_sim_time
+        }]
+    )
+
     return LaunchDescription([
         DeclareLaunchArgument(
             'use_sim_time',
@@ -94,6 +132,14 @@ def generate_launch_description():
         DeclareLaunchArgument('x', default_value='-3.0', description='Spawn x [m]'),
         DeclareLaunchArgument('y', default_value='-3.0', description='Spawn y [m]'),
         DeclareLaunchArgument('yaw', default_value='0.785', description='Spawn yaw [rad]'),
+        DeclareLaunchArgument('target_x', default_value='30.0',
+                              description='Target drone spawn x [m]'),
+        DeclareLaunchArgument('target_y', default_value='0.0',
+                              description='Target drone spawn y [m]'),
+        DeclareLaunchArgument('target_z', default_value='12.0',
+                              description='Target drone spawn z [m]'),
+        DeclareLaunchArgument('target_yaw', default_value='0.0',
+                              description='Target drone spawn yaw [rad]'),
         DeclareLaunchArgument(
             'wind_x', default_value='0.0', description='Mean wind towards +x (east) [m/s]'),
         DeclareLaunchArgument(
@@ -109,6 +155,8 @@ def generate_launch_description():
                         '(trajectory_controller_node)'),
         gazebo,
         spawn_drone,
+        spawn_target,
         static_tf,
         robot_state_publisher,
+        target_state_publisher,
     ])

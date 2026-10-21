@@ -17,13 +17,30 @@ def generate_launch_description():
     use_sim_time = LaunchConfiguration('use_sim_time')
     mission_mode = LaunchConfiguration('mission_mode')
     perception_source = LaunchConfiguration('perception_source')
+    guidance_law = LaunchConfiguration('guidance_law', default='apn')
+    # The mission manager always starts disarmed. The demo arms it after a delay so
+    # the engagement starts on its own.
+    auto_arm = LaunchConfiguration('auto_arm', default='false')
+    # Where the interceptor and the target drone start. The demo scenario puts the
+    # interceptor off to one side so it has to lead the target, not chase it.
+    interceptor_x = LaunchConfiguration('interceptor_x', default='-10.0')
+    interceptor_y = LaunchConfiguration('interceptor_y', default='25.0')
+    target_x = LaunchConfiguration('target_x', default='30.0')
+    target_y = LaunchConfiguration('target_y', default='0.0')
     use_vision = PythonExpression(["'", perception_source, "' == 'vision'"])
     use_groundtruth = PythonExpression(["'", perception_source, "' == 'groundtruth'"])
 
     simulation = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(os.path.join(launch_dir, 'simulation.launch.py')),
         # trajectory_controller_node commands world-frame velocities
-        launch_arguments={'use_sim_time': use_sim_time, 'command_frame': 'world'}.items()
+        launch_arguments={
+            'use_sim_time': use_sim_time,
+            'command_frame': 'world',
+            'x': interceptor_x,
+            'y': interceptor_y,
+            'target_x': target_x,
+            'target_y': target_y,
+        }.items()
     )
 
     # Vision pipeline: stereo + YOLO + 3D localizer -> /target/detection_3d
@@ -46,7 +63,11 @@ def generate_launch_description():
         executable='mission_manager_node',
         name='mission_manager_node',
         output='screen',
-        parameters=[{'use_sim_time': use_sim_time, 'initial_mode': mission_mode}],
+        parameters=[{
+            'use_sim_time': use_sim_time,
+            'initial_mode': mission_mode,
+            'auto_arm': auto_arm,
+        }],
     )
 
     # Tracker and mode-specific planners
@@ -55,6 +76,7 @@ def generate_launch_description():
         launch_arguments={
             'use_sim_time': use_sim_time,
             'mission_mode': mission_mode,
+            'guidance_law': guidance_law,
         }.items()
     )
 
@@ -92,6 +114,37 @@ def generate_launch_description():
             default_value='groundtruth',
             choices=['vision', 'groundtruth'],
             description='Where /target/detection_3d comes from'
+        ),
+        DeclareLaunchArgument(
+            'guidance_law',
+            default_value='apn',
+            choices=['pn', 'apn'],
+            description='INTERCEPT guidance law: pure PN or augmented PN',
+        ),
+        DeclareLaunchArgument(
+            'auto_arm',
+            default_value='false',
+            description='Arm the INTERCEPT mission automatically after a delay',
+        ),
+        DeclareLaunchArgument(
+            'interceptor_x',
+            default_value='-10.0',
+            description='Interceptor spawn x [m]',
+        ),
+        DeclareLaunchArgument(
+            'interceptor_y',
+            default_value='25.0',
+            description='Interceptor spawn y [m]',
+        ),
+        DeclareLaunchArgument(
+            'target_x',
+            default_value='30.0',
+            description='Target drone spawn x [m]',
+        ),
+        DeclareLaunchArgument(
+            'target_y',
+            default_value='0.0',
+            description='Target drone spawn y [m]',
         ),
         simulation,
         perception,

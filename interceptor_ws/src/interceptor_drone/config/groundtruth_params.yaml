@@ -4,12 +4,13 @@ groundtruth_target_node:
   ros__parameters:
     # Gazebo entities published as targets, with one class per entity
     # (person | car | truck | bicycle | uav). target_drone joins in P3.1.
-    entity_names: ["target_person"]
-    entity_classes: ["person"]
+    entity_names: ["target_person", "target_drone"]
+    entity_classes: ["person", "uav"]
     # Added to the entity's z so the published point is the body centre, like the
     # vision localizer's bbox centre. Gazebo reports the walking actor's origin ~2.0 m
     # above the ground (actor <pose> z + script z), so -1.0 puts it at the hip.
-    entity_z_offsets: [-1.0]
+    # The target drone is spawned at its model origin, so no offset is needed.
+    entity_z_offsets: [-1.0, 0.0]
 
     rate_hz: 30.0            # sim time
     pos_noise_std: 0.2       # m, Gaussian, per axis

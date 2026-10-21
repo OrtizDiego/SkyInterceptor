@@ -14,6 +14,8 @@ def generate_launch_description():
         IncludeLaunchDescription(
             PythonLaunchDescriptionSource(
                 os.path.join(pkg_interceptor, 'launch', 'interceptor_full.launch.py')),
-            launch_arguments={'mission_mode': 'intercept'}.items()
+            launch_arguments={
+                'mission_mode': 'intercept',
+            }.items()
         ),
     ])

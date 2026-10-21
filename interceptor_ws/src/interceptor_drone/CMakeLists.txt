@@ -85,6 +85,13 @@ add_library(${PROJECT_NAME}_estimation SHARED
 )
 target_link_libraries(${PROJECT_NAME}_estimation Eigen3::Eigen)
 
+# Guidance library: proportional navigation law (pure PN and augmented PN).
+# Plain C++ and Eigen, no ROS, so it can be unit tested on synthetic geometry.
+add_library(${PROJECT_NAME}_guidance SHARED
+  src/guidance/pn_guidance.cpp
+)
+target_link_libraries(${PROJECT_NAME}_guidance Eigen3::Eigen)
+
 # Gazebo plugin that flies the drone with the flight dynamics library
 add_library(quadrotor_dynamics_plugin SHARED src/simulation/quadrotor_dynamics_plugin.cpp)
 # Gazebo's own headers are not -Wpedantic clean: include them as system headers
@@ -135,8 +142,20 @@ ament_target_dependencies(target_tracker_node
 
 # Guidance nodes
 add_executable(guidance_controller_node src/guidance/guidance_controller_node.cpp)
-target_link_libraries(guidance_controller_node ${PROJECT_NAME}_lib)
-ament_target_dependencies(guidance_controller_node rclcpp geometry_msgs interceptor_interfaces)
+target_link_libraries(guidance_controller_node ${PROJECT_NAME}_lib ${PROJECT_NAME}_guidance)
+ament_target_dependencies(guidance_controller_node
+  rclcpp
+  geometry_msgs
+  nav_msgs
+  visualization_msgs
+  interceptor_interfaces
+)
+
+# Simulation-only node: flies the target drone (the intruder) with an accelerating,
+# curving profile. It is not part of the interceptor's own control loop.
+add_executable(target_drone_behavior_node src/guidance/target_drone_behavior_node.cpp)
+target_link_libraries(target_drone_behavior_node ${PROJECT_NAME}_lib)
+ament_target_dependencies(target_drone_behavior_node rclcpp nav_msgs gazebo_msgs)
 
 # Control nodes
 add_executable(trajectory_controller_node src/control/trajectory_controller_node.cpp)
@@ -161,6 +180,7 @@ install(TARGETS
   groundtruth_target_node
   target_tracker_node
   guidance_controller_node
+  target_drone_behavior_node
   trajectory_controller_node
   mission_manager_node
   evasion_controller_node
@@ -171,6 +191,7 @@ install(TARGETS
   ${PROJECT_NAME}_lib
   ${PROJECT_NAME}_flight
   ${PROJECT_NAME}_estimation
+  ${PROJECT_NAME}_guidance
   quadrotor_dynamics_plugin
   LIBRARY DESTINATION lib
 )
@@ -253,8 +274,8 @@ if(BUILD_TESTING)
   ament_add_gtest(test_target_selector test/test_target_selector.cpp)
   target_link_libraries(test_target_selector ${PROJECT_NAME}_estimation)
 
-  # ament_add_gtest(test_guidance test/test_guidance.cpp)
-  # target_link_libraries(test_guidance ${PROJECT_NAME}_lib)
+  ament_add_gtest(test_guidance test/test_guidance.cpp)
+  target_link_libraries(test_guidance ${PROJECT_NAME}_guidance)
 
   ament_add_gtest(test_trajectory_controller test/test_trajectory_controller.cpp)
   target_link_libraries(test_trajectory_controller ${PROJECT_NAME}_lib ${PROJECT_NAME}_flight)

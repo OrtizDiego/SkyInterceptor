@@ -68,7 +68,8 @@ Perception → Estimation → Guidance → Control → Platform
 | Perception | `target_detector.py` | YOLOv8 via Ultralytics |
 | Perception | `groundtruth_target_node` | Gazebo entity poses (`/get_entity_state`) + noise, dropout and tree occlusion → `/target/detection_3d` (used when `perception_source:=groundtruth`) |
 | Estimation | `target_tracker_node` | IMM-EKF library: frames by stamp → tracks; `/tracks`, selected `/target/state`, `/tracks/markers` |
-| Guidance | `guidance_controller_node` | Proportional Navigation / Augmented PN (skeleton) |
+| Guidance | `guidance_controller_node` | PN / augmented PN on the line of sight, phase machine SEARCH → PURSUE → CAPTURE → DONE |
+| Simulation | `target_drone_behavior_node` | Flies the target drone (the intruder) with an accelerating, curving profile, kinematically through `/set_entity_state` |
 | Control | `trajectory_controller_node` | `/setpoint/safe` + `/odom` → `/cmd_vel` (world-frame velocity + yaw rate): position PID with velocity feed-forward, anti-windup (integral zone, clamp, back-calculation), yaw P with rate limit, 0.3 s setpoint timeout. Logic in the ROS-free `control::TrajectoryController` (`include/control/`) |
 | Evasion | `evasion_controller_node` | Target evasion strategies (skeleton) |
 | Mission | `mission_manager_node` | Serves `/mission/set_mode` (`SetMissionMode`), latches `/mission/mode` (`MissionMode`, transient local); always starts disarmed |
@@ -96,6 +97,13 @@ The Gazebo plugin (`src/simulation/quadrotor_dynamics_plugin.cpp`) wraps it; its
 `target_tracker_node` wraps these: 50 Hz timer on the node clock (close frames, prune, extrapolate, select, publish), resets on a backward clock jump.
 
 Its defaults match `config/ekf_params.yaml`; they were tuned on the synthetic trajectories in the tests, so re-run them after changing noise or IMM parameters.
+
+### Guidance library
+
+`interceptor_drone_guidance` (`include/guidance/`, `src/guidance/`) is plain C++/Eigen with no ROS dependency, like the flight and estimation libraries. See `docs/INTERCEPT.md`:
+- `pn_guidance.hpp` — the proportional navigation law: `computeLosKinematics()` (range, LOS unit vector, closing speed `V_c`, LOS rate `lambda_dot`, time to go), `purePn()` (`a = N * V_c * lambda_dot`), `augmentedPn()` (pure PN plus the textbook `(N/2) * a_T_perp` term, the target acceleration projected perpendicular to the LOS), `zeroEffortMiss()` and `pnVelocitySetpoint()` (the acceleration law turned into a velocity setpoint for the velocity-commanded interceptor)
+
+`guidance_controller_node` wraps it: the SEARCH → PURSUE → CAPTURE → DONE phase machine, the engagement gate, the setpoint and the `GuidanceCommand` telemetry. The capture is detected, not flown: switching to a relative-velocity match inside the capture radius loses the lateral correction and the range then oscillates instead of shrinking.
 
 ### Shared library
 
@@ -137,13 +145,14 @@ Every file uses `<node_name>: ros__parameters:` and is loaded by the launch file
 | `controller_params.yaml` | `kp/ki/kd_pos=1.0/0.05/0.2`, anti-windup (`integral_zone=2m`, `max_integral_velocity=1m/s`), `kp_yaw=1.5`, output limits, `setpoint_timeout=0.3s` |
 | `safety_params.yaml` | `d_min_horizontal=5.0`, speed caps 15 / 30 m/s |
 | `follow_params.yaml` | preset `BEHIND`, eligible `person, bicycle, car` |
-| `intercept_params.yaml` | `nav_constant=4.0`, `capture_radius=1.5`, eligible `uav` |
+| `intercept_params.yaml` | `guidance.law=apn` (`pn`/`apn`), `nav_constant=4.0`, `max_accel=15`, `target_accel_gain=0.5` (the textbook (N/2) factor), `capture_radius=1.5`, `capture_max_rel_speed=5.0`, eligible `uav`; `target_drone_behavior_node`: `final_speed=6`, `accel_time=4`, `turn_rate=1.2` |
 
 ### Launch files (`launch/` directory)
 
-- `interceptor_full.launch.py` — Full system (simulation + perception + mission manager + guidance + control + RViz). Args: `mission_mode:=follow|intercept` (default follow), `perception_source:=vision|groundtruth` (default groundtruth; vision launches the perception pipeline)
+- `interceptor_full.launch.py` — Full system (simulation + perception + mission manager + guidance + control + RViz). Args: `mission_mode:=follow|intercept` (default follow), `perception_source:=vision|groundtruth` (default groundtruth; vision launches the perception pipeline), `guidance_law:=pn|apn`, `auto_arm:=true|false`
 - `follow.launch.py` / `intercept.launch.py` — `interceptor_full` with the mode set
-- `simulation.launch.py` — Gazebo + drone (args: `gui`, `x`, `y`, `yaw`, `wind_x`, `wind_y`, `wind_z`, `wind_gust_stddev`, `command_frame`: `heading` for the keyboard teleop (default), `world` for `trajectory_controller_node`; `interceptor_full` sets `world`)
+- `intercept_demo.launch.py` — The INTERCEPT demo: the Crazyflie intruder accelerates and curves while the interceptor engages it with PN or augmented PN. Arms the mission automatically
+- `simulation.launch.py` — Gazebo + drone + target drone (args: `gui`, `x`, `y`, `yaw`, `target_x`, `target_y`, `target_z`, `target_yaw`, `wind_x`, `wind_y`, `wind_z`, `wind_gust_stddev`, `command_frame`: `heading` for the keyboard teleop (default), `world` for `trajectory_controller_node`; `interceptor_full` sets `world`)
 - `perception.launch.py` — Perception pipeline only (`perception_source:=vision`)
 - `groundtruth.launch.py` — `groundtruth_target_node` only (`perception_source:=groundtruth`)
 - `guidance.launch.py` — Tracker, plus the guidance node in intercept mode

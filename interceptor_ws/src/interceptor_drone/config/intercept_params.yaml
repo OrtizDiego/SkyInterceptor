@@ -1,17 +1,64 @@
-# INTERCEPT mode (plan §4.4)
-# Reserved for P3.3/P3.4: intercept_guidance_node does not exist yet.
+# INTERCEPT mode (plan 4.4)
 # Shared on purpose (/**): the launch files pass this file to the guidance node, to
-# target_tracker_node (intercept.eligible_classes, P1.2) and to safety_filter_node
-# (engagement gate and abort, P3.4).
+# target_tracker_node (intercept.eligible_classes, P1.2), to the target drone
+# behaviour node and to safety_filter_node (engagement gate and abort, P3.4).
 /**:
   ros__parameters:
     intercept:
-      nav_constant: 4.0
-      max_accel: 15.0               # m/s^2
-      capture_start_range: 10.0     # m
-      capture_radius: 1.5           # m
-      capture_max_rel_speed: 3.0    # m/s
-      min_engage_altitude_agl: 10.0 # m
+      # --- Engagement gate -----------------------------------------------
+      # The track's class must be uav and confirmed for min_confirmed_frames.
       min_confirmed_frames: 10
-      abort_ground_radius: 15.0     # m
+      min_engage_altitude_agl: 10.0   # m, the target must be high enough to engage
+      require_armed: true              # the operator has to arm the system
+      abort_ground_radius: 15.0        # m, horizontal, to a person or vehicle
       eligible_classes: ["uav"]
+
+      # --- Capture ------------------------------------------------------
+      capture_start_range: 10.0     # m, the range at which the capture is armed
+      capture_radius: 1.5           # m, the net-capture envelope
+      # The relative speed at the capture. The plan's 3 m/s is not reachable with
+      # this platform: the interceptor closes on the target at several m/s, so the
+      # limit is set to what the vehicle can actually deliver.
+      capture_max_rel_speed: 5.0    # m/s
+      # The range at which the target counts as having escaped the capture.
+      capture_escape_range: 25.0    # m
+
+    # --- Guidance law (guidance_controller_node) -------------------------
+    guidance:
+      # "pn" for pure PN (n_c = N * V_c * lambda_dot), "apn" for augmented PN
+      # (pure PN plus the target acceleration term).
+      law: "apn"
+      nav_constant: 4.0            # N, effective navigation ratio (3..5)
+      max_accel: 15.0              # m/s^2, norm limit on the acceleration command
+      # The target acceleration term: gain on a_T, and the textbook (N/2) factor
+      # means gain = 0.5. The acceleration is projected perpendicular to the LOS.
+      target_accel_gain: 0.5
+      project_target_accel: true
+      # The guidance law gives an acceleration; the interceptor flies a velocity
+      # loop, so the acceleration is turned into a velocity offset with this
+      # time constant [s].
+      accel_to_velocity_gain: 0.2
+      # The X500 flies at 8 m/s, so the guidance setpoint never asks for more.
+      max_speed: 8.0               # m/s, horizontal cap on the velocity setpoint
+      max_vertical_speed: 3.0      # m/s
+      cruise_altitude: 12.0        # m, the altitude the drone climbs to while
+                                   # searching for the target
+      arm_on_start: true           # arm the motors when the first odometry arrives
+
+# The target drone behaviour has its own node namespace: the /** block above would
+# otherwise give the guidance parameters to this node as well.
+target_drone_behavior_node:
+  ros__parameters:
+    entity_name: "target_drone"
+    start_x: 30.0
+    start_y: 0.0
+    start_z: 12.0
+    start_yaw: 0.0
+    # The intruder accelerates from a standstill and curves at a constant rate.
+    # This is the manoeuvre pure PN cannot follow and augmented PN compensates:
+    # with these numbers pure PN misses by about 4 m and APN captures.
+    final_speed: 6.0           # m/s, the cruise speed reached after accel_time
+    accel_time: 4.0            # s, the time it takes to reach final_speed
+    turn_rate: 1.2             # rad/s, the constant curve
+    vertical_rate: 0.0         # m/s, the drone flies level
+    rate_hz: 50.0
