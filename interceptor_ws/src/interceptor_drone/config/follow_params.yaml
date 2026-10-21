@@ -38,3 +38,6 @@ follow_planner_node:
     # not know where the drone is, and the safety filter brakes to hover on a stale
     # setpoint.
     odom_timeout: 0.3
+    # The drone starts disarmed and the mission manager only arms an INTERCEPT
+    # mission, so the planner arms the motors itself once it is flying.
+    arm_on_start: true

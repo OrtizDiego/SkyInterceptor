@@ -16,6 +16,7 @@
  *   in   /mission/mode   MissionMode   latched by the mission manager
  *   in   /odom           Odometry      the drone's own state
  *   out  /setpoint/raw   FlightSetpoint the planner's command
+ *   out  /drone/arm      Bool          the motors, armed once the follow starts
  *
  * The setpoint goes on /setpoint/raw only. safety_filter_node (plan 4.3) is between
  * the planner and the trajectory controller and has the final say, so it owns
@@ -27,6 +28,12 @@
  * topic would make the safety filter alternate between the two commands, which could
  * abort an engagement. Staying silent is safe: the safety filter brakes to hover on
  * its own when the setpoint goes stale.
+ *
+ * The drone starts disarmed: the mission manager only arms an INTERCEPT mission (that
+ * flag is the engagement authorization, not the motors), and the guidance node arms
+ * the drone itself in INTERCEPT. In FOLLOW nobody else does it, so the planner arms
+ * the motors once it has the odometry and the mode is FOLLOW. Without this the
+ * setpoints would command a drone that never takes off.
  */
 
 #include <Eigen/Geometry>
@@ -41,6 +48,7 @@
 #include <interceptor_interfaces/msg/target_state.hpp>
 #include <nav_msgs/msg/odometry.hpp>
 #include <rclcpp/rclcpp.hpp>
+#include <std_msgs/msg/bool.hpp>
 
 #include "common/mission.hpp"
 #include "follow/follow_planner.hpp"
@@ -51,6 +59,7 @@ namespace interceptor
 using FlightSetpointMsg = interceptor_interfaces::msg::FlightSetpoint;
 using MissionModeMsg = interceptor_interfaces::msg::MissionMode;
 using TargetStateMsg = interceptor_interfaces::msg::TargetState;
+using BoolMsg = std_msgs::msg::Bool;
 
 class FollowPlannerNode : public rclcpp::Node
 {
@@ -89,10 +98,13 @@ public:
       throw std::invalid_argument("rate_hz must be positive");
     }
     odom_timeout_ = declare_parameter("odom_timeout", 0.3);
+    // The drone starts disarmed and nobody else arms it in the FOLLOW mode.
+    arm_on_start_ = declare_parameter("arm_on_start", true);
 
     planner_ = std::make_unique<follow::FollowPlanner>(params);
 
     pub_setpoint_raw_ = create_publisher<FlightSetpointMsg>("/setpoint/raw", 10);
+    pub_arm_ = create_publisher<BoolMsg>("/drone/arm", 10);
 
     target_sub_ = create_subscription<TargetStateMsg>(
       "/target/state", 10,
@@ -186,6 +198,18 @@ private:
       return;
     }
 
+    if (arm_on_start_ && !arm_sent_) {
+      // The drone starts disarmed and the mission manager only arms an INTERCEPT
+      // mission, so the planner arms the motors itself, the first time it has the
+      // odometry and the mode is FOLLOW. Without this the setpoints would command a
+      // drone that never takes off.
+      arm_sent_ = true;
+      BoolMsg arm;
+      arm.data = true;
+      pub_arm_->publish(arm);
+      RCLCPP_INFO(get_logger(), "Arming the drone");
+    }
+
     FlightSetpointMsg msg;
     msg.header.stamp = now();
     msg.header.frame_id = "map";
@@ -212,8 +236,11 @@ private:
   double odom_time_ = 0.0;
   double odom_timeout_ = 0.3;
   bool has_odom_ = false;
+  bool arm_on_start_ = true;
+  bool arm_sent_ = false;
 
   rclcpp::Publisher<FlightSetpointMsg>::SharedPtr pub_setpoint_raw_;
+  rclcpp::Publisher<BoolMsg>::SharedPtr pub_arm_;
   rclcpp::Subscription<TargetStateMsg>::SharedPtr target_sub_;
   rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr odom_sub_;
   rclcpp::Subscription<MissionModeMsg>::SharedPtr mode_sub_;

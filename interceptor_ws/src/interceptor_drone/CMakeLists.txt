@@ -192,6 +192,7 @@ ament_target_dependencies(follow_planner_node
   rclcpp
   geometry_msgs
   nav_msgs
+  std_msgs
   interceptor_interfaces
 )
 
