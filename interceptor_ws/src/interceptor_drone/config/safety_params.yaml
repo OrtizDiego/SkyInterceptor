@@ -63,16 +63,16 @@ safety_filter_node:
       # same cylinders the ground-truth sensor uses for its occlusion test
       # (config/groundtruth_params.yaml), so the two agree on where a tree is.
       obstacles: [
-        # x,    y,   radius, height
-        20.0,  7.0,  4.0,  6.5,   # oak_1
-        7.0,  22.0,  4.0,  6.5,   # oak_2
-        -4.0, 10.0,  4.0,  6.5,   # oak_3
-        18.0, 23.0,  4.0,  6.5,   # oak_4
-        24.0, 14.0,  4.0,  6.5,   # oak_5
-        4.0,  -5.0,  1.6,  5.1,   # pine_1
-        27.0, 6.0,   1.6,  5.1,   # pine_2
-        -3.0, 22.0,  1.6,  5.1,   # pine_3
-        26.0, 26.0,  1.6,  5.1,   # pine_4
-        6.0,  3.0,   0.75, 0.5,   # bench_1 (1.5 x 0.4 m box, half-diagonal)
-        3.0,  12.0,  0.75, 0.5,   # bench_2 (rotated 90 degrees)
+        # x, y, radius, height
+        20.0, 7.0, 4.0, 6.5,   # oak_1
+        7.0, 22.0, 4.0, 6.5,   # oak_2
+        -4.0, 10.0, 4.0, 6.5,  # oak_3
+        18.0, 23.0, 4.0, 6.5,  # oak_4
+        24.0, 14.0, 4.0, 6.5,  # oak_5
+        4.0, -5.0, 1.6, 5.1,   # pine_1
+        27.0, 6.0, 1.6, 5.1,   # pine_2
+        -3.0, 22.0, 1.6, 5.1,  # pine_3
+        26.0, 26.0, 1.6, 5.1,  # pine_4
+        6.0, 3.0, 0.75, 0.5,   # bench_1 (1.5 x 0.4 m box, half-diagonal)
+        3.0, 12.0, 0.75, 0.5,  # bench_2 (rotated 90 degrees)
       ]

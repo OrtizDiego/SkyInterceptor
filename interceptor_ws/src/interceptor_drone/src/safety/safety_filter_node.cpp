@@ -98,6 +98,10 @@ public:
     params.odom_timeout = declare_parameter("safety.odom_timeout", defaults.odom_timeout);
     params.coast_timeout = declare_parameter("safety.coast_timeout", defaults.coast_timeout);
     params.kp_pos = declare_parameter("safety.kp_pos", defaults.kp_pos);
+    // The obstacle list: a flat array of x, y, radius, height per obstacle. It is
+    // declared here so the parameter always exists, whether the file provides it or
+    // not.
+    declare_parameter("safety.obstacles", std::vector<double>{});
 
     filter_ = std::make_unique<safety::SafetyFilter>(params);
     obstacles_ = readObstacles();
@@ -146,12 +150,9 @@ private:
   std::vector<safety::Obstacle> readObstacles() const
   {
     std::vector<safety::Obstacle> obstacles;
-    if (!has_parameter("safety.obstacles")) {
-      return obstacles;
-    }
-    const auto values = get_parameter("safety.obstacles").as_double_array();
     // The list is flat: four numbers per obstacle (x, y, radius, height), so it
     // survives the parameter server, which cannot hold a list of dictionaries.
+    const auto values = get_parameter("safety.obstacles").as_double_array();
     for (std::size_t i = 0; i + 3 < values.size(); i += 4) {
       safety::Obstacle obstacle;
       obstacle.x = values[i];
