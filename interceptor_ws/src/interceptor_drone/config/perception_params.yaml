@@ -4,10 +4,16 @@ stereo_depth_processor:
   ros__parameters:
     # Stereo rig (must match the camera joints in the URDF)
     stereo.baseline: 0.12   # m
-    stereo.fx: 535.4        # px
+    # fx from the camera: (width / 2) / tan(horizontal_fov / 2) with the URDF's
+    # 640 px width and 1.047 rad horizontal field of view. The gazebo camera
+    # reports the same 554.38 in its camera_info.
+    stereo.fx: 554.4        # px
 
     # SGBM disparity
-    num_disparities: 128    # Must be divisible by 16
+    # 64 disparities cover 1.04 m to infinity, which is enough for the 5 m
+    # safety distance. A wider search (128) makes the matcher fail on the
+    # low-contrast sky and drops the target's disparity altogether.
+    num_disparities: 64     # Must be divisible by 16
     block_size: 11          # Matching window (odd)
 
     # WLS post-filter
@@ -19,8 +25,22 @@ target_detector:
     model_path: "yolov8n.pt"
     confidence_threshold: 0.3
     device: "auto"          # auto | cpu | cuda[:N]
+    # Classes the detector reports. The names are the ones the tracker uses
+    # in follow.eligible_classes and intercept.eligible_classes, so the
+    # detector and the tracker agree on the class ids. The bicycle (COCO
+    # class 1) is a valid FOLLOW target.
+    target_classes: ["person", "bicycle", "car", "truck"]
 
 target_3d_localizer:
   ros__parameters:
     target_frame: "map"
-    sync_slop: 0.1          # s, detection <-> depth image pairing tolerance
+    # Detection <-> depth image pairing tolerance. The depth processor is much
+    # slower than the camera (SGBM plus WLS on 640x480 takes about 160 ms, so
+    # the depth rate is 6 Hz against the camera's 10 Hz), so it only computes a
+    # depth image for every n-th stereo pair. A detection is therefore paired
+    # with the depth image that is closest in time, and the tolerance has to
+    # cover half the depth period: 0.25 s covers the 80 ms the depth image can
+    # be away from the detection. A wider tolerance converts more detections
+    # but pairs them with an older depth, and the error of the position grows
+    # with it (0.35 m of error for a person walking at 1.4 m/s).
+    sync_slop: 0.25         # s, detection <-> depth image pairing tolerance

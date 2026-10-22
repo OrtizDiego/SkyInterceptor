@@ -65,9 +65,24 @@ RUN add-apt-repository -y ppa:kisak/kisak-mesa && \
     && rm -rf /var/lib/apt/lists/*
 
 # 5. Install Python packages for YOLO and development
+#
+# The pins are not cosmetic:
+#  - numpy<2: the ROS 2 Humble cv_bridge Python binding is compiled against the
+#    NumPy 1.x C API. With NumPy 2 installed, "import cv_bridge" raises
+#    "AttributeError: _ARRAY_API not found" and then segfaults, which killed
+#    the YOLO detector node. opencv-python is pinned to the 4.x line for the
+#    same reason (the 5.x line needs NumPy 2).
+#  - torch 2.6.0 / torchvision 0.21.0: this is the CUDA 12.4 build, which runs
+#    on the 555.x host driver. A torch built for CUDA 13 (2.14 and newer) asks
+#    for a newer driver than the host has, so torch.cuda.is_available() stays
+#    False and the detector silently falls back to the CPU.
 RUN pip3 install --no-cache-dir \
-    ultralytics onnxruntime-gpu \
-    opencv-python numpy scipy matplotlib pyyaml \
+    --extra-index-url https://download.pytorch.org/whl/cu124 \
+    torch==2.6.0 torchvision==0.21.0 "numpy<2" \
+    && pip3 install --no-cache-dir \
+    "opencv-python==4.10.0.84" \
+    ultralytics==8.4.171 onnxruntime-gpu \
+    scipy matplotlib pyyaml \
     black pylint pytest
 
 # 6. Environment Setup

@@ -32,6 +32,8 @@ def generate_launch_description():
     target_y = LaunchConfiguration('target_y', default='5.0')
     use_vision = PythonExpression(["'", perception_source, "' == 'vision'"])
     use_groundtruth = PythonExpression(["'", perception_source, "' == 'groundtruth'"])
+    # Gazebo GUI: headless runs (CI, scripted perception checks) need it off
+    gui = LaunchConfiguration('gui')
 
     simulation = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(os.path.join(launch_dir, 'simulation.launch.py')),
@@ -39,6 +41,7 @@ def generate_launch_description():
         launch_arguments={
             'use_sim_time': use_sim_time,
             'command_frame': 'world',
+            'gui': gui,
             'x': interceptor_x,
             'y': interceptor_y,
             'target_x': target_x,
@@ -127,6 +130,11 @@ def generate_launch_description():
             default_value='groundtruth',
             choices=['vision', 'groundtruth'],
             description='Where /target/detection_3d comes from'
+        ),
+        DeclareLaunchArgument(
+            'gui',
+            default_value='true',
+            description='Start the Gazebo GUI (false for headless runs)'
         ),
         DeclareLaunchArgument(
             'guidance_law',

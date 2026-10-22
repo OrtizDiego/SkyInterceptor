@@ -133,12 +133,12 @@ Any agent or person can read and edit this file: Claude Code, Codex, Cursor, a s
 
 ### P2.5 – Vision in the loop for FOLLOW
 
-- **Status:** todo
+- **Status:** in_progress
 - **Depends on:** P2.4
 - **PR:** —
-- **Branch:** —
+- **Branch:** feat/p2-5-vision-in-the-loop
 - **Scope:** perception_source:=vision, add COCO bicycle, YOLO on CUDA; reach >= 90 % of the ground-truth framing score.
-- **Notes:** —
+- **Notes:** The vision path works end to end: the detector runs (it died on the NumPy 2 / cv_bridge ABI mismatch, so the image is now decoded with NumPy), YOLO detects the walker at 0.6-0.9 confidence, the localizer turns the detections into 3D positions and the tracker confirms a track. Four things were broken and are fixed: (1) the Python cv_bridge is unusable with the image's NumPy 2, so target_detector.py decodes the sensor_msgs/Image with NumPy; the Dockerfile also pins numpy<2, so a rebuilt image gets the binding back. (2) The stereo pair was mirrored: the URDF put the camera called "left" at -baseline/2 in a FLU body frame, so it was physically the right one and the disparity was negative. SGBM (minDisparity 0) could not match it and the depth of everything was the sky. The two joint origins are swapped now. (3) SGBM with 128 disparities dropped the target's disparity completely; 64 gives it back (measured: 100 % of the pixels of the person's box valid, disparity 7.9 px at 8.4 m). (4) The depth processor's fx was 535 instead of the camera's 554.4. Measured in Gazebo with the person at 8 m: 2D detections at 14.7 Hz on the GPU (1 Hz on the CPU), 3D detections at 5.4 Hz, the track confirmed and continuous (4370 of 4397 track samples confirmed, i.e. 99 %) on the GPU and confirmed but often lost on the CPU, and the 3D position against the ground truth at a median 0.35 m horizontal error (80 % within 2 m). The GPU needs a torch build the host driver can use: torch 2.6.0+cu124 sees the RTX 3060, the torch 2.14.1+cu130 in the image does not (the driver is 555.97, i.e. CUDA 12.5), so the Dockerfile now pins torch==2.6.0/torchvision==0.21.0. Still open: the framing score itself, which needs the P2.4 metrics harness - the numbers above are the vision-vs-ground-truth 3D proxy, not the framing score; and the image has to be rebuilt for the torch and numpy pins to take effect.
 
 ## Phase 3 – INTERCEPT mode
 
