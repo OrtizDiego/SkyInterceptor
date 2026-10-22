@@ -161,8 +161,9 @@ ament_target_dependencies(guidance_controller_node
   interceptor_interfaces
 )
 
-# Simulation-only node: flies the target drone (the intruder) with an accelerating,
-# curving profile. It is not part of the interceptor's own control loop.
+# Simulation-only node: flies the target drone (the intruder) with the selected
+# behaviour (hover, waypoints, straight, weave or the accelerating and curving
+# profile). It is not part of the interceptor's own control loop.
 add_executable(target_drone_behavior_node src/guidance/target_drone_behavior_node.cpp)
 target_link_libraries(target_drone_behavior_node ${PROJECT_NAME}_lib ${PROJECT_NAME}_guidance)
 ament_target_dependencies(target_drone_behavior_node
