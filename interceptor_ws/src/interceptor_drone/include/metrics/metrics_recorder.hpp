@@ -160,7 +160,8 @@ struct TimeSeriesPoint
   double framing_error_deg = 0.0;      // the azimuthal error to the selected track
   double cone_angle_deg = 0.0;          // the three-dimensional angle to it
   double framing_target_error_deg = 0.0;  // the azimuthal error to the ground truth
-  double min_person_distance = 0.0;     // m, the closest track of this sample
+  double min_person_distance_horizontal = 0.0;  // m, the closest track, horizontally
+  double min_person_distance_3d = 0.0;          // m, the closest track, in 3D
   double min_obstacle_distance = 0.0;   // m, the closest obstacle of this sample
   bool target_present = false;
   bool scored = false;                 // false during the warm-up

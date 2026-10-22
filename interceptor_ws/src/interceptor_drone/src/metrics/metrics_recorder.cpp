@@ -221,7 +221,10 @@ void MetricsRecorder::addSample(const Sample & sample)
   point.framing_error_deg = framing_error * kDegPerRad;
   point.cone_angle_deg = cone * kDegPerRad;
   point.framing_target_error_deg = framing_target_error * kDegPerRad;
-  point.min_person_distance = std::isfinite(min_person_distance) ? min_person_distance : 0.0;
+  point.min_person_distance_horizontal =
+    std::isfinite(min_person_distance) ? min_person_distance : 0.0;
+  point.min_person_distance_3d =
+    std::isfinite(min_person_distance_3d) ? min_person_distance_3d : 0.0;
   point.min_obstacle_distance = std::isfinite(min_obstacle_distance) ? min_obstacle_distance : 0.0;
   point.target_present = sample.selected_usable;
   point.scored = scored;
@@ -495,14 +498,16 @@ std::string MetricsRecorder::toCsv(const std::vector<TimeSeriesPoint> & series)
   std::ostringstream out;
   out << "time_s,drone_x,drone_y,drone_z,target_x,target_y,target_z,"
     "framing_error_deg,cone_angle_deg,framing_target_error_deg,"
-    "min_person_distance,min_obstacle_distance,target_present,scored,"
+    "min_person_distance_3d,min_person_distance_horizontal,min_obstacle_distance,"
+    "target_present,scored,"
     "selected_track_id,track_count,safety_active,reason\n";
   out << std::fixed << std::setprecision(4);
   for (const TimeSeriesPoint & point : series) {
     out << point.time_s << "," << point.drone_x << "," << point.drone_y << "," <<
       point.drone_z << "," << point.target_x << "," << point.target_y << "," <<
       point.target_z << "," << point.framing_error_deg << "," << point.cone_angle_deg << "," <<
-      point.framing_target_error_deg << "," << point.min_person_distance << "," <<
+      point.framing_target_error_deg << "," << point.min_person_distance_3d << "," <<
+      point.min_person_distance_horizontal << "," <<
       point.min_obstacle_distance << "," << (point.target_present ? 1 : 0) << "," <<
       (point.scored ? 1 : 0) << "," << point.selected_track_id << "," << point.track_count <<
       "," << (point.safety_active ? 1 : 0) << "," << point.reason << "\n";

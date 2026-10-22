@@ -151,10 +151,17 @@ TEST(MetricsRecorder, MinimumDistanceToEveryTrack)
   EXPECT_NEAR(summary.min_person_distance_3d, std::sqrt(26.0), 1e-9);
   // The distances are between the surfaces.
   EXPECT_NEAR(summary.min_person_surface_distance_3d, std::sqrt(26.0) - 0.3, 1e-9);
-  EXPECT_GT(summary.min_person_margin_3d, 0.0);
+  // The 3D margin is negative here: the person is sqrt(26) = 5.10 m away in 3D,
+  // so between the surfaces it is 4.80 m, which is inside d_min_3d = 5.0. The
+  // horizontal distance happens to be exactly 5 m, so the two rules disagree and
+  // the stricter one - the 3D - is what the criterion is about.
+  EXPECT_NEAR(summary.min_person_margin_3d, std::sqrt(26.0) - 0.3 - 5.0, 1e-9);
+  EXPECT_LT(summary.min_person_margin_3d, 0.0);
   // The horizontal rule is in force: the drone is at the ground, so it is at most
-  // keepout_horizontal_altitude above the person.
-  EXPECT_NEAR(summary.min_person_margin_horizontal, -0.3, 1e-9);
+  // keepout_horizontal_altitude above the person. Its threshold is the flat
+  // standoff inflated by the track's uncertainty, d_min_horizontal + k * sigma
+  // = 5.0 + 2 * 0.2 = 5.4 m, the same inflation the filter applies.
+  EXPECT_NEAR(summary.min_person_margin_horizontal, 5.0 - 0.3 - 5.4, 1e-9);
   EXPECT_FALSE(summary.distance_ok);
 }
 
@@ -181,12 +188,15 @@ TEST(MetricsRecorder, TheUncertaintyIsPartOfTheEffectiveMargin)
   recorder.addSample(sample);
 
   const Summary summary = recorder.summarize();
-  // The surface distance is 5.1 m: the margin against d_min_3d is 0.1 m, but
-  // the filter enforces d_min_3d + k * sigma = 6.0 m, so the margin against that
-  // is negative: the filter would have pushed the drone away.
-  EXPECT_NEAR(summary.min_person_surface_distance_3d, 5.1, 1e-9);
-  EXPECT_NEAR(summary.min_person_margin_3d, 0.1, 1e-9);
-  EXPECT_NEAR(summary.min_person_margin_3d_effective, -0.9, 1e-9);
+  // The person is at (5.4, 0, 1) and the drone at the origin, so it is
+  // sqrt(5.4^2 + 1^2) = 5.492 m away in 3D, 5.192 m between the surfaces. The
+  // margin against d_min_3d = 5.0 is therefore 0.192 m, but the filter enforces
+  // d_min_3d + k * sigma = 5.0 + 2 * 0.5 = 6.0 m, so the margin against that is
+  // negative: the filter would have pushed the drone away.
+  const double range_3d = std::sqrt(5.4 * 5.4 + 1.0);
+  EXPECT_NEAR(summary.min_person_surface_distance_3d, range_3d - 0.3, 1e-9);
+  EXPECT_NEAR(summary.min_person_margin_3d, range_3d - 0.3 - 5.0, 1e-9);
+  EXPECT_NEAR(summary.min_person_margin_3d_effective, range_3d - 0.3 - 6.0, 1e-9);
 }
 
 TEST(MetricsRecorder, TheMinimumIsOverTheWholeRun)
@@ -443,7 +453,10 @@ TEST(MetricsRecorder, TheCsvHasOneRowPerSample)
   const std::string csv = MetricsRecorder::toCsv(recorder.timeSeries());
   // A header and two rows.
   EXPECT_EQ(std::count(csv.begin(), csv.end(), '\n'), 3);
-  EXPECT_NE(csv.find("time_s,framing_error_deg"), std::string::npos);
+  EXPECT_NE(csv.find("time_s,drone_x,drone_y,drone_z"), std::string::npos);
+  // The time series carries both distances, because the two rules of the
+  // keep-out disagree above the horizontal standoff's altitude.
+  EXPECT_NE(csv.find("min_person_distance_3d,min_person_distance_horizontal"), std::string::npos);
 }
 
 }  // namespace metrics
