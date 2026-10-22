@@ -1,0 +1,22 @@
+# The detector of the INTERCEPT mode (plan 3.2).
+#
+# COCO has no drone class, so the detector of the INTERCEPT mode is a YOLOv8n
+# that was fine-tuned with the single class uav, on the auto-labelled dataset
+# of the simulator. The model is installed with the package, in its models
+# directory, and the detection node finds it there.
+#
+# The model is not in the repository: the weights are a build artefact. See
+# scripts/uas_dataset/ for the script that generates the dataset and trains
+# the model, and docs/UAS_DETECTOR.md for how to reproduce it.
+
+target_detector:
+  ros__parameters:
+    # The name of the file in the models directory of the package. The
+    # detection node also takes an absolute path.
+    model_path: "uav_yolov8n.pt"
+    confidence_threshold: 0.3
+    device: "auto"          # auto | cpu | cuda[:N]
+    # The single class of the model. The name is the one the tracker uses in
+    # intercept.eligible_classes, and the constant of the message is
+    # TargetDetection.UAV.
+    target_classes: ["uav"]
