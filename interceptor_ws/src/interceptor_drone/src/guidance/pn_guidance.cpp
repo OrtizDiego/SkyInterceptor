@@ -134,23 +134,52 @@ Eigen::Vector3d saturateAcceleration(const Eigen::Vector3d & accel, double max_a
   return accel;
 }
 
-Eigen::Vector3d pnVelocitySetpoint(
-  const LosKinematics & los, const Eigen::Vector3d & accel, double accel_to_velocity_gain,
-  double max_speed)
+double closureProfile(double range, const CaptureLawParams & params)
 {
-  // Along the LOS: the closing speed the interceptor sustains. It is capped so the
-  // vehicle never asks for more than it can deliver.
-  const double closing_speed = std::clamp(los.closing_velocity, 0.0, max_speed);
-  Eigen::Vector3d velocity = los.los_unit * closing_speed;
+  const double distance = range - params.hold_radius;
+  if (distance <= 0.0) {
+    // At (or inside) the hold radius there is nothing left to close: the
+    // interceptor flies with the target and holds the offset.
+    return 0.0;
+  }
+  // The braking curve: the fastest speed from which the vehicle can still slow down
+  // to final_closing_speed at the hold radius under a constant deceleration.
+  return std::sqrt(
+    params.final_closing_speed * params.final_closing_speed +
+    2.0 * params.approach_decel * distance);
+}
 
-  // Perpendicular to the LOS: the guidance acceleration, which is the only lateral
-  // authority. It is scaled by the effective time constant of the velocity loop, so
-  // the acceleration is realised over that time.
-  velocity += accel * accel_to_velocity_gain;
+double closureSpeed(const LosKinematics & los, const CaptureLawParams & params)
+{
+  const double profile = closureProfile(los.range, params);
+  // The closing-speed error against the profile: the vehicle's velocity loop lags,
+  // so it closes faster than the profile asks for and arrives too fast. Feeding
+  // the measured closing speed back slows it down on the way in; the steady state
+  // is the profile itself.
+  const double corrected = profile - params.closing_speed_feedback * (
+    los.closing_velocity - profile);
+  return std::clamp(corrected, 0.0, params.max_closing_speed);
+}
+
+Eigen::Vector3d captureVelocitySetpoint(
+  const LosKinematics & los, const Eigen::Vector3d & target_velocity,
+  const Eigen::Vector3d & guidance_accel, const CaptureLawParams & params,
+  double accel_to_velocity_gain)
+{
+  // The feedforward of the target's velocity: the interceptor goes where the target
+  // goes, so what the law shapes is the relative velocity.
+  Eigen::Vector3d velocity = target_velocity;
+
+  // The governed closure along the line of sight.
+  velocity += los.los_unit * closureSpeed(los, params);
+
+  // The PN lateral term: the only lateral authority. It is scaled by the effective
+  // time constant of the velocity loop, so the acceleration is realised over that
+  // time.
+  velocity += guidance_accel * accel_to_velocity_gain;
 
   return velocity;
 }
-
 PnGuidance::PnGuidance(const GuidanceParams & params)
 : params_(params)
 {
@@ -182,6 +211,15 @@ GuidanceResult PnGuidance::update(const EngagementState & state) const
   result.acceleration = saturateAcceleration(accel, params_.max_accel);
 
   return result;
+}
+
+Eigen::Vector3d PnGuidance::velocitySetpoint(
+  const EngagementState & state, const GuidanceResult & result,
+  double accel_to_velocity_gain) const
+{
+  return captureVelocitySetpoint(
+    result.los, state.target_velocity, result.acceleration, params_.capture,
+    accel_to_velocity_gain);
 }
 
 }  // namespace guidance

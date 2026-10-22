@@ -30,6 +30,9 @@ def generate_launch_description():
     interceptor_y = LaunchConfiguration('interceptor_y', default='5.0')
     target_x = LaunchConfiguration('target_x', default='10.0')
     target_y = LaunchConfiguration('target_y', default='5.0')
+    # The seed of the ground-truth measurement noise (0 = random). Fixing it makes
+    # a run reproducible.
+    groundtruth_seed = LaunchConfiguration('groundtruth_seed', default='0')
     use_vision = PythonExpression(["'", perception_source, "' == 'vision'"])
     use_groundtruth = PythonExpression(["'", perception_source, "' == 'groundtruth'"])
 
@@ -56,7 +59,10 @@ def generate_launch_description():
     # Ground-truth target source: Gazebo entity poses -> /target/detection_3d
     groundtruth = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(os.path.join(launch_dir, 'groundtruth.launch.py')),
-        launch_arguments={'use_sim_time': use_sim_time}.items(),
+        launch_arguments={
+            'use_sim_time': use_sim_time,
+            'seed': groundtruth_seed,
+        }.items(),
         condition=IfCondition(use_groundtruth),
     )
 
@@ -133,6 +139,11 @@ def generate_launch_description():
             default_value='apn',
             choices=['pn', 'apn'],
             description='INTERCEPT guidance law: pure PN or augmented PN',
+        ),
+        DeclareLaunchArgument(
+            'groundtruth_seed',
+            default_value='0',
+            description='Seed of the ground-truth measurement noise (0 = random)',
         ),
         DeclareLaunchArgument(
             'auto_arm',

@@ -1,6 +1,7 @@
 /**
- * @file guidance_controller_node.cpp
- * @brief INTERCEPT guidance: PN / augmented PN on the line of sight.
+ * @file intercept_guidance_node.cpp
+ * @brief INTERCEPT guidance: PN / augmented PN on the line of sight, with the
+ *        terminal capture law that flies the last few metres.
  *
  * Consumes the tracker's target state (/target/state) and the drone odometry (/odom),
  * runs the phase machine of plan section 4.4
@@ -48,11 +49,11 @@ using MissionModeMsg = interceptor_interfaces::msg::MissionMode;
 using TargetStateMsg = interceptor_interfaces::msg::TargetState;
 using BoolMsg = std_msgs::msg::Bool;
 
-class GuidanceControllerNode : public rclcpp::Node
+class InterceptGuidanceNode : public rclcpp::Node
 {
 public:
-  explicit GuidanceControllerNode(const rclcpp::NodeOptions & options = rclcpp::NodeOptions())
-  : Node("guidance_controller_node", options)
+  explicit InterceptGuidanceNode(const rclcpp::NodeOptions & options = rclcpp::NodeOptions())
+  : Node("intercept_guidance_node", options)
   {
     const guidance::GuidanceParams defaults;
 
@@ -70,6 +71,18 @@ public:
       declare_parameter("guidance.target_accel_gain", defaults.target_accel_gain);
     guidance_params.project_target_accel =
       declare_parameter("guidance.project_target_accel", defaults.project_target_accel);
+    // The terminal capture law: the closure profile and the range the interceptor
+    // settles at.
+    guidance_params.capture.hold_radius =
+      declare_parameter("guidance.hold_radius", defaults.capture.hold_radius);
+    guidance_params.capture.approach_decel =
+      declare_parameter("guidance.approach_decel", defaults.capture.approach_decel);
+    guidance_params.capture.final_closing_speed =
+      declare_parameter("guidance.final_closing_speed", defaults.capture.final_closing_speed);
+    guidance_params.capture.max_closing_speed =
+      declare_parameter("guidance.max_closing_speed", defaults.capture.max_closing_speed);
+    guidance_params.capture.closing_speed_feedback =
+      declare_parameter("guidance.closing_speed_feedback", defaults.capture.closing_speed_feedback);
     guidance_ = std::make_unique<guidance::PnGuidance>(guidance_params);
 
     capture_start_range_ = declare_parameter("intercept.capture_start_range", 10.0);
@@ -81,6 +94,17 @@ public:
     capture_escape_range_ = declare_parameter("intercept.capture_escape_range", 25.0);
     min_engage_altitude_agl_ = declare_parameter("intercept.min_engage_altitude_agl", 10.0);
     require_armed_ = declare_parameter("intercept.require_armed", true);
+
+    // The hold radius has to be inside the capture radius: the range converges to
+    // it, so aiming at the envelope boundary would approach the boundary
+    // asymptotically and never enter the envelope.
+    if (guidance_params.capture.hold_radius >= capture_radius_) {
+      RCLCPP_WARN(
+        get_logger(),
+        "guidance.hold_radius (%.2f m) is not inside intercept.capture_radius (%.2f m): "
+        "the capture envelope would never be entered", guidance_params.capture.hold_radius,
+        capture_radius_);
+    }
 
     // How the acceleration law becomes a velocity setpoint: the guidance acceleration
     // is scaled by the effective time constant of the velocity loop.
@@ -117,9 +141,11 @@ public:
 
     RCLCPP_INFO(
       get_logger(),
-      "PN guidance started: law=%s, N=%.1f, max_accel=%.1f m/s^2, capture_radius=%.1f m",
+      "PN guidance started: law=%s, N=%.1f, max_accel=%.1f m/s^2, capture_radius=%.1f m, "
+      "hold_radius=%.2f m, approach_decel=%.1f m/s^2",
       guidance::toString(guidance_params.law).c_str(), guidance_params.nav_constant,
-      guidance_params.max_accel, capture_radius_);
+      guidance_params.max_accel, capture_radius_, guidance_params.capture.hold_radius,
+      guidance_params.capture.approach_decel);
   }
 
 private:
@@ -128,7 +154,7 @@ private:
   {
     SEARCH,   // no valid target: climb and hold
     PURSUE,   // PN / APN on the line of sight
-    CAPTURE,  // inside the capture range: match the relative velocity
+    CAPTURE,  // inside the capture range: the capture is armed
     DONE,     // captured
   };
 
@@ -303,43 +329,28 @@ private:
           return velocity;
         }
 
-      case Phase::PURSUE: {
-          guidance::EngagementState state;
-          state.interceptor_position = interceptor_position_;
-          state.interceptor_velocity = interceptor_velocity_;
-          state.target_position = target_position_;
-          state.target_velocity = target_velocity_;
-          state.target_acceleration = target_acceleration_;
-
-          const guidance::GuidanceResult result = guidance_->update(state);
-          last_result_ = result;
-          return clampSpeed(
-            guidance::pnVelocitySetpoint(
-              result.los, result.acceleration, accel_to_velocity_gain_, max_speed_));
-        }
-
-      case Phase::CAPTURE: {
-          // The guidance law keeps running all the way in. Switching to a plain
-          // relative-velocity match here loses the lateral correction, and the
-          // interceptor ends up chasing the target's own turn instead of closing
-          // on it: the capture is detected, not flown.
-          guidance::EngagementState state;
-          state.interceptor_position = interceptor_position_;
-          state.interceptor_velocity = interceptor_velocity_;
-          state.target_position = target_position_;
-          state.target_velocity = target_velocity_;
-          state.target_acceleration = target_acceleration_;
-
-          const guidance::GuidanceResult result = guidance_->update(state);
-          last_result_ = result;
-          return clampSpeed(
-            guidance::pnVelocitySetpoint(
-              result.los, result.acceleration, accel_to_velocity_gain_, max_speed_));
-        }
-
+      case Phase::PURSUE:
+      case Phase::CAPTURE:
       case Phase::DONE: {
-          // Match the target's velocity: stay with it.
-          return clampSpeed(target_velocity_);
+          // The same law in all three phases: the terminal capture law. Its closure
+          // profile slows the interceptor down as the range closes, so the capture
+          // is flown rather than detected, and in DONE it holds the offset inside
+          // the capture envelope.
+          //
+          // The phases differ in what they mean, not in how the vehicle is flown:
+          // PURSUE is the approach, CAPTURE is the range at which the capture is
+          // armed, and DONE is the captured state.
+          guidance::EngagementState state;
+          state.interceptor_position = interceptor_position_;
+          state.interceptor_velocity = interceptor_velocity_;
+          state.target_position = target_position_;
+          state.target_velocity = target_velocity_;
+          state.target_acceleration = target_acceleration_;
+
+          const guidance::GuidanceResult result = guidance_->update(state);
+          last_result_ = result;
+          return clampSpeed(
+            guidance_->velocitySetpoint(state, result, accel_to_velocity_gain_));
         }
     }
     return Eigen::Vector3d::Zero();
@@ -426,8 +437,13 @@ private:
     msg.closing_velocity = last_result_.los.closing_velocity;
     msg.time_to_go = last_result_.los.time_to_go;
     msg.miss_distance = last_result_.zero_effort_miss;
-    msg.mode = guidance_->params().law == guidance::GuidanceLaw::PURE_PN ?
-      GuidanceCommandMsg::MODE_PN : GuidanceCommandMsg::MODE_APN;
+    if (phase_ == Phase::CAPTURE || phase_ == Phase::DONE) {
+      // The terminal law is running: the closure is governed by the capture radius.
+      msg.mode = GuidanceCommandMsg::MODE_TERMINAL;
+    } else {
+      msg.mode = guidance_->params().law == guidance::GuidanceLaw::PURE_PN ?
+        GuidanceCommandMsg::MODE_PN : GuidanceCommandMsg::MODE_APN;
+    }
     msg.is_feasible = engagementAllowed();
     msg.status_message = phaseName(phase_);
 
@@ -558,7 +574,7 @@ private:
 int main(int argc, char ** argv)
 {
   rclcpp::init(argc, argv);
-  auto node = std::make_shared<interceptor::GuidanceControllerNode>();
+  auto node = std::make_shared<interceptor::InterceptGuidanceNode>();
   rclcpp::spin(node);
   rclcpp::shutdown();
   return 0;

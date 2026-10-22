@@ -85,8 +85,9 @@ add_library(${PROJECT_NAME}_estimation SHARED
 )
 target_link_libraries(${PROJECT_NAME}_estimation Eigen3::Eigen)
 
-# Guidance library: proportional navigation law (pure PN and augmented PN).
-# Plain C++ and Eigen, no ROS, so it can be unit tested on synthetic geometry.
+# Guidance library: proportional navigation law (pure PN and augmented PN) and the
+# terminal capture law. Plain C++ and Eigen, no ROS, so it can be unit tested on
+# synthetic geometry.
 add_library(${PROJECT_NAME}_guidance SHARED
   src/guidance/pn_guidance.cpp
 )
@@ -149,9 +150,9 @@ ament_target_dependencies(target_tracker_node
 )
 
 # Guidance nodes
-add_executable(guidance_controller_node src/guidance/guidance_controller_node.cpp)
-target_link_libraries(guidance_controller_node ${PROJECT_NAME}_lib ${PROJECT_NAME}_guidance)
-ament_target_dependencies(guidance_controller_node
+add_executable(intercept_guidance_node src/guidance/intercept_guidance_node.cpp)
+target_link_libraries(intercept_guidance_node ${PROJECT_NAME}_lib ${PROJECT_NAME}_guidance)
+ament_target_dependencies(intercept_guidance_node
   rclcpp
   geometry_msgs
   nav_msgs
@@ -207,7 +208,7 @@ install(TARGETS
   target_3d_localizer
   groundtruth_target_node
   target_tracker_node
-  guidance_controller_node
+  intercept_guidance_node
   target_drone_behavior_node
   trajectory_controller_node
   mission_manager_node

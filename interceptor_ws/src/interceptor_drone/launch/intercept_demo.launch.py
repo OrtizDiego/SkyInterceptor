@@ -35,6 +35,12 @@ def generate_launch_description():
             description='Guidance law: pure PN or augmented PN',
         ),
         DeclareLaunchArgument(
+            'groundtruth_seed',
+            default_value='0',
+            description='Seed of the ground-truth measurement noise (0 = random). '
+                        'Fix it for a reproducible run.',
+        ),
+        DeclareLaunchArgument(
             'auto_arm',
             default_value='true',
             description='Arm the INTERCEPT mission automatically after a delay',
@@ -59,6 +65,8 @@ def generate_launch_description():
                 'guidance_law': LaunchConfiguration('guidance_law'),
                 # The demo runs unattended: the mission is armed shortly after start.
                 'auto_arm': LaunchConfiguration('auto_arm'),
+                # The seed of the measurement noise: fix it for a reproducible run.
+                'groundtruth_seed': LaunchConfiguration('groundtruth_seed'),
             }.items()
         ),
     ])

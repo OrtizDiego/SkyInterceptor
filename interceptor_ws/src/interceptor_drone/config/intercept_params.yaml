@@ -23,7 +23,7 @@
       # The range at which the target counts as having escaped the capture.
       capture_escape_range: 25.0    # m
 
-    # --- Guidance law (guidance_controller_node) -------------------------
+    # --- Guidance law (intercept_guidance_node) --------------------------
     guidance:
       # "pn" for pure PN (n_c = N * V_c * lambda_dot), "apn" for augmented PN
       # (pure PN plus the target acceleration term).
@@ -44,6 +44,30 @@
       cruise_altitude: 12.0        # m, the altitude the drone climbs to while
       # searching for the target
       arm_on_start: true           # arm the motors when the first odometry arrives
+      # --- The terminal capture law --------------------------------------
+      # The range the interceptor settles at. It has to be inside the capture
+      # radius above (1.5 m): the range converges to it, so aiming at the
+      # envelope boundary would approach the boundary asymptotically and never
+      # enter the envelope.
+      hold_radius: 1.2             # m
+      # The deceleration the closure profile assumes. It is the deceleration
+      # the vehicle is asked for all the way in, so it has to be within what
+      # the airframe can deliver (about 7 m/s^2 at the 35 deg tilt limit).
+      approach_decel: 2.0          # m/s^2
+      # The closing speed at the hold radius. This is the relative speed the
+      # interceptor arrives with, so it is what capture_max_rel_speed is
+      # checked against.
+      final_closing_speed: 0.5     # m/s
+      # The cap on the commanded closing speed.
+      max_closing_speed: 8.0       # m/s
+      # The gain of the closing-speed feedback. The profile above is the
+      # reference and the measured closing speed is fed back against it: the
+      # vehicle's velocity loop lags, so without the feedback it carries more
+      # speed into the envelope than the profile asks for and arrives at the
+      # capture too fast. The gain has to stay well below 1: the feedback goes
+      # through the vehicle's lag, and a gain of 1 makes the loop ring at the
+      # lag of the real airframe.
+      closing_speed_feedback: 0.5
 
 # The target drone behaviour has its own node namespace: the /** block above would
 # otherwise give the guidance parameters to this node as well.

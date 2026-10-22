@@ -164,12 +164,15 @@ Any agent or person can read and edit this file: Claude Code, Codex, Cursor, a s
 
 ### P3.3 – Intercept guidance
 
-- **Status:** in_progress
+- **Status:** review
 - **Depends on:** P1.2, P2.1, P2.2
-- **PR:** 22
-- **Branch:** demo/interception-drone
-- **Scope:** intercept_guidance_node: phases, APN, capture logic, GuidanceCommand telemetry.
-- **Notes:** The law lives in a ROS-free library (pure PN and augmented PN with the (N/2) * a_T_perp term, validated by a numerical sweep). guidance_controller_node runs SEARCH -> PURSUE -> CAPTURE -> DONE with the engagement gate and the GuidanceCommand telemetry, and commands the yaw so the stereo cameras keep the intruder in frame. Still open: the capture is detected, not flown - the interceptor reaches the capture envelope at about 1.3 m but at 12 m/s relative speed, above the 5 m/s limit, so the terminal law for the last few metres is the open problem. The node is still called guidance_controller_node rather than the planned intercept_guidance_node. With P2.2 merged (PR 21) the guidance now publishes only on /setpoint/raw and the safety filter owns /setpoint/safe, so the two are in series instead of the guidance writing both.
+- **PR:** —
+- **Branch:** feat/p3-3-intercept-guidance
+- **Scope:** intercept_guidance_node: phases, APN, the terminal capture law, capture logic, GuidanceCommand telemetry.
+- **Notes:** The law lives in a ROS-free library (pure PN and augmented PN with the (N/2) * a_T_perp term, validated by a numerical sweep). The node is now called intercept_guidance_node (the name the plan asks for): the source file, the executable, the launch files, the config comment and the docs were renamed; the topics and the parameters are unchanged, and the node name in the ROS graph changed with them.
+  The capture is now **flown**, not detected. The old setpoint commanded, along the line of sight, the *measured* closing speed, a term with no integral action: in the steady state the interceptor matched the target's along-LOS speed and the range stopped shrinking (measured in the sweep: against a target flying away at a constant 2-6 m/s the range never changed at all over 40 s, so the old law only closed the gap in the demo because the intruder accelerated from a standstill). The new terminal capture law commands the *relative* velocity: the target's velocity as a feedforward, a range-governed closure along the line of sight (the braking curve of a pursuer, corrected by the measured closing speed) and the unchanged PN lateral term, which is the only lateral authority - dropping it is what the earlier "relative-velocity match in the capture phase" experiment got wrong.
+  The law was validated by a numerical sweep of 19 scenarios (the target's speed 0-10 m/s, its manoeuvre: hover, straight, head-on, crossing, weave and the demo's accelerating intruder, the initial range 5-30 m, the geometry and the lag of the vehicle's velocity loop) against a model of the X500 with the autopilot's velocity PI. All 19 scenarios reach the capture envelope with a relative speed of 1.5-3.3 m/s (the limit is 5 m/s) and the range shrinks monotonically into it; the same sweep on a vehicle with a lag of 0.3-1.0 s still captures, at 4.1 m/s at worst. The sweep is a gtest (test/test_guidance.cpp) and the numbers are asserted, not printed.
+  In the simulator the capture is confirmed: with the drones clear of the bystander's patrol square the node logs "Target captured at 0.80 m, relative speed 4.72 m/s" (the old law never confirmed one: it reached the envelope at 10-12 m/s and overflew). Still open: the engagement is slow and messy in the demo scenario, because the safety filter's horizontal keep-out from the pedestrian (which has no altitude exemption) fights the intercept whenever the intruder circles over the patrol square, and the interceptor can only close on the intruder at 2 m/s (it flies at 8 m/s, the intruder at 6 m/s). The bystander scenario and the abort logic are P3.4/P3.5.
 
 ### P3.4 – Engagement gate and abort
 
