@@ -115,7 +115,7 @@ Any agent or person can read and edit this file: Claude Code, Codex, Cursor, a s
 
 ### P2.3 – Follow planner
 
-- **Status:** review
+- **Status:** done
 - **Depends on:** P2.2
 - **PR:** 24
 - **Branch:** feat/p2-3-follow-planner
@@ -146,7 +146,7 @@ Any agent or person can read and edit this file: Claude Code, Codex, Cursor, a s
 
 ### P3.1 – Target drone and behaviours
 
-- **Status:** review
+- **Status:** done
 - **Depends on:** P0.3
 - **PR:** 25
 - **Branch:** feat/p3-1-target-behaviours
@@ -164,7 +164,7 @@ Any agent or person can read and edit this file: Claude Code, Codex, Cursor, a s
 
 ### P3.3 – Intercept guidance
 
-- **Status:** review
+- **Status:** done
 - **Depends on:** P1.2, P2.1, P2.2
 - **PR:** 27
 - **Branch:** feat/p3-3-intercept-guidance
