@@ -235,11 +235,18 @@
   </joint>
 
   <!-- Left camera optical frame -->
+  <!--
+    The body frame is FLU (x forward, y left, z up), so the LEFT camera sits at
+    +baseline/2 in y and the RIGHT camera at -baseline/2. The other way round the
+    two images are mirrored: the object appears further left in the image of the
+    camera on the right, so the disparity of the pair is negative and the SGBM
+    matcher (minDisparity 0) cannot find it. The depth came out as the sky.
+  -->
   <link name="stereo_left_camera_frame"/>
   <joint name="stereo_left_camera_joint" type="fixed">
     <parent link="stereo_camera_link"/>
     <child link="stereo_left_camera_frame"/>
-    <origin xyz="0 ${-baseline/2} 0" rpy="0 0 0"/>
+    <origin xyz="0 ${baseline/2} 0" rpy="0 0 0"/>
   </joint>
 
   <!-- Right camera optical frame -->
@@ -247,7 +254,7 @@
   <joint name="stereo_right_camera_joint" type="fixed">
     <parent link="stereo_camera_link"/>
     <child link="stereo_right_camera_frame"/>
-    <origin xyz="0 ${baseline/2} 0" rpy="0 0 0"/>
+    <origin xyz="0 ${-baseline/2} 0" rpy="0 0 0"/>
   </joint>
 
   <!-- Left camera optical link (ROS convention: Z forward, X right, Y down) -->
