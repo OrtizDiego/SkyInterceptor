@@ -14,12 +14,16 @@ def generate_launch_description():
     ekf_params = os.path.join(config_dir, 'ekf_params.yaml')
     follow_params = os.path.join(config_dir, 'follow_params.yaml')
     intercept_params = os.path.join(config_dir, 'intercept_params.yaml')
+    target_drone_params = os.path.join(config_dir, 'target_drone_params.yaml')
 
     use_sim_time = LaunchConfiguration('use_sim_time')
     mission_mode = LaunchConfiguration('mission_mode')
     # "pn" (pure proportional navigation) or "apn" (augmented PN). The launch
     # argument overrides the value in intercept_params.yaml.
     guidance_law = LaunchConfiguration('guidance_law', default='apn')
+    # The behaviour of the target drone: hover, waypoints, straight, weave or curve.
+    # The launch argument overrides the value in target_drone_params.yaml.
+    target_behaviour = LaunchConfiguration('target_behaviour', default='curve')
 
     # Tracks every target in both modes; the mode files carry the class whitelists
     target_tracker = Node(
@@ -47,13 +51,38 @@ def generate_launch_description():
         condition=IfCondition(PythonExpression(["'", mission_mode, "' == 'intercept'"])),
     )
 
-    # Target drone behaviour: the intruder accelerates and curves. Simulation only.
+    # FOLLOW planner: the framing presets (BEHIND, SIDE, LEAD, ORBIT) of plan 4.2. It
+    # publishes on /setpoint/raw, like the intercept guidance, and the safety filter
+    # is between the planner and the controller. Only one of the two planners runs in
+    # a launch, so they never fight over the topic.
+    follow_planner = Node(
+        package='interceptor_drone',
+        executable='follow_planner_node',
+        name='follow_planner_node',
+        output='screen',
+        parameters=[
+            follow_params,
+            {
+                'use_sim_time': use_sim_time,
+            },
+        ],
+        condition=IfCondition(PythonExpression(["'", mission_mode, "' == 'follow'"])),
+    )
+
+    # Target drone behaviour: the intruder flies the scenario of the INTERCEPT demo.
+    # Simulation only, and it has its own config file.
     target_behavior = Node(
         package='interceptor_drone',
         executable='target_drone_behavior_node',
         name='target_drone_behavior_node',
         output='screen',
-        parameters=[intercept_params, {'use_sim_time': use_sim_time}],
+        parameters=[
+            target_drone_params,
+            {
+                'use_sim_time': use_sim_time,
+                'behaviour': target_behaviour,
+            },
+        ],
         condition=IfCondition(PythonExpression(["'", mission_mode, "' == 'intercept'"])),
     )
 
@@ -75,7 +104,15 @@ def generate_launch_description():
             choices=['pn', 'apn'],
             description='Guidance law: pure PN or augmented PN',
         ),
+        DeclareLaunchArgument(
+            'target_behaviour',
+            default_value='curve',
+            choices=['hover', 'waypoints', 'straight', 'weave', 'curve'],
+            description='The behaviour of the target drone: hover, waypoints, '
+                        'straight, weave or curve',
+        ),
         target_tracker,
         intercept_guidance,
+        follow_planner,
         target_behavior,
     ])

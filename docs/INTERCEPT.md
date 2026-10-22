@@ -156,18 +156,53 @@ limits at the same instant.
 `capture_max_rel_speed` is 5 m/s rather than the 3 m/s of the plan: the X500 closes
 on the target at several m/s, so 3 m/s is not reachable with this platform.
 
-## The scenario
+## The intruder
 
 `target_drone_behavior_node` flies the intruder kinematically through
-`/set_entity_state`. The profile is the point of the demo:
+`/set_entity_state`. The behaviour is the point of the scenario, so it lives in
+the ROS-free library `include/guidance/target_drone_behaviour.hpp` and the node
+around it only does the plumbing. There are five behaviours:
 
-- the drone starts nearly stationary and accelerates to `final_speed` over
-  `accel_time` (the tangential acceleration);
-- it turns at a constant `turn_rate` the whole time (the lateral acceleration).
+| behaviour | what the intruder does | parameters |
+|---|---|---|
+| `hover` | holds a fixed position, with an optional slow station keeping drift | `hover_drift`, `hover_drift_period` |
+| `waypoints` | flies a closed loop through a list of waypoints at a constant speed | `waypoints`, `waypoint_speed`, `waypoint_turn_radius` |
+| `straight` | flies a straight line at a constant speed, then stops | `straight_speed`, `straight_direction_yaw`, `straight_duration`, `straight_distance`, `straight_ramp_time` |
+| `weave` | flies forward at a constant speed while weaving sideways | `weave_speed`, `weave_amplitude`, `weave_frequency`, `weave_direction_yaw` |
+| `curve` | the original profile: accelerates to `final_speed` over `accel_time` while it turns at a constant `turn_rate` | `final_speed`, `accel_time`, `turn_rate`, `vertical_rate` |
 
-The position is the exact integral of that velocity, so the published velocity
-really is d(position)/dt and the tracker's estimate of the target's velocity
-and acceleration matches what the intruder does.
+They are the scenarios of the plan's exit criteria: a hover target, a 10 m/s
+straight target and a weaving target, next to the accelerating and curving
+profile the demo was built on.
+
+The behaviour is chosen with the `behaviour` parameter and can be switched while
+the node runs:
+
+```
+ros2 param set /target_drone_behavior_node behaviour weave
+```
+
+The launch argument `target_behaviour` picks it at startup. Switching restarts
+the run: the intruder goes back to the start pose of the new behaviour.
+
+### The two properties every behaviour keeps
+
+**The position is the exact integral of the velocity.** The behaviour integrates
+its own velocity, so the finite difference of two published positions is exactly
+the published velocity. The tracker's estimate of the target's velocity and
+acceleration therefore matches what the intruder really does.
+
+**The velocity is continuous.** No behaviour steps its velocity. The straight run
+eases into and out of its speed with a raised cosine, the corners of the waypoint
+loop are rounded off with a circular fillet of the configured radius, and the
+weave oscillates. The acceleration may step (a fillet really does change the
+curvature abruptly), but the velocity never does, so the IMM tracker can follow
+the intruder.
+
+The waypoint loop is a rounded polygon: the drone flies the straights between the
+waypoints and turns around each corner with a fillet of `waypoint_turn_radius`,
+which cuts the corner by `R * (1 / cos(turn / 2) - 1)`. It starts on the first
+waypoint and flies a short lead-in to the loop.
 
 The intruder is moved by `/set_entity_state`, so no Gazebo plugin publishes its
 pose. The behaviour node therefore broadcasts the `map -> target_base_link`
@@ -177,7 +212,7 @@ propeller frames on and RViz reports the propeller transforms as missing.
 The guidance never reads this node: it only ever sees the tracker's estimate on
 `/target/state`, so the whole perception and estimation chain stays in the loop.
 
-## The scenario
+## The spawn
 
 The interceptor spawns *behind* the intruder on the same line, both in the middle
 of the park above the pedestrian's patrol square:
@@ -219,6 +254,10 @@ ros2 launch interceptor_drone intercept_demo.launch.py
 
 # The same scenario with pure PN instead of augmented PN
 ros2 launch interceptor_drone intercept_demo.launch.py guidance_law:=pn
+
+# Another behaviour of the intruder: a hover target, a 10 m/s straight run,
+# a waypoint loop or a weaving target
+ros2 launch interceptor_drone intercept_demo.launch.py target_behaviour:=weave
 ```
 
 Inside the container, source the workspace overlay first: the entrypoint does it

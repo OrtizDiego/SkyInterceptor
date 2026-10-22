@@ -19,6 +19,8 @@ def generate_launch_description():
     mission_mode = LaunchConfiguration('mission_mode')
     perception_source = LaunchConfiguration('perception_source')
     guidance_law = LaunchConfiguration('guidance_law', default='apn')
+    # The behaviour of the target drone: hover, waypoints, straight, weave or curve.
+    target_behaviour = LaunchConfiguration('target_behaviour', default='curve')
     # The mission manager always starts disarmed. The demo arms it after a delay so
     # the engagement starts on its own.
     auto_arm = LaunchConfiguration('auto_arm', default='false')
@@ -86,6 +88,7 @@ def generate_launch_description():
             'use_sim_time': use_sim_time,
             'mission_mode': mission_mode,
             'guidance_law': guidance_law,
+            'target_behaviour': target_behaviour,
         }.items()
     )
 
@@ -144,6 +147,13 @@ def generate_launch_description():
             'groundtruth_seed',
             default_value='0',
             description='Seed of the ground-truth measurement noise (0 = random)',
+        ),
+        DeclareLaunchArgument(
+            'target_behaviour',
+            default_value='curve',
+            choices=['hover', 'waypoints', 'straight', 'weave', 'curve'],
+            description='The behaviour of the target drone: hover, waypoints, '
+                        'straight, weave or curve',
         ),
         DeclareLaunchArgument(
             'auto_arm',
