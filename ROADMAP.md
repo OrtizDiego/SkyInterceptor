@@ -176,12 +176,14 @@ Any agent or person can read and edit this file: Claude Code, Codex, Cursor, a s
 
 ### P3.4 – Engagement gate and abort
 
-- **Status:** todo
+- **Status:** done
 - **Depends on:** P3.3
-- **PR:** —
-- **Branch:** —
+- **PR:** 29
+- **Branch:** feat/p3-4-engagement-gate
 - **Scope:** Engagement gate and abort logic in safety_filter_node with tests; a person track can never be engaged.
-- **Notes:** —
+- **Notes:** The gate and the abort live in a ROS-free `safety::EngagementGate` (`include/safety/`) with 21 gtests; `safety_filter_node` owns it, publishes `abort_active` on `/mission/status` and brakes to a hover when it fires, and the guidance has a new ABORT phase that stops commanding a closure. The class rule is absolute and checked twice (the selected track and the same id in `/tracks`), so a late or changed class closes the gate. The keep-out geometry was changed: the hard rule is now a **3D** distance `d_min_3d` to every person and vehicle, and the flat horizontal standoff is given up with the height above the person - whenever the horizontal margin is given up, the vertical separation alone already exceeds `d_min_3d`, so the safety distance never drops. Both rules are enforced and the stricter is in force. Verified: clean `colcon build` with `-Werror`, 501 tests, 0 failures, all linters green; the abort and the gate were checked end to end at the ROS level (a person 8 m away aborts and brakes, a person at 40 m does not). Still open: the end-to-end "abort in 100 % of bystander runs" criterion is P3.5, and the abort radius (15 m) may need tuning per scenario.
+  The **keep-out of a person is now 3D** (this is the change P3.3 asked for): the hard rule is a 3D minimum distance `safety.d_min_3d` (5 m) to every person and vehicle, enforced by the barrier along the 3D line of sight, and the plan's flat horizontal standoff `safety.d_min_horizontal` is given up with the height above the person (unchanged up to `safety.keepout_horizontal_altitude` = 5 m, then 1 m of margin per metre of climb). The safety argument: whenever the horizontal margin is given up, the vertical separation alone already exceeds `d_min_3d`, so the distance to the person never drops below the safety distance, and a person 12 m below the interceptor no longer pushes it sideways. The abort radius is measured in 3D as well, for the same reason.
+  Verified: clean `colcon build` with `-Werror` in the container, `colcon test` 501 tests, 0 failures, all ament linters green; the node loads its parameters (checked with the startup log: `d_min_3d=5.0 m`, `abort_ground_radius=15.0 m`, `min_confirmed_frames=10`); the abort was also checked end to end at the ROS level (a synthetic armed INTERCEPT scene with a person 8 m away: the filter logs the abort, publishes `phase=PHASE_ABORT, abort_active=true` and brakes `/setpoint/safe` to zero; with the person at 40 m the engagement is allowed and the command passes through). Still open: not yet flown in Gazebo, and the abort's end-to-end rate ("100 % of the bystander runs") is P3.5's, because the scenarios have to be arranged so that the capture runs have no bystander near the capture point and the bystander run has one - with the default 15 m radius the abort fires whenever the intruder flies over the pedestrian's patrol square, which is the plan's intent but does change the demo.
 
 ### P3.5 – Intercept scenarios and metrics
 
@@ -198,9 +200,9 @@ Any agent or person can read and edit this file: Claude Code, Codex, Cursor, a s
 
 ### P4 – Integration and docs
 
-- **Status:** todo
+- **Status:** in_progress
 - **Depends on:** P2.5, P3.5
-- **PR:** —
-- **Branch:** —
+- **PR:** 30
+- **Branch:** feat/p4-docs-and-rviz, feat/p4-integration
 - **Scope:** follow/intercept launch files, mode-switch demo, RViz config with tracks, keep-out circles and setpoints, README/CLAUDE.md updates.
-- **Notes:** —
+- **Notes:** Two passes so far. The first (PR #28) brought README.md, CLAUDE.md and docs/ up to date - the node table, the renamed intercept guidance, the new follow planner and safety filter libraries, the test list, the config table - added docs/FOLLOW.md, and made the RViz config show the tracks, the keep-out circles and the guidance vectors. The second (PR #30) closed the two gaps the first found: the framing preset can be changed at runtime (the node registers a parameter callback, and an unknown preset is refused with the reason), and the filtered setpoint is drawn in RViz (the safety filter publishes an arrow in the direction of the filtered velocity and the point it reaches in a second). Still open: the launch files and the mode-switch demo, which wait for P2.4 and P3.5.

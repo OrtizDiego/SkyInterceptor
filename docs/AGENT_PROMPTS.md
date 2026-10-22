@@ -100,6 +100,10 @@ Done when, with the sim running, `ros2 run teleop_twist_keyboard teleop_twist_ke
 
 ### P0.4 – Ground-truth target source
 
+> **Done.** `groundtruth_target_node` polls the Gazebo entities and publishes noisy
+> 3D detections on `/target/detection_3d`, with the dropout and the line-of-sight
+> occlusion by the tree canopies. The intruder joined it in P3.1.
+
 ```
 Task: create groundtruth_target_node, which publishes TargetDetection messages from Gazebo ground truth so tracking and control can be developed without vision.
 
@@ -112,6 +116,10 @@ Done when `ros2 topic echo /target/detection_3d` shows the walking actor's posit
 ```
 
 ### P0.5 – Test infrastructure
+
+> **Done.** Every library area has a gtest file, and `scripts/check.sh` (with
+> `make check`) is the local mirror of CI: the static checks, then a `-Werror` build
+> and the whole test suite.
 
 ```
 Task: re-enable gtest in interceptor_drone/CMakeLists.txt.
@@ -174,6 +182,15 @@ Done when publishing a fixed FlightSetpoint moves the simulated drone to that po
 
 ### P2.2 – Safety filter
 
+> **Done.** The maths is in the ROS-free `safety::SafetyFilter`
+> (`include/safety/safety_filter.hpp`) and the node is a thin wrapper. The plan's
+> barrier had to be made **relative degree 2**: it constrains the commanded
+> velocity, but the distance depends on the achieved one and the autopilot's
+> velocity loop lags, so the relative degree 1 form overshoots the keep-out by
+> metres. The filter now takes the stricter of the plan's bound and a lag
+> correction. See [`docs/SAFETY.md`](SAFETY.md). P3.4 adds the rest of the
+> engagement gate and the abort logic.
+
 ```
 Task: implement safety_filter_node (plan §4.3). It sits between the planners and the controller, and nothing may bypass it.
 
@@ -193,6 +210,13 @@ Task: implement safety_filter_node (plan §4.3). It sits between the planners an
 ```
 
 ### P2.3 – Follow planner
+
+> **Done.** The planner is the ROS-free `follow::FollowPlanner` (`include/follow/`)
+> and the node is a thin wrapper. The presets are built in the target's *filtered*
+> heading frame, but the commanded yaw is the geometric bearing to the target, so a
+> target that turns slides the framing point instead of whipping the camera around.
+> The planner publishes nothing at all outside the FOLLOW mode, so it can never
+> fight the intercept guidance on `/setpoint/raw`. See [`docs/FOLLOW.md`](FOLLOW.md).
 
 ```
 Task: implement follow_planner_node (plan §4.2).
@@ -226,6 +250,12 @@ Run 100 trials with perception_source:=groundtruth and report the summary.
 
 ### P2.5 – Vision in the loop for FOLLOW
 
+> **In progress.** The vision path works end to end: the detector decodes the image
+> with NumPy (the `cv_bridge` binding is broken with the image's NumPy 2), the
+> bicycle class is reported, the stereo cameras are no longer mirrored and the SGBM
+> disparity count and the focal length are corrected. The framing score still
+> needs the P2.4 metrics harness.
+
 ```
 Task: close the loop with real perception in FOLLOW mode.
 
@@ -240,6 +270,13 @@ Task: close the loop with real perception in FOLLOW mode.
 ## Phase 3 – INTERCEPT mode
 
 ### P3.1 – Target drone and behaviours
+
+> **Done.** The behaviour logic is a ROS-free library
+> (`include/guidance/target_drone_behaviour.hpp`) and the node is a thin wrapper.
+> The set is now hover, waypoints, straight, weave and the original accelerating and
+> curving profile (`curve`), selected with the `behaviour` parameter or the
+> `target_behaviour` launch argument. The parameters are in
+> `config/target_drone_params.yaml`. See [`docs/INTERCEPT.md`](INTERCEPT.md).
 
 ```
 Task: add a simulated intruder drone for INTERCEPT mode.
@@ -263,6 +300,13 @@ Task: give the vision pipeline a "uav" class.
 ```
 
 ### P3.3 – Intercept guidance
+
+> **Done, differently.** The node is `intercept_guidance_node` (the name the plan
+> asks for); the topics and the parameters did not change. The CAPTURE phase does
+> not switch to a relative-velocity match: the **terminal capture law** commands
+> the relative velocity in every phase, so the capture is flown instead of
+> detected. The law and its numerical sweep live in `include/guidance/pn_guidance.hpp`
+> and `test/test_guidance.cpp`. See [`docs/INTERCEPT.md`](INTERCEPT.md).
 
 ```
 Task: implement intercept_guidance_node (plan §4.4), replacing guidance_controller_node.
@@ -310,6 +354,11 @@ Run 100 trials per behaviour with perception_source:=groundtruth, then 30 with v
 ## Phase 4 – Integration
 
 ### P4 – Integration and docs
+
+> **In progress.** The documentation (README, CLAUDE.md, `docs/`) and the RViz
+> config are up to date. The launch files and the mode-switch demo are the
+> remaining part: they wait for the metrics harness of P2.4 and the engagement
+> gate and the scenario runner of P3.4 and P3.5.
 
 ```
 Task: final integration pass.

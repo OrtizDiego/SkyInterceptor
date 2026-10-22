@@ -7,8 +7,15 @@
  * publishes a setpoint the drone can actually fly without coming closer to a person,
  * a vehicle or a static obstacle than the configured standoff.
  *
- * All the maths lives in the ROS-free library include/safety/safety_filter.hpp; this
- * file only does the plumbing.
+ * It also owns the INTERCEPT engagement gate and the abort (plan section 4.4): it
+ * decides whether the interceptor may engage the selected target at all, and it
+ * breaks the engagement off when something makes it unacceptable. The gate and the
+ * abort live in the ROS-free library include/safety/engagement_gate.hpp; the filter
+ * itself is in include/safety/safety_filter.hpp. This file only does the plumbing.
+ *
+ * The abort reaches the vehicle through the setpoint: the filter has the final say,
+ * so an abort brakes the drone to a hover. The guidance learns about it from
+ * /mission/status (abort_active), and stops commanding a closure.
  *
  * Topics
  * ------
@@ -44,6 +51,7 @@
 #include <visualization_msgs/msg/marker_array.hpp>
 
 #include "common/mission.hpp"
+#include "safety/engagement_gate.hpp"
 #include "safety/safety_filter.hpp"
 
 namespace interceptor
@@ -66,8 +74,13 @@ public:
     const safety::SafetyFilterParams defaults;
 
     safety::SafetyFilterParams params;
+    params.d_min_3d = declare_parameter("safety.d_min_3d", defaults.d_min_3d);
     params.d_min_horizontal =
       declare_parameter("safety.d_min_horizontal", defaults.d_min_horizontal);
+    params.keepout_horizontal_altitude =
+      declare_parameter("safety.keepout_horizontal_altitude", defaults.keepout_horizontal_altitude);
+    params.keepout_horizontal_taper =
+      declare_parameter("safety.keepout_horizontal_taper", defaults.keepout_horizontal_taper);
     params.d_obstacle_min = declare_parameter("safety.d_obstacle_min", defaults.d_obstacle_min);
     params.h_min_above = declare_parameter("safety.h_min_above", defaults.h_min_above);
     params.uncertainty_gain =
@@ -106,6 +119,27 @@ public:
     filter_ = std::make_unique<safety::SafetyFilter>(params);
     obstacles_ = readObstacles();
 
+    // The engagement gate and the abort (plan section 4.4). The gate's
+    // parameters come from intercept_params.yaml, which the launch file passes
+    // to this node as well; the geofence is the filter's own.
+    safety::EngagementParams engagement_params;
+    engagement_params.require_armed =
+      declare_parameter("intercept.require_armed", engagement_params.require_armed);
+    engagement_params.min_engage_altitude_agl = declare_parameter(
+      "intercept.min_engage_altitude_agl", engagement_params.min_engage_altitude_agl);
+    engagement_params.min_confirmed_frames = declare_parameter(
+      "intercept.min_confirmed_frames", engagement_params.min_confirmed_frames);
+    engagement_params.abort_ground_radius = declare_parameter(
+      "intercept.abort_ground_radius", engagement_params.abort_ground_radius);
+    engagement_params.engage_altitude_band = declare_parameter(
+      "safety.engage_altitude_band", engagement_params.engage_altitude_band);
+    engagement_params.geofence_x_min = params.geofence_x_min;
+    engagement_params.geofence_x_max = params.geofence_x_max;
+    engagement_params.geofence_y_min = params.geofence_y_min;
+    engagement_params.geofence_y_max = params.geofence_y_max;
+    engagement_params.geofence_margin = params.geofence_margin;
+    gate_ = std::make_unique<safety::EngagementGate>(engagement_params);
+
     const double rate_hz = declare_parameter("rate_hz", 50.0);
     if (!(rate_hz > 0.0)) {
       throw std::invalid_argument("rate_hz must be positive");
@@ -141,8 +175,15 @@ public:
 
     RCLCPP_INFO(
       get_logger(),
-      "Safety filter started: d_min=%.1f m, d_obstacle_min=%.1f m, %zu obstacles",
-      params.d_min_horizontal, params.d_obstacle_min, obstacles_.size());
+      "Safety filter started: d_min_3d=%.1f m, d_min_horizontal=%.1f m, "
+      "d_obstacle_min=%.1f m, %zu obstacles",
+      params.d_min_3d, params.d_min_horizontal, params.d_obstacle_min, obstacles_.size());
+    RCLCPP_INFO(
+      get_logger(),
+      "Engagement gate: min_engage_altitude_agl=%.1f m, altitude_band=%.1f m, "
+      "abort_ground_radius=%.1f m, min_confirmed_frames=%d",
+      engagement_params.min_engage_altitude_agl, engagement_params.engage_altitude_band,
+      engagement_params.abort_ground_radius, engagement_params.min_confirmed_frames);
   }
 
 private:
@@ -235,6 +276,14 @@ private:
 
   void onMode(const MissionModeMsg & msg)
   {
+    // A new mode or a new arming state is a new mission: the gate's latch and
+    // the abort are cleared, so a new engagement can be started.
+    if (has_mode_ && (msg.mode != mode_ || msg.armed != armed_)) {
+      gate_->reset();
+      filter_->reset();
+      abort_reported_ = false;
+      RCLCPP_INFO(get_logger(), "New mission: the engagement gate and the abort are reset");
+    }
     mode_ = msg.mode;
     armed_ = msg.armed;
     has_mode_ = true;
@@ -253,25 +302,33 @@ private:
     }
   }
 
-  /// The INTERCEPT engagement gate (plan section 4.4).
+  /// The INTERCEPT engagement gate and the abort (plan section 4.4).
   ///
-  /// The gate is enforced here so a planner bug cannot bypass it. P3.4 adds the
-  /// altitude and geofence conditions and the abort logic; the class check below is
-  /// the one that must never be relaxed: a person is never a valid target, whatever
-  /// else is configured.
-  bool engagementAllowed() const
+  /// The gate is enforced here so a planner bug cannot bypass it. The class rule
+  /// is the one that must never be relaxed: a person is never a valid target,
+  /// whatever else is configured. The gate and the abort are in the ROS-free
+  /// library include/safety/engagement_gate.hpp, so they can be tested without
+  /// ROS.
+  safety::EngagementDecision evaluateGate()
   {
-    if (mode_ != static_cast<uint8_t>(MissionMode::INTERCEPT)) {
-      return true;
+    safety::EngagementContext context;
+    context.intercept_mode = mode_ == static_cast<uint8_t>(MissionMode::INTERCEPT);
+    context.armed = armed_;
+    context.estop = estop_latched_;
+    context.target_track_id = selected_track_id_;
+    context.target_class_id = selected_class_id_;
+    context.target_confirmed = selected_confirmed_;
+    context.target_valid = selected_valid_;
+    context.target_position = selected_position_;
+    context.interceptor_position = state_.position;
+    context.tracks = tracks_;
+
+    const safety::EngagementDecision decision = gate_->update(context);
+    if (decision.aborted && !abort_reported_) {
+      abort_reported_ = true;
+      RCLCPP_WARN(get_logger(), "Engagement aborted: %s", decision.reason.c_str());
     }
-    if (!armed_) {
-      return false;
-    }
-    // The selected target has to be a uav, confirmed and valid.
-    if (selected_class_id_ != static_cast<int32_t>(TargetClass::UAV)) {
-      return false;
-    }
-    return selected_confirmed_ && selected_valid_;
+    return decision;
   }
 
   safety::FilterMode currentMode() const
@@ -305,13 +362,19 @@ private:
       setpoint.velocity = Eigen::Vector3d::Zero();
     }
 
+    // The gate and the abort are evaluated first: they decide whether the
+    // interceptor may engage the target at all, and an abort brakes the drone
+    // whatever the planner asks for.
+    const safety::EngagementDecision decision = evaluateGate();
+    const std::string abort_reason = decision.aborted ? decision.reason : std::string();
+
     const safety::FilterResult result = filter_->filter(
       setpoint, state_, tracks_, obstacles_, currentMode(), now_s, setpoint_age, odom_age,
-      estop_latched_, engagementAllowed());
+      estop_latched_, decision.engage_allowed, abort_reason);
 
     publishSetpoint(result);
-    publishStatus(result);
-    publishMarkers();
+    publishStatus(result, decision);
+    publishMarkers(result);
   }
 
   void publishSetpoint(const safety::FilterResult & result)
@@ -336,25 +399,34 @@ private:
     pub_setpoint_->publish(msg);
   }
 
-  void publishStatus(const safety::FilterResult & result)
+  void publishStatus(
+    const safety::FilterResult & result, const safety::EngagementDecision & decision)
   {
     MissionStatusMsg msg;
     msg.header.stamp = now();
     msg.header.frame_id = "map";
     msg.mode = mode_;
-    msg.phase = phaseFor(result);
+    msg.phase = phaseFor(result, decision);
     msg.target_track_id = selected_track_id_;
     msg.distance_to_target = distanceToSelected();
     msg.safety_active = result.safety_active;
-    msg.reason = result.reason;
+    msg.abort_active = decision.aborted;
+    // The reason of the gate is more informative than the one of the filter
+    // when the gate is the reason: the operator wants to know why the
+    // engagement is refused.
+    msg.reason = decision.reason.empty() ? result.reason : decision.reason;
 
     pub_status_->publish(msg);
   }
 
   /// The phase the filter can see. The planners own the detailed phase; this is the
   /// filter's view of it, for the status overlay.
-  uint8_t phaseFor(const safety::FilterResult & result) const
+  uint8_t phaseFor(
+    const safety::FilterResult & result, const safety::EngagementDecision & decision) const
   {
+    if (decision.aborted) {
+      return MissionStatusMsg::PHASE_ABORT;
+    }
     if (result.safety_active && estop_latched_) {
       return MissionStatusMsg::PHASE_IDLE;
     }
@@ -362,7 +434,7 @@ private:
       case safety::FilterMode::FOLLOW:
         return MissionStatusMsg::PHASE_TRACKING;
       case safety::FilterMode::INTERCEPT:
-        return engagementAllowed() ? MissionStatusMsg::PHASE_PURSUE :
+        return decision.engage_allowed ? MissionStatusMsg::PHASE_PURSUE :
                MissionStatusMsg::PHASE_SEARCH;
       case safety::FilterMode::HOLD:
         break;
@@ -379,7 +451,7 @@ private:
   }
 
   /// The keep-out circles, so the margins are visible in RViz.
-  void publishMarkers()
+  void publishMarkers(const safety::FilterResult & result)
   {
     MarkerArrayMsg array;
     int id = 0;
@@ -428,11 +500,97 @@ private:
       circle.color.a = 0.25f;
       array.markers.push_back(circle);
     }
+    publishSetpointMarker(array, id, result);
     pub_markers_->publish(array);
+  }
+
+  /// Draws the command the controller is actually flying.
+  ///
+  /// The setpoint is a *velocity* (the filter always works on the velocity, and the
+  /// output carries position_valid = false), and /setpoint/safe is a custom message
+  /// that RViz cannot draw. So without a marker the operator cannot see the one
+  /// command that matters: the filtered one. The arrow leaves the drone in the
+  /// direction of the filtered velocity, and the sphere is the point it reaches in
+  /// a second at that speed.
+  ///
+  /// The colour says whether the filter had to intervene: green is the planner's
+  /// command unchanged, orange is the filter's own command, and the arrow is short
+  /// and grey when the drone is being held.
+  void publishSetpointMarker(MarkerArrayMsg & array, int & id, const safety::FilterResult & result)
+  {
+    const Eigen::Vector3d velocity = result.velocity;
+    const double speed = velocity.norm();
+    const bool active = result.safety_active;
+
+    // The point the drone reaches in a second at the commanded speed.
+    visualization_msgs::msg::Marker point;
+    point.header.stamp = now();
+    point.header.frame_id = "map";
+    point.ns = "setpoint_target";
+    point.id = id++;
+    point.type = visualization_msgs::msg::Marker::SPHERE;
+    point.action = visualization_msgs::msg::Marker::ADD;
+    point.pose.position.x = state_.position.x() + velocity.x();
+    point.pose.position.y = state_.position.y() + velocity.y();
+    point.pose.position.z = state_.position.z() + velocity.z();
+    point.pose.orientation.w = 1.0;
+    point.scale.x = 0.3;
+    point.scale.y = 0.3;
+    point.scale.z = 0.3;
+    point.color.r = active ? 1.0f : 0.2f;
+    point.color.g = active ? 0.6f : 0.9f;
+    point.color.b = active ? 0.1f : 0.3f;
+    point.color.a = 0.9f;
+    array.markers.push_back(point);
+
+    // The arrow: the direction of the command, with a length that shows the speed.
+    visualization_msgs::msg::Marker arrow;
+    arrow.header.stamp = now();
+    arrow.header.frame_id = "map";
+    arrow.ns = "setpoint_velocity";
+    arrow.id = id++;
+    arrow.type = visualization_msgs::msg::Marker::ARROW;
+    arrow.action = visualization_msgs::msg::Marker::ADD;
+    arrow.pose.position.x = state_.position.x();
+    arrow.pose.position.y = state_.position.y();
+    arrow.pose.position.z = state_.position.z();
+    arrow.pose.orientation.w = 1.0;
+    if (speed > 1e-3) {
+      // The arrow points along the command: the rotation takes the x axis, which
+      // the marker points down, to the direction of the velocity. The axis of that
+      // rotation is x cross direction and the angle is the one between them.
+      const Eigen::Vector3d direction = velocity / speed;
+      Eigen::Vector3d axis = Eigen::Vector3d::UnitX().cross(direction);
+      double norm = axis.norm();
+      double angle = std::atan2(norm, direction.x());
+      if (norm < 1e-6) {
+        // The command is straight along the nose, so the axis is degenerate: the
+        // identity rotation is right, unless the command is straight backwards,
+        // which is a half turn.
+        axis = direction.x() < 0.0 ? Eigen::Vector3d::UnitZ() : Eigen::Vector3d::UnitX();
+        angle = direction.x() < 0.0 ? M_PI : 0.0;
+        norm = 1.0;
+      }
+      arrow.pose.orientation.x = axis.x() / norm * std::sin(angle / 2.0);
+      arrow.pose.orientation.y = axis.y() / norm * std::sin(angle / 2.0);
+      arrow.pose.orientation.z = axis.z() / norm * std::sin(angle / 2.0);
+      arrow.pose.orientation.w = std::cos(angle / 2.0);
+    }
+    // A metre of arrow per metre per second, with a floor so a standstill is
+    // still visible.
+    arrow.scale.x = std::max(speed, 0.3);
+    arrow.scale.y = 0.15;
+    arrow.scale.z = 0.15;
+    arrow.color.r = active ? 1.0f : 0.2f;
+    arrow.color.g = active ? 0.6f : 0.9f;
+    arrow.color.b = active ? 0.1f : 0.3f;
+    arrow.color.a = 0.9f;
+    array.markers.push_back(arrow);
   }
 
   // The filter and its inputs
   std::unique_ptr<safety::SafetyFilter> filter_;
+  std::unique_ptr<safety::EngagementGate> gate_;
   std::vector<safety::Obstacle> obstacles_;
   std::vector<safety::KeepOutTarget> tracks_;
   safety::FilterSetpoint setpoint_;
@@ -449,6 +607,8 @@ private:
   bool armed_ = false;
   bool has_mode_ = false;
   bool estop_latched_ = false;
+  /// True once the abort has been reported, so it is logged only once.
+  bool abort_reported_ = false;
 
   // The selected target, from /target/state
   int32_t selected_track_id_ = -1;

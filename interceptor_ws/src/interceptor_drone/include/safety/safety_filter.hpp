@@ -22,14 +22,14 @@
  * For every person or vehicle track, and for every static obstacle, the filter builds a
  * half-space the velocity has to stay in. For a track:
  *
- *     h  = |p_xy - p_t,xy| - d_eff              (d_eff = d_min + k * sigma_pos)
- *     n  = (p_xy - p_t,xy) / |p_xy - p_t,xy|    (unit vector from the track to the drone)
+ *     h  = |p - p_t| - d_eff                    (d_eff = d_min + k * sigma_pos)
+ *     n  = (p - p_t) / |p - p_t|                (unit vector from the track to the drone)
  *
  * The plan's condition (section 4.3) is h_dot >= -alpha * h. Since h_dot is minus the
  * closing speed c, that is an upper bound on the closing speed, c_cmd <= alpha * h, and
  * in the velocity it is the half-space
  *
- *     n . (v_xy - v_t,xy) >= -c_cmd_max
+ *     n . (v - v_t) >= -c_cmd_max
  *
  * The subtlety is the *relative degree*. h_dot depends on the closing speed the drone
  * actually has, not on the one it is told to have, and the autopilot's velocity loop
@@ -69,12 +69,47 @@
  * budget runs out. When the intersection is empty the iteration never converges, which
  * is how a boxed-in drone is detected.
  *
+ * The keep-out of a person: 3D, with an altitude relief (P3.4)
+ * ----------------------------------------------------------
+ * The plan writes the keep-out of a person as a *horizontal* rule, h = |p_xy - p_t,xy|
+ * - d_min, applied at every altitude. That is what the intercept guidance ran into: the
+ * interceptor was pushed sideways by a pedestrian that was 10 m below it, so an
+ * INTERCEPT over a park with pedestrians was impossible. The rule is kept, but its
+ * *shape* is fixed, and the safety distance itself is not weakened:
+ *
+ * - The hard rule is a **3D** minimum distance, d_min_3d, to every person and vehicle.
+ *   The barrier is the one above, in 3D: the closing speed is the one along the 3D line
+ *   of sight, so the drone is also kept from descending onto a person.
+ * - The **horizontal** component is the plan's flat d_min, and it is given up with the
+ *   height above the person: the horizontal standoff is d_min while the drone is at
+ *   most keepout_horizontal_altitude above the person, and it shrinks by
+ *   keepout_horizontal_taper metres per metre of climb above that. Above the relief
+ *   height the purely horizontal rule is gone and the 3D rule alone governs.
+ *
+ * The safety argument: whenever the horizontal margin is given up, the vertical
+ * separation alone already exceeds d_min_3d, so the *distance* to the person never drops
+ * below the safety distance. With the defaults (d_min_3d = d_min_horizontal = 5 m,
+ * relief height 5 m, taper 1) the drone may not come within 5 m of a person at any
+ * height, may not come within 5 m horizontally of a person it is at the same level with,
+ * and is free of the horizontal rule once it is 10 m above the person - where the 3D
+ * distance is 10 m. The two rules are both enforced, so the stricter of the two is
+ * always in force.
+ *
  * Precedence
  * ----------
  * The keep-out wins over the flight limits. The speed cap is applied to the planner's
  * request before the barriers, and the barriers are never traded away to satisfy it: when
  * the constraints cannot all be satisfied the filter commands hover and says so in the
  * reason string. A distance is never relaxed to make a command feasible.
+ *
+ * The abort
+ * ---------
+ * An abort is the safety response of an engagement that has to stop: a bystander came
+ * too close, a gate condition was violated mid-flight, or the operator pulled the
+ * e-stop. The filter has the final say on the setpoint, so the abort is enforced here:
+ * the command becomes a brake (hover in place) and the reason says why. The abort is
+ * latched by the engagement gate (include/safety/engagement_gate.hpp), which also
+ * publishes it, so the guidance knows to stop commanding a closure.
  */
 
 #pragma once
@@ -119,7 +154,20 @@ struct KeepOutTarget
 struct SafetyFilterParams
 {
   // --- Keep-out distances -------------------------------------------------
-  double d_min_horizontal = 5.0;   // m, to any person or vehicle track
+  /// The hard minimum distance to any person or vehicle, in 3D [m]. This is the
+  /// safety distance: the drone is never closer than this to a person or a
+  /// vehicle, in any direction and at any altitude.
+  double d_min_3d = 5.0;
+  /// The plan's horizontal standoff to any person or vehicle [m]. It is in
+  /// force while the drone is at most keepout_horizontal_altitude above the
+  /// person, and it is given up above that (see the header).
+  double d_min_horizontal = 5.0;
+  /// The height above a person up to which the horizontal standoff is in force
+  /// [m]. Above it the horizontal margin is given up at keepout_horizontal_taper
+  /// metres per metre of climb.
+  double keepout_horizontal_altitude = 5.0;
+  /// How fast the horizontal margin is given up above that height [m/m].
+  double keepout_horizontal_taper = 1.0;
   double d_obstacle_min = 3.0;      // m, to the surface of any static obstacle
   double h_min_above = 3.0;         // m, vertical clearance above a person or vehicle
   double uncertainty_gain = 2.0;    // k in d_eff = d_min + k * sigma_pos
@@ -195,6 +243,7 @@ struct FilterResult
   double yaw_rate = 0.0;                               // rad/s
   bool safety_active = false;  // true when the filter modified the planner's command
   bool feasible = true;        // false when the constraints could not all be satisfied
+  bool aborted = false;        // true when the engagement was aborted
   std::string reason;          // why the filter intervened (empty when nominal)
 };
 
@@ -227,12 +276,14 @@ public:
   /// @param odom_age_s      the age of the odometry [s]
   /// @param estop_latched   true when the e-stop has been latched
   /// @param engage_allowed  false to refuse an INTERCEPT engagement (the gate, §4.4)
+  /// @param abort_reason    why the engagement was aborted (empty when there is no abort);
+  ///                        a non-empty reason brakes the drone to a hover
   /// @return the command to send to the trajectory controller
   FilterResult filter(
     const FilterSetpoint & setpoint, const FilterState & state,
     const std::vector<KeepOutTarget> & targets, const std::vector<Obstacle> & obstacles,
     FilterMode mode, double time_s, double setpoint_age_s, double odom_age_s,
-    bool estop_latched, bool engage_allowed = true);
+    bool estop_latched, bool engage_allowed = true, const std::string & abort_reason = "");
 
   /// A hover command: everything the filter can do, undone.
   FilterResult hold(const FilterState & state, const std::string & reason);
@@ -256,8 +307,17 @@ private:
   Eigen::Vector3d requestedVelocity(
     const FilterSetpoint & setpoint, const FilterState & state) const;
 
-  /// The effective standoff for a track: d_min inflated by the position uncertainty.
-  double effectiveDistance(const KeepOutTarget & target) const;
+  /// The effective 3D standoff for a track: d_min_3d inflated by the position
+  /// uncertainty.
+  double effectiveDistance3d(const KeepOutTarget & target) const;
+
+  /// The horizontal standoff for a track at a given vertical separation [m].
+  ///
+  /// The plan's flat d_min, given up with the height above the person: the
+  /// margin shrinks by keepout_horizontal_taper metres per metre of climb
+  /// above keepout_horizontal_altitude. A zero return means the horizontal
+  /// rule is not in force at that height, and the 3D rule governs alone.
+  double horizontalStandoff(double vertical_separation, const KeepOutTarget & target) const;
 
   /// Merges the tracks from the tracker with the ones the filter still remembers, and
   /// drops the ones that have been gone for longer than coast_timeout. Returns true

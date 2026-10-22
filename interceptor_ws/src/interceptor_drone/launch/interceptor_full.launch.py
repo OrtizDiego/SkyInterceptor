@@ -14,6 +14,7 @@ def generate_launch_description():
     launch_dir = os.path.join(pkg_interceptor, 'launch')
     controller_params = os.path.join(pkg_interceptor, 'config', 'controller_params.yaml')
     safety_params = os.path.join(pkg_interceptor, 'config', 'safety_params.yaml')
+    intercept_params = os.path.join(pkg_interceptor, 'config', 'intercept_params.yaml')
     # The parameter file of the ground-truth source. The follow scenarios see the
     # people of their own world, so they pass their own file.
     groundtruth_params_file = LaunchConfiguration('groundtruth_params_file')
@@ -107,13 +108,15 @@ def generate_launch_description():
     )
 
     # The safety filter: /setpoint/raw -> /setpoint/safe. It sits between the
-    # planner and the controller and has the final say on every setpoint.
+    # planner and the controller and has the final say on every setpoint. It
+    # also owns the INTERCEPT engagement gate and the abort, so it reads the
+    # intercept parameters as well.
     safety_filter = Node(
         package='interceptor_drone',
         executable='safety_filter_node',
         name='safety_filter_node',
         output='screen',
-        parameters=[safety_params, {'use_sim_time': use_sim_time}],
+        parameters=[safety_params, intercept_params, {'use_sim_time': use_sim_time}],
     )
 
     trajectory_controller = Node(

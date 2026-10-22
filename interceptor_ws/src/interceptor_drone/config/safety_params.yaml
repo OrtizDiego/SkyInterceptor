@@ -15,9 +15,23 @@
   ros__parameters:
     safety:
       # --- Keep-out distances ---------------------------------------------
-      d_min_horizontal: 5.0         # m, to ANY person/vehicle track
+      # The safety distance to ANY person or vehicle, in 3D: the drone is
+      # never closer than this to a person or a vehicle, at any altitude.
+      d_min_3d: 5.0                 # m
+      # The plan's horizontal standoff, in force while the drone is at most
+      # keepout_horizontal_altitude above the person. Above that the margin
+      # is given up at keepout_horizontal_taper metres per metre of climb,
+      # and the 3D rule alone governs: a pedestrian 10 m below the drone is
+      # 10 m away, so it does not push the interceptor sideways.
+      d_min_horizontal: 5.0         # m
+      keepout_horizontal_altitude: 5.0  # m, the height of the horizontal keep-out
+      keepout_horizontal_taper: 1.0     # m of margin per m of climb
       d_obstacle_min: 3.0           # m, to the surface of any static obstacle
       h_min_above: 3.0              # m, vertical clearance above target
+      # The band the interceptor has to keep to the intruder: it may be at
+      # most this far below it. Below the band the interceptor would have to
+      # close on the intruder through the clutter on the ground.
+      engage_altitude_band: 5.0     # m
       # The standoff is inflated by the track's position uncertainty, so a
       # poorly tracked person gets a bigger margin.
       uncertainty_gain: 2.0         # k in d_eff = d_min + k * sigma_pos

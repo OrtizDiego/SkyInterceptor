@@ -1,3 +1,22 @@
+# The operator's view of the system.
+#
+#   Interceptor, Target Drone  the two robot models (the descriptions come from
+#                               /robot_description and /target_description)
+#   Tracks                     /tracks/markers: a sphere, a velocity arrow and a
+#                               label per track, coloured by its state
+#   Safety Keep-outs           /safety/keepouts: the keep-out circles of the
+#                               safety filter, around every person, vehicle and
+#                               static obstacle
+#   Guidance Vectors           /guidance/vectors: the line of sight and the
+#                               commanded acceleration (INTERCEPT only)
+#   Left/Right Camera,         the vision pipeline's image topics
+#   Detection Overlay, Depth Map
+#
+# The setpoints are not drawn: /setpoint/raw and /setpoint/safe are
+# interceptor_interfaces/FlightSetpoint messages, which RViz cannot display, and
+# the safety filter publishes no marker for them. The guidance's own
+# /guidance/vectors is the closest thing to a setpoint on the screen.
+
 Panels:
   - Class: rviz_common/Displays
     Name: Displays
@@ -22,7 +41,7 @@ Panels:
         Marker Scale: 0.6
         Show Arrows: true
         Show Axes: true
-        Show Names: false
+        Show Names: true
         Tree:
           {}
         Update Interval: 0
@@ -63,6 +82,28 @@ Panels:
         Enabled: true
         Topic:
           Value: /tracks/markers
+          Depth: 5
+          Durability Policy: Transient Local
+          History Policy: Keep Last
+          Reliability Policy: Reliable
+        Value: true
+
+      # The safety filter's markers. Three namespaces are on this topic:
+      #   keepout_track    one circle per person or vehicle track (the radius is
+      #                    d_min + k * sigma, so a badly tracked target gets a
+      #                    visibly bigger circle)
+      #   keepout_obstacle one circle per static obstacle
+      #                    (radius + d_obstacle_min)
+      #   setpoint_velocity / setpoint_target
+      #                    the command the controller is actually flying: an arrow
+      #                    in the direction of the filtered velocity and the point
+      #                    it reaches in a second. Green is the planner's command
+      #                    unchanged, orange is the filter's own.
+      - Class: rviz_default_plugins/MarkerArray
+        Name: Safety and Setpoint
+        Enabled: true
+        Topic:
+          Value: /safety/keepouts
           Depth: 5
           Durability Policy: Transient Local
           History Policy: Keep Last
@@ -170,6 +211,8 @@ Panels:
             Name: Target Drone
           - Class: rviz_default_plugins/MarkerArray
             Name: Tracks
+          - Class: rviz_default_plugins/MarkerArray
+            Name: Safety Keep-outs
           - Class: rviz_default_plugins/MarkerArray
             Name: Guidance Vectors
           - Class: rviz_default_plugins/Image
