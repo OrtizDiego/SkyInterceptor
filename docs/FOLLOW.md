@@ -50,12 +50,11 @@ The offsets come from `config/follow_params.yaml`: 8 m behind, 6 m to the side a
 (0.2 rad/s), **in the target's heading frame**, so the circle follows the target's
 own turns instead of staying fixed in the world.
 
-The preset is a parameter of the planner (`follow.preset`) and is read when the node
-starts. The library can change it at runtime (`FollowPlanner::setPreset()`), but the
-node does not register a parameter callback for it yet, so `ros2 param set` on the
-preset has no effect until the node is restarted. The offsets are far enough from the
-target that the safety filter rarely has to intervene: the filter's own keep-out is
-5 m.
+The preset is a parameter of the planner (`follow.preset`) and it can be changed
+while the node runs: the node registers a parameter callback, so `ros2 param set` on
+the preset takes effect immediately and an unknown name is refused with the reason
+in the parameter service's answer. The offsets are far enough from the target that
+the safety filter rarely has to intervene: the filter's own keep-out is 5 m.
 
 ## Three things the formula hides
 
@@ -160,12 +159,12 @@ ros2 launch interceptor_drone interceptor_full.launch.py mission_mode:=follow pe
 ros2 launch interceptor_drone guidance.launch.py mission_mode:=follow
 ```
 
-The preset is read from `config/follow_params.yaml` at startup. To change it, edit
-the file and restart the node (the library can switch it at runtime, but the node
-does not wire the parameter callback yet):
+The preset is read from `config/follow_params.yaml` at startup, and it can be
+switched while the node runs:
 
 ```bash
 ros2 param get /follow_planner_node follow.preset
+ros2 param set /follow_planner_node follow.preset ORBIT
 ```
 
 The eligible classes are `follow.eligible_classes` in `config/follow_params.yaml`:

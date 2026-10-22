@@ -88,12 +88,19 @@ Panels:
           Reliability Policy: Reliable
         Value: true
 
-      # The keep-out circles of the safety filter: one per person or vehicle track
-      # (the radius is d_min + k * sigma, so a badly tracked target gets a visibly
-      # bigger circle) and one per static obstacle. This is the margin the drone is
-      # not allowed to cross.
+      # The safety filter's markers. Three namespaces are on this topic:
+      #   keepout_track    one circle per person or vehicle track (the radius is
+      #                    d_min + k * sigma, so a badly tracked target gets a
+      #                    visibly bigger circle)
+      #   keepout_obstacle one circle per static obstacle
+      #                    (radius + d_obstacle_min)
+      #   setpoint_velocity / setpoint_target
+      #                    the command the controller is actually flying: an arrow
+      #                    in the direction of the filtered velocity and the point
+      #                    it reaches in a second. Green is the planner's command
+      #                    unchanged, orange is the filter's own.
       - Class: rviz_default_plugins/MarkerArray
-        Name: Safety Keep-outs
+        Name: Safety and Setpoint
         Enabled: true
         Topic:
           Value: /safety/keepouts

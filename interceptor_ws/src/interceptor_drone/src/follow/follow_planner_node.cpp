@@ -34,6 +34,15 @@
  * the drone itself in INTERCEPT. In FOLLOW nobody else does it, so the planner arms
  * the motors once it has the odometry and the mode is FOLLOW. Without this the
  * setpoints would command a drone that never takes off.
+ *
+ * The framing preset can be changed while the node runs:
+ *
+ *     ros2 param set /follow_planner_node follow.preset ORBIT
+ *
+ * The library keeps the preset in its parameter struct and the node applies it with
+ * setPreset(), so a preset set at runtime behaves exactly like one that comes from
+ * the config file. An unknown name is refused, with the reason in the parameter
+ * service's answer, instead of being silently ignored.
  */
 
 #include <Eigen/Geometry>
@@ -42,11 +51,13 @@
 #include <memory>
 #include <stdexcept>
 #include <string>
+#include <vector>
 
 #include <interceptor_interfaces/msg/flight_setpoint.hpp>
 #include <interceptor_interfaces/msg/mission_mode.hpp>
 #include <interceptor_interfaces/msg/target_state.hpp>
 #include <nav_msgs/msg/odometry.hpp>
+#include <rcl_interfaces/msg/set_parameters_result.hpp>
 #include <rclcpp/rclcpp.hpp>
 #include <std_msgs/msg/bool.hpp>
 
@@ -121,6 +132,12 @@ public:
       this, get_clock(), rclcpp::Duration::from_seconds(1.0 / rate_hz),
       [this]() {onTimer();});
 
+    // The framing preset can be changed while the node runs.
+    parameter_callback_handle_ = add_on_set_parameters_callback(
+      [this](const std::vector<rclcpp::Parameter> & parameters) {
+        return onParametersSet(parameters);
+      });
+
     RCLCPP_INFO(
       get_logger(),
       "Follow planner started: preset=%s, offset behind/side/height=%.1f/%.1f/%.1f m, "
@@ -132,6 +149,46 @@ public:
   }
 
 private:
+  /// Applies the parameters that can be changed while the node runs.
+  ///
+  /// Only the framing preset is tunable at runtime: the offsets and the gains are
+  /// read once, because they change the geometry of the session and not the frame
+  /// the target is watched in. An unknown preset is refused, so the operator gets
+  /// the reason from the parameter service instead of a preset that silently keeps
+  /// its old value.
+  rcl_interfaces::msg::SetParametersResult onParametersSet(
+    const std::vector<rclcpp::Parameter> & parameters)
+  {
+    rcl_interfaces::msg::SetParametersResult result;
+    result.successful = true;
+
+    for (const auto & parameter : parameters) {
+      if (parameter.get_name() != "follow.preset") {
+        continue;
+      }
+      if (parameter.get_type() != rclcpp::ParameterType::PARAMETER_STRING) {
+        RCLCPP_ERROR(get_logger(), "The framing preset has to be a string");
+        result.successful = false;
+        result.reason = "the framing preset has to be a string";
+        return result;
+      }
+      const auto preset = follow::parseFramingPreset(parameter.as_string());
+      if (!preset) {
+        RCLCPP_ERROR(
+          get_logger(), "Unknown framing preset '%s': BEHIND, SIDE, LEAD or ORBIT",
+          parameter.as_string().c_str());
+        result.successful = false;
+        result.reason = "unknown framing preset";
+        return result;
+      }
+      planner_->setPreset(*preset);
+      RCLCPP_INFO(
+        get_logger(), "Framing preset changed to %s", follow::toString(*preset).c_str());
+    }
+
+    return result;
+  }
+
   void onTarget(const TargetStateMsg & msg)
   {
     follow::FollowTarget target;
@@ -245,6 +302,7 @@ private:
   rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr odom_sub_;
   rclcpp::Subscription<MissionModeMsg>::SharedPtr mode_sub_;
   rclcpp::TimerBase::SharedPtr timer_;
+  rclcpp::node_interfaces::OnSetParametersCallbackHandle::SharedPtr parameter_callback_handle_;
 };
 
 }  // namespace interceptor

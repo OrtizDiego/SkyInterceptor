@@ -374,7 +374,7 @@ private:
 
     publishSetpoint(result);
     publishStatus(result, decision);
-    publishMarkers();
+    publishMarkers(result);
   }
 
   void publishSetpoint(const safety::FilterResult & result)
@@ -451,7 +451,7 @@ private:
   }
 
   /// The keep-out circles, so the margins are visible in RViz.
-  void publishMarkers()
+  void publishMarkers(const safety::FilterResult & result)
   {
     MarkerArrayMsg array;
     int id = 0;
@@ -500,7 +500,92 @@ private:
       circle.color.a = 0.25f;
       array.markers.push_back(circle);
     }
+    publishSetpointMarker(array, id, result);
     pub_markers_->publish(array);
+  }
+
+  /// Draws the command the controller is actually flying.
+  ///
+  /// The setpoint is a *velocity* (the filter always works on the velocity, and the
+  /// output carries position_valid = false), and /setpoint/safe is a custom message
+  /// that RViz cannot draw. So without a marker the operator cannot see the one
+  /// command that matters: the filtered one. The arrow leaves the drone in the
+  /// direction of the filtered velocity, and the sphere is the point it reaches in
+  /// a second at that speed.
+  ///
+  /// The colour says whether the filter had to intervene: green is the planner's
+  /// command unchanged, orange is the filter's own command, and the arrow is short
+  /// and grey when the drone is being held.
+  void publishSetpointMarker(MarkerArrayMsg & array, int & id, const safety::FilterResult & result)
+  {
+    const Eigen::Vector3d velocity = result.velocity;
+    const double speed = velocity.norm();
+    const bool active = result.safety_active;
+
+    // The point the drone reaches in a second at the commanded speed.
+    visualization_msgs::msg::Marker point;
+    point.header.stamp = now();
+    point.header.frame_id = "map";
+    point.ns = "setpoint_target";
+    point.id = id++;
+    point.type = visualization_msgs::msg::Marker::SPHERE;
+    point.action = visualization_msgs::msg::Marker::ADD;
+    point.pose.position.x = state_.position.x() + velocity.x();
+    point.pose.position.y = state_.position.y() + velocity.y();
+    point.pose.position.z = state_.position.z() + velocity.z();
+    point.pose.orientation.w = 1.0;
+    point.scale.x = 0.3;
+    point.scale.y = 0.3;
+    point.scale.z = 0.3;
+    point.color.r = active ? 1.0f : 0.2f;
+    point.color.g = active ? 0.6f : 0.9f;
+    point.color.b = active ? 0.1f : 0.3f;
+    point.color.a = 0.9f;
+    array.markers.push_back(point);
+
+    // The arrow: the direction of the command, with a length that shows the speed.
+    visualization_msgs::msg::Marker arrow;
+    arrow.header.stamp = now();
+    arrow.header.frame_id = "map";
+    arrow.ns = "setpoint_velocity";
+    arrow.id = id++;
+    arrow.type = visualization_msgs::msg::Marker::ARROW;
+    arrow.action = visualization_msgs::msg::Marker::ADD;
+    arrow.pose.position.x = state_.position.x();
+    arrow.pose.position.y = state_.position.y();
+    arrow.pose.position.z = state_.position.z();
+    arrow.pose.orientation.w = 1.0;
+    if (speed > 1e-3) {
+      // The arrow points along the command: the rotation takes the x axis, which
+      // the marker points down, to the direction of the velocity. The axis of that
+      // rotation is x cross direction and the angle is the one between them.
+      const Eigen::Vector3d direction = velocity / speed;
+      Eigen::Vector3d axis = Eigen::Vector3d::UnitX().cross(direction);
+      double norm = axis.norm();
+      double angle = std::atan2(norm, direction.x());
+      if (norm < 1e-6) {
+        // The command is straight along the nose, so the axis is degenerate: the
+        // identity rotation is right, unless the command is straight backwards,
+        // which is a half turn.
+        axis = direction.x() < 0.0 ? Eigen::Vector3d::UnitZ() : Eigen::Vector3d::UnitX();
+        angle = direction.x() < 0.0 ? M_PI : 0.0;
+        norm = 1.0;
+      }
+      arrow.pose.orientation.x = axis.x() / norm * std::sin(angle / 2.0);
+      arrow.pose.orientation.y = axis.y() / norm * std::sin(angle / 2.0);
+      arrow.pose.orientation.z = axis.z() / norm * std::sin(angle / 2.0);
+      arrow.pose.orientation.w = std::cos(angle / 2.0);
+    }
+    // A metre of arrow per metre per second, with a floor so a standstill is
+    // still visible.
+    arrow.scale.x = std::max(speed, 0.3);
+    arrow.scale.y = 0.15;
+    arrow.scale.z = 0.15;
+    arrow.color.r = active ? 1.0f : 0.2f;
+    arrow.color.g = active ? 0.6f : 0.9f;
+    arrow.color.b = active ? 0.1f : 0.3f;
+    arrow.color.a = 0.9f;
+    array.markers.push_back(arrow);
   }
 
   // The filter and its inputs
