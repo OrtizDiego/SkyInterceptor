@@ -461,11 +461,22 @@ void TargetDroneBehaviour::evaluatePath(
   }
 }
 
-double TargetDroneBehaviour::altitudeAt(double s) const
+void TargetDroneBehaviour::altitudeSegment(
+  double s, double & z0, double & z1, double & u, double & length) const
 {
+  z0 = 0.0;
+  z1 = 0.0;
+  u = 0.0;
+  length = 0.0;
   if (knot_s_.size() < 2) {
-    return knot_z_.empty() ? 0.0 : knot_z_.front();
+    if (!knot_z_.empty()) {
+      z0 = knot_z_.front();
+      z1 = knot_z_.front();
+    }
+    return;
   }
+
+  // The leg the arclength falls into: the last one wraps around to the first.
   const size_t n = knot_s_.size();
   size_t index = 0;
   for (size_t i = n; i-- > 0; ) {
@@ -475,58 +486,38 @@ double TargetDroneBehaviour::altitudeAt(double s) const
     }
   }
   const size_t next = (index + 1) % n;
-  const double seg_len = segmentLength(index);
-  if (seg_len < kMinLength) {
-    return knot_z_[index];
+  z0 = knot_z_[index];
+  z1 = knot_z_[next];
+  length = segmentLength(index);
+  if (length >= kMinLength) {
+    u = (s - knot_s_[index]) / length;
   }
-  const double u = (s - knot_s_[index]) / seg_len;
-  // A smooth step: the slope is zero at both ends, so the vertical velocity is
-  // continuous at the waypoints.
-  return knot_z_[index] + (knot_z_[next] - knot_z_[index]) * (3.0 * u * u - 2.0 * u * u * u);
 }
 
 double TargetDroneBehaviour::altitudeRateAt(double s) const
 {
-  if (knot_s_.size() < 2) {
+  double z0 = 0.0;
+  double z1 = 0.0;
+  double u = 0.0;
+  double length = 0.0;
+  altitudeSegment(s, z0, z1, u, length);
+  if (length < kMinLength) {
     return 0.0;
   }
-  const size_t n = knot_s_.size();
-  size_t index = 0;
-  for (size_t i = n; i-- > 0; ) {
-    if (s >= knot_s_[i]) {
-      index = i;
-      break;
-    }
-  }
-  const size_t next = (index + 1) % n;
-  const double seg_len = segmentLength(index);
-  if (seg_len < kMinLength) {
-    return 0.0;
-  }
-  const double u = (s - knot_s_[index]) / seg_len;
-  return (knot_z_[next] - knot_z_[index]) * (6.0 * u - 6.0 * u * u) / seg_len;
+  return (z1 - z0) * (6.0 * u - 6.0 * u * u) / length;
 }
 
 double TargetDroneBehaviour::altitudeAccelerationAt(double s) const
 {
-  if (knot_s_.size() < 2) {
+  double z0 = 0.0;
+  double z1 = 0.0;
+  double u = 0.0;
+  double length = 0.0;
+  altitudeSegment(s, z0, z1, u, length);
+  if (length < kMinLength) {
     return 0.0;
   }
-  const size_t n = knot_s_.size();
-  size_t index = 0;
-  for (size_t i = n; i-- > 0; ) {
-    if (s >= knot_s_[i]) {
-      index = i;
-      break;
-    }
-  }
-  const size_t next = (index + 1) % n;
-  const double seg_len = segmentLength(index);
-  if (seg_len < kMinLength) {
-    return 0.0;
-  }
-  const double u = (s - knot_s_[index]) / seg_len;
-  return (knot_z_[next] - knot_z_[index]) * (6.0 - 12.0 * u) / (seg_len * seg_len);
+  return (z1 - z0) * (6.0 - 12.0 * u) / (length * length);
 }
 
 double TargetDroneBehaviour::segmentLength(size_t index) const

@@ -172,9 +172,17 @@ private:
     double s, Eigen::Vector3d & position, double & heading, double & curvature) const;
 
   /// The altitude of the path at the arclength s, and its rate of change.
-  double altitudeAt(double s) const;
+  ///
+  /// The altitude follows a smooth step between the altitudes of the waypoints,
+  /// so its rate is zero at every waypoint and the vertical velocity is
+  /// continuous.
   double altitudeRateAt(double s) const;
   double altitudeAccelerationAt(double s) const;
+
+  /// The segment of the altitude profile the arclength s falls into: the
+  /// altitudes of its two ends, the parameter inside it and its length.
+  void altitudeSegment(
+    double s, double & z0, double & z1, double & u, double & length) const;
 
   /// The arclength of the leg that starts at the knot index [m]. The last leg
   /// wraps around to the first knot.
