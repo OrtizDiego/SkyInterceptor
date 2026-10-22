@@ -115,12 +115,12 @@ Any agent or person can read and edit this file: Claude Code, Codex, Cursor, a s
 
 ### P2.3 – Follow planner
 
-- **Status:** todo
+- **Status:** review
 - **Depends on:** P2.2
-- **PR:** —
-- **Branch:** —
+- **PR:** 24
+- **Branch:** feat/p2-3-follow-planner
 - **Scope:** follow_planner_node: BEHIND/SIDE/LEAD/ORBIT presets in the target heading frame, heading smoothing, lost-track HOLD then RTL.
-- **Notes:** —
+- **Notes:** ROS-free `follow::FollowPlanner` in `include/follow/` with 21 gtests; the node is the thin ROS wrapper (`/target/state` + `/mission/mode` + `/odom` -> `/setpoint/raw`, `position_valid = false`, a velocity setpoint, the safety filter keeps `/setpoint/safe`). Verified: clean `colcon build` with `-Werror` and `colcon test` in the container, 426 tests, 0 failures, all ament linters green; the node was also run live in the container: it publishes the expected setpoint (3.6, 0, 0) m/s with `source = SOURCE_FOLLOW` for the BEHIND preset, and it falls silent as soon as the mode switches to INTERCEPT. Design decisions: the presets are built in the target's *filtered* heading frame (a low pass with `heading_tau`), but the commanded yaw is the geometric bearing to the target, so a target that turns slides the framing point instead of whipping the camera around; ORBIT starts where BEHIND does and walks the framing point around the target at `orbit_rate`; the velocity is capped twice (the vertical component at 5 m/s, the whole command at 15 m/s, the plan's cap and the safety filter's FOLLOW cap). The lost-track machine is COAST (keep flying the last command) for `lost_hold_time`, then HOLD (hover) until `lost_rtl_time`, then RTL to the position the drone held on the first usable frame of the follow session; without that home the drone keeps holding instead of guessing. The planner publishes nothing at all when the mode is not FOLLOW, so it can never fight the intercept guidance on `/setpoint/raw` (the safety filter brakes to hover on a stale setpoint). The operator's track id is enforced twice: the tracker selects it and the planner refuses any other track on `/target/state`. The drone starts disarmed and the mission manager only arms an INTERCEPT mission, so the planner arms the motors itself (`arm_on_start`, on by default) once it has the odometry and the mode is FOLLOW; without this the setpoints would command a drone that never takes off. Still open: not yet run in Gazebo; the framing score and the minimum-distance score of the phase's exit criteria are P2.4's job, and the vision loop is P2.5.
 
 ### P2.4 – Follow scenarios and metrics
 
