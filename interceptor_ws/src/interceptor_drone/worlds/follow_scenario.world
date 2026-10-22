@@ -1,0 +1,263 @@
+<?xml version="1.0" ?>
+<sdf version="1.6">
+  <world name="park_follow">
+
+    <physics type="ode">
+      <max_step_size>0.001</max_step_size>
+      <real_time_factor>1</real_time_factor>
+      <real_time_update_rate>1000</real_time_update_rate>
+    </physics>
+
+    <!-- Blue sky with clouds -->
+    <scene>
+      <ambient>0.6 0.6 0.6 1</ambient>
+      <background>0.53 0.81 0.92 1</background>
+      <shadows>true</shadows>
+      <sky>
+        <clouds>
+          <speed>12</speed>
+        </clouds>
+      </sky>
+    </scene>
+
+    <include>
+      <uri>model://ground_plane</uri>
+    </include>
+
+    <include>
+      <uri>model://sun</uri>
+    </include>
+
+    <!-- Park trees (downloaded from Gazebo model DB on first run) -->
+    <include>
+      <uri>model://oak_tree</uri>
+      <name>oak_1</name>
+      <pose>20 7 0 0 0 0.5</pose>
+    </include>
+    <include>
+      <uri>model://oak_tree</uri>
+      <name>oak_2</name>
+      <pose>7 22 0 0 0 1.2</pose>
+    </include>
+    <include>
+      <uri>model://oak_tree</uri>
+      <name>oak_3</name>
+      <pose>-4 10 0 0 0 2.1</pose>
+    </include>
+    <include>
+      <uri>model://oak_tree</uri>
+      <name>oak_4</name>
+      <pose>18 23 0 0 0 0.3</pose>
+    </include>
+    <include>
+      <uri>model://oak_tree</uri>
+      <name>oak_5</name>
+      <pose>24 14 0 0 0 0.8</pose>
+    </include>
+    <include>
+      <uri>model://pine_tree</uri>
+      <name>pine_1</name>
+      <pose>4 -5 0 0 0 0</pose>
+    </include>
+    <include>
+      <uri>model://pine_tree</uri>
+      <name>pine_2</name>
+      <pose>27 6 0 0 0 1.5</pose>
+    </include>
+    <include>
+      <uri>model://pine_tree</uri>
+      <name>pine_3</name>
+      <pose>-3 22 0 0 0 0.7</pose>
+    </include>
+    <include>
+      <uri>model://pine_tree</uri>
+      <name>pine_4</name>
+      <pose>26 26 0 0 0 2.4</pose>
+    </include>
+
+    <!-- Park bench 1 (inline SDF, no external model required) -->
+    <model name="bench_1">
+      <static>true</static>
+      <pose>6 3 0 0 0 0</pose>
+      <link name="link">
+        <visual name="seat">
+          <pose>0 0 0.45 0 0 0</pose>
+          <geometry><box><size>1.5 0.4 0.05</size></box></geometry>
+          <material>
+            <ambient>0.4 0.25 0.1 1</ambient>
+            <diffuse>0.6 0.4 0.18 1</diffuse>
+          </material>
+        </visual>
+        <visual name="frame">
+          <pose>0 0 0.22 0 0 0</pose>
+          <geometry><box><size>1.4 0.06 0.44</size></box></geometry>
+          <material>
+            <ambient>0.2 0.12 0.05 1</ambient>
+            <diffuse>0.35 0.22 0.1 1</diffuse>
+          </material>
+        </visual>
+        <collision name="collision">
+          <pose>0 0 0.25 0 0 0</pose>
+          <geometry><box><size>1.5 0.4 0.5</size></box></geometry>
+        </collision>
+      </link>
+    </model>
+
+    <!-- Park bench 2 (rotated 90 degrees) -->
+    <model name="bench_2">
+      <static>true</static>
+      <pose>3 12 0 0 0 1.5708</pose>
+      <link name="link">
+        <visual name="seat">
+          <pose>0 0 0.45 0 0 0</pose>
+          <geometry><box><size>1.5 0.4 0.05</size></box></geometry>
+          <material>
+            <ambient>0.4 0.25 0.1 1</ambient>
+            <diffuse>0.6 0.4 0.18 1</diffuse>
+          </material>
+        </visual>
+        <visual name="frame">
+          <pose>0 0 0.22 0 0 0</pose>
+          <geometry><box><size>1.4 0.06 0.44</size></box></geometry>
+          <material>
+            <ambient>0.2 0.12 0.05 1</ambient>
+            <diffuse>0.35 0.22 0.1 1</diffuse>
+          </material>
+        </visual>
+        <collision name="collision">
+          <pose>0 0 0.25 0 0 0</pose>
+          <geometry><box><size>1.5 0.4 0.5</size></box></geometry>
+        </collision>
+      </link>
+    </model>
+
+    <!-- Concrete footpath running through the park -->
+    <model name="footpath">
+      <static>true</static>
+      <pose>7.5 0 0.005 0 0 0</pose>
+      <link name="link">
+        <visual name="path">
+          <geometry><box><size>15 2 0.01</size></box></geometry>
+          <material>
+            <ambient>0.5 0.5 0.5 1</ambient>
+            <diffuse>0.65 0.65 0.65 1</diffuse>
+          </material>
+        </visual>
+        <collision name="collision">
+          <geometry><box><size>15 2 0.01</size></box></geometry>
+        </collision>
+      </link>
+    </model>
+
+    <!--
+      The people of the FOLLOW scenarios.
+
+      They are kinematic models: follow_scenario_node moves them with
+      /set_entity_state, so they carry no flight dynamics of their own and no
+      collision geometry: the target of the occlusion scenario walks straight
+      through the canopy of an oak, and a collision would stop it there.
+
+      The model of the target is 'follow_target' and the second person of the
+      bystander scenario is 'bystander'. The ground-truth source polls both of
+      them (config/follow_scenario_params.yaml).
+
+      The origin of both is on the ground: the ground-truth source adds the
+      offset that reports the body centre, like a detector would.
+    -->
+    <model name="follow_target">
+      <static>false</static>
+      <pose>6 0 0 0 0 0</pose>
+      <link name="link">
+        <inertial>
+          <mass>70.0</mass>
+          <inertia>
+            <ixx>1.0</ixx>
+            <iyy>1.0</iyy>
+            <izz>1.0</izz>
+            <ixy>0.0</ixy>
+            <ixz>0.0</ixz>
+            <iyz>0.0</iyz>
+          </inertia>
+        </inertial>
+        <visual name="body">
+          <pose>0 0 0.9 0 0 0</pose>
+          <geometry><cylinder><radius>0.25</radius><length>1.4</length></cylinder></geometry>
+          <material>
+            <ambient>0.65 0.15 0.1 1</ambient>
+            <diffuse>0.85 0.25 0.15 1</diffuse>
+          </material>
+        </visual>
+        <visual name="head">
+          <pose>0 0 1.75 0 0 0</pose>
+          <geometry><sphere><radius>0.16</radius></sphere></geometry>
+          <material>
+            <ambient>0.8 0.7 0.6 1</ambient>
+            <diffuse>0.9 0.8 0.7 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <model name="bystander">
+      <static>false</static>
+      <pose>-1 15 0 0 0 0</pose>
+      <link name="link">
+        <inertial>
+          <mass>70.0</mass>
+          <inertia>
+            <ixx>1.0</ixx>
+            <iyy>1.0</iyy>
+            <izz>1.0</izz>
+            <ixy>0.0</ixy>
+            <ixz>0.0</ixz>
+            <iyz>0.0</iyz>
+          </inertia>
+        </inertial>
+        <visual name="body">
+          <pose>0 0 0.9 0 0 0</pose>
+          <geometry><cylinder><radius>0.25</radius><length>1.4</length></cylinder></geometry>
+          <material>
+            <ambient>0.15 0.2 0.6 1</ambient>
+            <diffuse>0.2 0.3 0.8 1</diffuse>
+          </material>
+        </visual>
+        <visual name="head">
+          <pose>0 0 1.75 0 0 0</pose>
+          <geometry><sphere><radius>0.16</radius></sphere></geometry>
+          <material>
+            <ambient>0.8 0.7 0.6 1</ambient>
+            <diffuse>0.9 0.8 0.7 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- Gazebo ROS State Plugin -->
+    <plugin name="gazebo_ros_state" filename="libgazebo_ros_state.so">
+      <ros>
+        <namespace>/</namespace>
+      </ros>
+      <update_rate>10.0</update_rate>
+    </plugin>
+
+    <!--
+      Initial camera of the Gazebo GUI.
+
+      The engagement happens over the pedestrian's patrol square, so the GUI
+      starts looking at the middle of the park from a raised three-quarter
+      view: both drones, the pedestrian and the camera feeds are in frame from
+      the first second, instead of the default view from the world origin.
+
+      The pose is the camera position (x y z) and its orientation (roll pitch
+      yaw) in radians. Gazebo Classic reads the <pose> element of the camera
+      directly; the older <origin> spelling is not understood.
+    -->
+    <gui>
+      <camera name="user_camera">
+        <view_controller type="orbit"/>
+        <pose pose="6 -16 18 0 0.5 0.05"/>
+      </camera>
+    </gui>
+
+  </world>
+</sdf>

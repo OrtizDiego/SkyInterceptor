@@ -1,0 +1,149 @@
+# The FOLLOW scenarios and the metrics of a follow run (plan 5.2.4).
+#
+# The scenarios are driven by follow_scenario_node: it moves the target (and the
+# second person) of the scenario. The paths are computed, not scripted, so a run is
+# reproducible from its seed: the position of the target at a given time is a pure
+# function of the time and of the parameters below.
+#
+# The geometry of the loops is not free. The drone flies 8 m behind the target and
+# 5 m above it, and the safety filter keeps it 7.3 m away from the centre of an oak
+# (the canopy's radius, the 3 m standoff and the drone's own radius) and 4.9 m from
+# the centre of a pine. The loops below stay outside those radii, and the point 8 m
+# behind the start of the target is clear of the trees: the drone spawns there and
+# climbs.
+#
+# The obstacle list of the safety filter (config/safety_params.yaml) is the same for
+# both worlds: the trees and the benches of worlds/follow_scenario.world are at the
+# same places as the ones of worlds/intercept_scenario.world.
+
+# The ground-truth source of a follow run sees the target of the scenario and the
+# second person, not the walking actor of the INTERCEPT scenarios.
+groundtruth_target_node:
+  ros__parameters:
+    entity_names: ["follow_target", "bystander"]
+    entity_classes: ["person", "person"]
+    # The origin of both models is on the ground, so the offset that reports the
+    # body centre of a person is 1.0 m.
+    entity_z_offsets: [1.0, 1.0]
+
+follow_scenario_node:
+  ros__parameters:
+    # The scenario to run: walker, jogger, occlusion or bystander. The launch
+    # argument follow_scenario overrides it.
+    scenario: "walker"
+    # The seed of the run. It shifts the start of the target along its path and
+    # fixes the noise of the ground-truth source, so a run is reproducible.
+    seed: 0
+    rate_hz: 50.0
+    target_entity: "follow_target"
+    bystander_entity: "bystander"
+    world_frame: "map"
+    # How close a track has to be to the ground truth of the target to be taken for
+    # it [m]. The second person of the bystander scenario stands 4 m away, so the
+    # two cannot be confused.
+    track_match_radius: 3.0
+
+    scenarios:
+      # A person walking a loop at 1.4 m/s: the plain case.
+      walker:
+        speed: 1.4
+        start_phase: 0.0
+        entity_z: 0.0
+        loop:
+          centre_x: 8.5
+          centre_y: 6.0
+          half_width: 4.0
+          half_height: 6.0
+          corner_radius: 1.5
+        bystander:
+          enabled: false
+          x: -1.0
+          y: 15.0
+          yaw: 0.0
+
+      # The same loop at 4.0 m/s: the target turns with a 2.5 m radius, which is
+      # 1.6 rad/s and a lateral acceleration of 6.4 m/s2, a brisk but ordinary
+      # jog turn. The framing point has to follow the turn.
+      jogger:
+        speed: 4.0
+        start_phase: 0.0
+        entity_z: 0.0
+        loop:
+          centre_x: 8.5
+          centre_y: 6.0
+          half_width: 4.0
+          half_height: 6.0
+          corner_radius: 2.5
+        bystander:
+          enabled: false
+          x: -1.0
+          y: 15.0
+          yaw: 0.0
+
+      # A loop that walks the target behind the oak at (20, 7): the right leg of
+      # the loop passes 2.5 m from the trunk, so the target goes through the
+      # canopy and the line of sight from the drone to it is blocked for several
+      # seconds. The track has to be reacquired.
+      #
+      # The target does not walk *through* the tree: the tree is 2.5 m off the
+      # path, so the drone can hold its distance and only loses the target for
+      # as long as the canopy is in the way.
+      occlusion:
+        speed: 1.4
+        start_phase: 0.0
+        entity_z: 0.0
+        loop:
+          centre_x: 11.0
+          centre_y: 6.5
+          half_width: 6.5
+          half_height: 5.5
+          corner_radius: 2.0
+        bystander:
+          enabled: false
+          x: -1.0
+          y: 15.0
+          yaw: 0.0
+
+      # The walker, with a second person standing 4 m from the path: the keep-out
+      # of a person who is not the target is exercised.
+      bystander:
+        speed: 1.4
+        start_phase: 0.0
+        entity_z: 0.0
+        loop:
+          centre_x: 8.5
+          centre_y: 6.0
+          half_width: 4.0
+          half_height: 6.0
+          corner_radius: 1.5
+        bystander:
+          enabled: true
+          x: 16.5
+          y: 2.0
+          yaw: 0.0
+
+# The metrics of a follow run. The thresholds of the exit criteria are not here:
+# they come from the safety parameters, so the recorder measures the distances the
+# filter promises.
+metrics_recorder_node:
+  ros__parameters:
+    metrics:
+      rate_hz: 20.0
+      # The time before the run is scored [s]: the drone needs a moment to reach
+      # the framing point after it takes off.
+      warmup_s: 10.0
+      # The half-width of the frame [deg] and the score the phase asks for.
+      framing_tolerance_deg: 15.0
+      min_framing_score: 0.95
+      # A loss of the target of at least this long has to be followed by the target
+      # coming back [s].
+      reacquire_loss_time_s: 2.0
+      # The name of the scenario and the seed of the run, in the summary.
+      scenario: "walker"
+      seed: 0
+      # Where the summary and the time series are written. The launch argument
+      # result_dir overrides them.
+      output_path: ""
+      csv_path: ""
+      # The length of the run [s]. The recorder stops the launch when it is over.
+      run_duration_s: 60.0

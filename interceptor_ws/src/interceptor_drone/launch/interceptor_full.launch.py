@@ -14,6 +14,13 @@ def generate_launch_description():
     launch_dir = os.path.join(pkg_interceptor, 'launch')
     controller_params = os.path.join(pkg_interceptor, 'config', 'controller_params.yaml')
     safety_params = os.path.join(pkg_interceptor, 'config', 'safety_params.yaml')
+    # The parameter file of the ground-truth source. The follow scenarios see the
+    # people of their own world, so they pass their own file.
+    groundtruth_params_file = LaunchConfiguration('groundtruth_params_file')
+    # The world of the simulation. The follow scenarios have their own world.
+    world_file = LaunchConfiguration('world_file')
+    # RViz is off for the scripted runs: there is no display for it.
+    rviz_enabled = LaunchConfiguration('rviz')
 
     use_sim_time = LaunchConfiguration('use_sim_time')
     mission_mode = LaunchConfiguration('mission_mode')
@@ -51,6 +58,9 @@ def generate_launch_description():
             'y': interceptor_y,
             'target_x': target_x,
             'target_y': target_y,
+            'world_file': world_file,
+            'spawn_target_drone': LaunchConfiguration('spawn_target_drone'),
+            'spawn_timeout': LaunchConfiguration('spawn_timeout'),
         }.items()
     )
 
@@ -67,6 +77,7 @@ def generate_launch_description():
         launch_arguments={
             'use_sim_time': use_sim_time,
             'seed': groundtruth_seed,
+            'params_file': groundtruth_params_file,
         }.items(),
         condition=IfCondition(use_groundtruth),
     )
@@ -119,7 +130,8 @@ def generate_launch_description():
         name='rviz2',
         arguments=['-d', os.path.join(pkg_interceptor, 'rviz', 'interceptor_config.rviz')],
         parameters=[{'use_sim_time': use_sim_time}],
-        output='screen'
+        output='screen',
+        condition=IfCondition(rviz_enabled),
     )
 
     return LaunchDescription([
@@ -162,6 +174,32 @@ def generate_launch_description():
             choices=['hover', 'waypoints', 'straight', 'weave', 'curve'],
             description='The behaviour of the target drone: hover, waypoints, '
                         'straight, weave or curve',
+        ),
+        DeclareLaunchArgument(
+            'groundtruth_params_file',
+            default_value=os.path.join(pkg_interceptor, 'config', 'groundtruth_params.yaml'),
+            description='Parameter file of the ground-truth source',
+        ),
+        DeclareLaunchArgument(
+            'world_file',
+            default_value=os.path.join(pkg_interceptor, 'worlds', 'intercept_scenario.world'),
+            description='The world of the simulation',
+        ),
+        DeclareLaunchArgument(
+            'rviz',
+            default_value='true',
+            description='Start RViz (false for the scripted runs)',
+        ),
+        DeclareLaunchArgument(
+            'spawn_timeout',
+            default_value='180.0',
+            description='Seconds to wait for the drone to appear in the world',
+        ),
+        DeclareLaunchArgument(
+            'spawn_target_drone',
+            default_value='true',
+            description='Spawn the target drone of the INTERCEPT scenarios (the follow '
+                        'scenarios have no intruder)',
         ),
         DeclareLaunchArgument(
             'auto_arm',
