@@ -20,6 +20,10 @@ def generate_launch_description():
 
         ros2 launch interceptor_drone intercept_demo.launch.py guidance_law:=pn
 
+    and the behaviour of the intruder with:
+
+        ros2 launch interceptor_drone intercept_demo.launch.py target_behaviour:=weave
+
     The default perception source is the ground truth: the vision pipeline needs
     a YOLO model with a 'uav' class, which does not exist yet (plan 3.2). With
     'vision' the cameras, the depth map and the detection overlay come alive in
@@ -33,6 +37,14 @@ def generate_launch_description():
             default_value='apn',
             choices=['pn', 'apn'],
             description='Guidance law: pure PN or augmented PN',
+        ),
+        DeclareLaunchArgument(
+            'target_behaviour',
+            default_value='curve',
+            choices=['hover', 'waypoints', 'straight', 'weave', 'curve'],
+            description='The behaviour of the intruder: hover, waypoints, straight, '
+                        'weave or curve. The default is the accelerating and curving '
+                        'profile the demo was built on.',
         ),
         DeclareLaunchArgument(
             'auto_arm',
@@ -57,6 +69,9 @@ def generate_launch_description():
                 # 'apn' (augmented PN) reaches the intruder; 'pn' (pure PN)
                 # misses it, which is the point of the comparison.
                 'guidance_law': LaunchConfiguration('guidance_law'),
+                # The behaviour of the intruder: hover, waypoints, straight, weave
+                # or the accelerating and curving profile of the demo.
+                'target_behaviour': LaunchConfiguration('target_behaviour'),
                 # The demo runs unattended: the mission is armed shortly after start.
                 'auto_arm': LaunchConfiguration('auto_arm'),
             }.items()

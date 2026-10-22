@@ -146,12 +146,12 @@ Any agent or person can read and edit this file: Claude Code, Codex, Cursor, a s
 
 ### P3.1 – Target drone and behaviours
 
-- **Status:** in_progress
+- **Status:** review
 - **Depends on:** P0.3
-- **PR:** 22
-- **Branch:** demo/interception-drone
+- **PR:** —
+- **Branch:** feat/p3-1-target-behaviours
 - **Scope:** target_drone model in the world and target_drone_behavior_node (hover, waypoints, straight, weave).
-- **Notes:** A Crazyflie 2.1 with the official Bitcraze meshes, moved kinematically through /set_entity_state, with an accelerating and curving profile (the manoeuvre pure PN cannot follow). The published position is the exact integral of the published velocity, so the tracker's estimate of the target's velocity and acceleration matches what the drone does. The behaviour node also broadcasts map -> target_base_link, because robot_state_publisher never publishes a transform for its root link. The hover, waypoints and weave behaviours of the plan are not implemented: the demo uses a single profile.
+- **Notes:** The Crazyflie 2.1 model of PR 22 is kept, and the behaviour is now a selectable set: hover, waypoints, straight, weave and the original accelerating and curving profile (curve). The behaviour logic is a ROS-free library (include/guidance/target_drone_behaviour.hpp) with 17 gtests; the node is a thin wrapper and the parameters are in config/target_drone_params.yaml. The behaviour is selected with the `behaviour` parameter and can be switched while the node runs (ros2 param set /target_drone_behavior_node behaviour weave); the launch argument target_behaviour picks it at startup, default curve so the demo is unchanged. Both properties of PR 22 are kept: the published position is the exact integral of the published velocity (the finite difference of two published positions is exactly the published velocity), and the published velocity is continuous (the straight run eases in and out of its speed with a raised cosine, the corners of the waypoint loop are rounded off with a circular fillet, the weave oscillates). Verified: clean colcon build with -Werror in the container, 419 tests, 0 failures, all ament linters green; the node loads config/target_drone_params.yaml (4 waypoints from the file, the behaviour switch works at runtime and an unknown name is rejected); flown headless in Gazebo, the weave, hover, straight and waypoint behaviours all move the entity (the waypoint loop flies the rectangle of the config). Still open: the capture rates of the plan's exit criteria are P3.5, and the capture itself is still detected and not flown (P3.3).
 
 ### P3.2 – UAS detector
 

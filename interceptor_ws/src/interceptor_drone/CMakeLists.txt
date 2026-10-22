@@ -85,10 +85,12 @@ add_library(${PROJECT_NAME}_estimation SHARED
 )
 target_link_libraries(${PROJECT_NAME}_estimation Eigen3::Eigen)
 
-# Guidance library: proportional navigation law (pure PN and augmented PN).
-# Plain C++ and Eigen, no ROS, so it can be unit tested on synthetic geometry.
+# Guidance library: proportional navigation law (pure PN and augmented PN), and the
+# flight behaviours of the target drone. Plain C++ and Eigen, no ROS, so it can be
+# unit tested on synthetic geometry.
 add_library(${PROJECT_NAME}_guidance SHARED
   src/guidance/pn_guidance.cpp
+  src/guidance/target_drone_behaviour.cpp
 )
 target_link_libraries(${PROJECT_NAME}_guidance Eigen3::Eigen)
 
@@ -162,7 +164,7 @@ ament_target_dependencies(guidance_controller_node
 # Simulation-only node: flies the target drone (the intruder) with an accelerating,
 # curving profile. It is not part of the interceptor's own control loop.
 add_executable(target_drone_behavior_node src/guidance/target_drone_behavior_node.cpp)
-target_link_libraries(target_drone_behavior_node ${PROJECT_NAME}_lib)
+target_link_libraries(target_drone_behavior_node ${PROJECT_NAME}_lib ${PROJECT_NAME}_guidance)
 ament_target_dependencies(target_drone_behavior_node
   rclcpp
   geometry_msgs
@@ -307,6 +309,9 @@ if(BUILD_TESTING)
 
   ament_add_gtest(test_guidance test/test_guidance.cpp)
   target_link_libraries(test_guidance ${PROJECT_NAME}_guidance)
+
+  ament_add_gtest(test_target_drone_behaviour test/test_target_drone_behaviour.cpp)
+  target_link_libraries(test_target_drone_behaviour ${PROJECT_NAME}_guidance)
 
   ament_add_gtest(test_trajectory_controller test/test_trajectory_controller.cpp)
   target_link_libraries(test_trajectory_controller ${PROJECT_NAME}_lib ${PROJECT_NAME}_flight)
