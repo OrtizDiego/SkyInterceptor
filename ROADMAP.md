@@ -187,12 +187,12 @@ Any agent or person can read and edit this file: Claude Code, Codex, Cursor, a s
 
 ### P3.5 – Intercept scenarios and metrics
 
-- **Status:** todo
+- **Status:** in_progress
 - **Depends on:** P3.4, P3.1
-- **PR:** —
-- **Branch:** —
+- **PR:** 33
+- **Branch:** feat/p3-5-intercept-scenarios
 - **Scope:** Hover, 10 m/s straight, weaving target and bystander scenarios with capture/abort metrics.
-- **Notes:** —
+- **Notes:** The scorer is ROS-free and reproduces the guidance's own capture condition (the range inside the capture radius and the relative speed under the limit), reports the weaker envelope separately because the plan's criteria are stated over the envelope, latches the abort and its reason, and counts the samples in which a non-uav track was engaged - which the criteria demand to be zero, so it is a check on the gate rather than a hope. The records are CSV, one row per run. Verified: clean `colcon build` with `-Werror`, 531 tests, 0 failures, all linters green. Still open: **the engagement gate deadlocks take-off** - it demands 10 m AGL before an engagement is authorised, but the interceptor starts on the ground and the guidance only climbs once it engages, so the gate never opens; the altitude condition was meant as a capture condition rather than a climb condition, and the fix must not be to drop it. **The scenario runner and the batch have not been written**, so none of the exit criteria is measured yet. The abort-versus-capture tension is also open: a 15 m abort radius fires on ordinary capture runs too whenever the intruder flies over the pedestrian's patrol square, and the fix is the scenario placement rather than a weaker abort.
 
 ## Phase 4 – Integration & docs
 
