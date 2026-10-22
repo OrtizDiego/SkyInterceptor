@@ -233,6 +233,9 @@ private:
     rcl_interfaces::msg::SetParametersResult result;
     result.successful = true;
     guidance::TargetBehaviourParams updated = behaviour_params_;
+    // Whether one of the parameters of the behaviour itself changed. The others
+    // (the name of the entity, the rate) do not restart the run.
+    bool retuned = false;
 
     for (const auto & parameter : parameters) {
       const std::string & name = parameter.get_name();
@@ -253,6 +256,7 @@ private:
           return result;
         }
         updated.behaviour = *parsed;
+        retuned = true;
         continue;
       }
       if (name == "waypoints") {
@@ -273,6 +277,7 @@ private:
         for (size_t i = 0; i + 2 < flat.size(); i += 3) {
           updated.waypoints.emplace_back(flat[i], flat[i + 1], flat[i + 2]);
         }
+        retuned = true;
         continue;
       }
       if (name == "entity_name") {
@@ -313,14 +318,24 @@ private:
         return result;
       }
       setter->second(*value);
+      retuned = true;
     }
 
+    if (!retuned) {
+      return result;
+    }
     const bool switched = updated.behaviour != behaviour_params_.behaviour;
     behaviour_params_ = updated;
     behaviour_ = std::make_unique<guidance::TargetDroneBehaviour>(behaviour_params_);
     if (switched) {
       RCLCPP_INFO(
         get_logger(), "Target drone behaviour switched to '%s', the run restarts at "
+        "(%.1f, %.1f, %.1f) m", guidance::toString(behaviour_params_.behaviour).c_str(),
+        behaviour_params_.start_position.x(), behaviour_params_.start_position.y(),
+        behaviour_params_.start_position.z());
+    } else {
+      RCLCPP_INFO(
+        get_logger(), "Target drone behaviour '%s' retuned, the run restarts at "
         "(%.1f, %.1f, %.1f) m", guidance::toString(behaviour_params_.behaviour).c_str(),
         behaviour_params_.start_position.x(), behaviour_params_.start_position.y(),
         behaviour_params_.start_position.z());
