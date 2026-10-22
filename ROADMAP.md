@@ -124,12 +124,12 @@ Any agent or person can read and edit this file: Claude Code, Codex, Cursor, a s
 
 ### P2.4 – Follow scenarios and metrics
 
-- **Status:** todo
+- **Status:** in_progress
 - **Depends on:** P2.3, P0.4
-- **PR:** —
-- **Branch:** —
+- **PR:** 31
+- **Branch:** feat/p2-4-follow-scenarios
 - **Scope:** World scenarios (walker, jogger with turns, occlusion behind trees, bystander) and a metrics_recorder for min distance, framing error and track retention.
-- **Notes:** —
+- **Notes:** The scenarios are computed, not scripted: the world actor runs on a Catmull-Rom spline that is baked into the world file and cannot be seeded, and the exit criteria are stated over 100 randomized runs, so the target has to be a pure function of the time and the seed. The four of the plan are there: walker, jogger, occlusion (the target walks through a tree canopy) and bystander. The metrics recorder is ROS-free and scores the three numbers of the Phase 2 exit criteria: the minimum distance to every person and vehicle track and to every obstacle, the azimuthal framing error against the boresight, and the track retention with the reacquisition after a 2 s loss. It measures the 3D keep-out, not the horizontal one, because P3.4 changed the binding rule and the follow planner flies 5 m up, which is exactly where the horizontal rule stops binding. Verified: clean `colcon build` with `-Werror`, 570 tests, 0 failures, all linters green. Still open: **the randomized batch has not been run, so none of the exit criteria is measured yet**; the scenario geometry was tuned against the old keep-out and has to be re-checked against the 3D one; the bystander is not yet in the world; and the P2.5 framing score is the other half of the phase.
 
 ### P2.5 – Vision in the loop for FOLLOW
 
