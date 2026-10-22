@@ -1,0 +1,87 @@
+# The target drone: the intruder of the INTERCEPT scenario (plan 3.1)
+#
+# The intruder is a kinematic model: target_drone_behavior_node integrates the
+# behaviour below and pushes the pose into Gazebo with /set_entity_state. It carries
+# no flight dynamics of its own, so nothing here is about how it flies, only about
+# the path it flies.
+#
+# The behaviour is selected with the "behaviour" parameter and can be switched while
+# the node runs:
+#
+#     ros2 param set /target_drone_behavior_node behaviour weave
+#
+# Switching restarts the run: the intruder goes back to the start pose of the new
+# behaviour. The launch argument target_behaviour picks the behaviour at startup.
+
+target_drone_behavior_node:
+  ros__parameters:
+    entity_name: "target_drone"
+
+    # --- The behaviour -----------------------------------------------------
+    # hover     | holds a fixed position
+    # waypoints | flies a closed loop through the waypoints below
+    # straight  | flies a straight line at straight_speed
+    # weave     | flies forward while weaving sideways
+    # curve     | the original profile: accelerates and turns at a constant rate
+    behaviour: "curve"
+
+    # The start pose of the intruder. It is in the middle of the park, above the
+    # pedestrian's patrol square, so the whole engagement happens in view of the
+    # cameras and of RViz. It heads along +x at first, and the interceptor starts
+    # behind it on the same line, so the line of sight runs along the interceptor's
+    # nose and the stereo cameras keep the intruder in frame.
+    start_x: 10.0
+    start_y: 5.0
+    start_z: 12.0
+    start_yaw: 0.0
+
+    rate_hz: 50.0
+    # The TF frames of the target. The drone is moved by /set_entity_state, so this
+    # node is the only source of the target's pose in TF.
+    world_frame: "map"
+    base_frame: "target_base_link"
+
+    # --- HOVER -------------------------------------------------------------
+    # The radius of the slow station keeping circle. Zero means the intruder holds
+    # its position exactly, which is the scenario the capture rate is measured on.
+    hover_drift: 0.0           # m
+    hover_drift_period: 20.0   # s
+
+    # --- WAYPOINTS ---------------------------------------------------------
+    # The waypoints of the loop, in order, as a flat list of x, y, z triples. The
+    # intruder starts at the first one and flies the loop again and again.
+    waypoints: [
+      10.0, 5.0, 12.0,
+      30.0, 5.0, 12.0,
+      30.0, 25.0, 12.0,
+      10.0, 25.0, 12.0,
+    ]
+    waypoint_speed: 6.0         # m/s, the horizontal speed along the loop
+    waypoint_turn_radius: 3.0   # m, the radius of the fillet at a corner
+
+    # --- STRAIGHT ----------------------------------------------------------
+    # The 10 m/s straight run of the plan's exit criteria.
+    straight_speed: 10.0         # m/s
+    straight_direction_yaw: 0.0   # rad, the direction of the run
+    straight_duration: 30.0       # s, 0 = fly until the behaviour is switched
+    straight_distance: 0.0        # m, 0 = unlimited; wins over the duration
+    straight_ramp_time: 1.0       # s, the smooth speed ramp at both ends
+
+    # --- WEAVE -------------------------------------------------------------
+    # The weaving target: the hardest case for a pure PN law. The forward speed is
+    # constant and the lateral offset is a sine of the amplitude and the frequency
+    # below, so the total speed is a little above the forward one.
+    weave_speed: 6.0            # m/s, the forward speed
+    weave_amplitude: 2.0        # m, the amplitude of the lateral offset
+    weave_frequency: 0.25       # Hz
+    weave_direction_yaw: 0.0    # rad, the heading the weave is centred on
+
+    # --- CURVE -------------------------------------------------------------
+    # The original profile of the demo: the intruder accelerates from a standstill
+    # and curves at a constant rate. This is the manoeuvre pure PN cannot follow
+    # and augmented PN compensates: with these numbers pure PN misses by about
+    # 4 m and APN captures.
+    final_speed: 6.0           # m/s, the cruise speed reached after accel_time
+    accel_time: 4.0            # s, the time it takes to reach final_speed
+    turn_rate: 1.2             # rad/s, the constant curve
+    vertical_rate: 0.0         # m/s, the drone flies level

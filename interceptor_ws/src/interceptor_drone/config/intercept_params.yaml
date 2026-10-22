@@ -1,7 +1,8 @@
 # INTERCEPT mode (plan 4.4)
 # Shared on purpose (/**): the launch files pass this file to the guidance node, to
-# target_tracker_node (intercept.eligible_classes, P1.2), to the target drone
-# behaviour node and to safety_filter_node (engagement gate and abort, P3.4).
+# target_tracker_node (intercept.eligible_classes, P1.2) and to
+# safety_filter_node (engagement gate and abort, P3.4).
+# The target drone has its own file, target_drone_params.yaml.
 /**:
   ros__parameters:
     intercept:
@@ -44,30 +45,3 @@
       cruise_altitude: 12.0        # m, the altitude the drone climbs to while
       # searching for the target
       arm_on_start: true           # arm the motors when the first odometry arrives
-
-# The target drone behaviour has its own node namespace: the /** block above would
-# otherwise give the guidance parameters to this node as well.
-target_drone_behavior_node:
-  ros__parameters:
-    entity_name: "target_drone"
-    # The intruder starts in the middle of the park, above the pedestrian's patrol
-    # square, so the whole engagement happens in view of the cameras and of RViz.
-    # It heads along +x at first, and the interceptor starts behind it on the same
-    # line, so the line of sight runs along the interceptor's nose and the stereo
-    # cameras keep the intruder in frame.
-    start_x: 10.0
-    start_y: 5.0
-    start_z: 12.0
-    start_yaw: 0.0
-    # The intruder accelerates from a standstill and curves at a constant rate.
-    # This is the manoeuvre pure PN cannot follow and augmented PN compensates:
-    # with these numbers pure PN misses by about 4 m and APN captures.
-    final_speed: 6.0           # m/s, the cruise speed reached after accel_time
-    accel_time: 4.0            # s, the time it takes to reach final_speed
-    turn_rate: 1.2             # rad/s, the constant curve
-    vertical_rate: 0.0         # m/s, the drone flies level
-    rate_hz: 50.0
-    # The TF frames of the target. The drone is moved by /set_entity_state, so this
-    # node is the only source of the target's pose in TF.
-    world_frame: "map"
-    base_frame: "target_base_link"
