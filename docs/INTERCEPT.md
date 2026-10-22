@@ -4,6 +4,12 @@ The INTERCEPT mode is a counter-UAS interception: the X500 has to reach a small
 intruding drone and arrive inside the capture envelope with a low relative speed.
 Ground targets are never eligible.
 
+The node is `intercept_guidance_node`. It used to be called
+`guidance_controller_node`: the rename came with the terminal capture law (the
+plan's §4.4 name), and it changed the executable, the source file, the launch
+files and the node name in the ROS graph. The topics and the parameters did not
+change.
+
 ## The guidance law
 
 The law lives in the ROS-free library `include/guidance/pn_guidance.hpp`, so it can be
@@ -146,15 +152,26 @@ closing on it.
 
 The engagement gate (plan §4.4) must hold before `PURSUE` starts: the track must be
 a `uav`, confirmed and valid, above `min_engage_altitude_agl`, and the operator must
-have armed the mission.
+have armed the mission. The gate lives in **two** places on purpose: the guidance
+node refuses to start an engagement that is not cleared, and `safety_filter_node`
+re-applies the check on every setpoint, so a bug in the planner cannot fly the
+drone at a person. The filter's version only checks the mode, the arming and the
+class of the selected target; the altitude, the geofence and the abort logic are
+P3.4's job (see [`SAFETY.md`](SAFETY.md)).
 
 The capture is **flown**: the terminal capture law above brings the interceptor
-into the envelope with a relative speed of 1.5-2.4 m/s in the sweep, and the node
+into the envelope with a relative speed of 1.5-3.3 m/s in the sweep, and the node
 confirms the capture when the range and the relative speed are both inside their
 limits at the same instant.
 
 `capture_max_rel_speed` is 5 m/s rather than the 3 m/s of the plan: the X500 closes
 on the target at several m/s, so 3 m/s is not reachable with this platform.
+
+The three phases fly the **same** law. They differ in what they mean, not in how
+the vehicle is flown: `PURSUE` is the approach, `CAPTURE` is the range at which the
+capture is armed, and `DONE` is the captured state — in which the law keeps
+running and holds the offset inside the envelope instead of flying through the
+target.
 
 ## The intruder
 
@@ -284,12 +301,17 @@ Telemetry:
 |---|---|
 | `/guidance/command` | `GuidanceCommand`: the acceleration command, `V_c`, `t_go`, the zero-effort miss, the law and the phase. |
 | `/guidance/vectors` | RViz markers: the line of sight and the commanded acceleration. |
-| `/setpoint/raw`, `/setpoint/safe` | The velocity setpoint. |
+| `/setpoint/raw` | The velocity setpoint the guidance asks for. |
+| `/setpoint/safe` | The velocity setpoint the drone actually flies, after the safety filter. |
+| `/mission/status` | What the safety filter did and why, and the phase it can see. |
+| `/safety/keepouts` | The keep-out circles around every person, vehicle and obstacle, for RViz. |
 | `/target_drone/odom`, `/target_drone/accel` | The intruder's true state, published by the behaviour node for reference only. The guidance never reads them: it only sees the tracker's estimate. |
 
-Both setpoint topics carry the same message because `safety_filter_node` does not
-exist yet (plan §2.2). When it lands it takes over `/setpoint/raw` and the guidance
-node must stop publishing on `/setpoint/safe`.
+The two setpoint topics are different on purpose. The guidance publishes on
+`/setpoint/raw` only, and `safety_filter_node` owns `/setpoint/safe`: the filter
+sits between the planner and the controller and has the final say (see
+[`SAFETY.md`](SAFETY.md)). Two publishers on the topic the controller reads would
+mean that the controller sometimes flies an unfiltered command.
 
 To watch the engagement from the outside, independently of the guidance node's own
 telemetry, run the recorder in a second shell:
@@ -336,15 +358,21 @@ laggy estimate eats into the margin that separates the two laws.
 
 ### What the demo does and does not achieve
 
-In the simulator the interceptor reaches a closest approach of about 1.5 m and
-enters the capture radius, but it does so at 10 m/s relative speed, so the capture
-is *not* confirmed: the guidance is a pursuit law and it flies through the target
-rather than arriving gently. The node says so explicitly ("overflying the
-target") instead of claiming a capture it did not get.
+Before the terminal capture law the interceptor reached the capture envelope at
+10-12 m/s relative speed and *overflew* the target: the capture was detected, not
+flown. With the law in place the node confirms the capture in the simulator — it
+logs "Target captured at 0.80 m, relative speed 4.72 m/s" — against a limit of
+5 m/s. When it arrives too fast it says so explicitly ("overflying the target")
+instead of claiming a capture it did not get.
 
-Closing that gap needs a terminal law for the last few metres, which the plan
-puts in the capture phase (§4.4). The version tried here — switching to a
-relative-velocity match inside the capture radius — was measured to be worse: it
-loses the lateral correction and the range then oscillates instead of shrinking.
-That is why the capture is detected rather than flown.
+What the demo does **not** yet show is a fast, clean engagement. Two things get in
+the way, and both are open work rather than guidance bugs:
+
+- The safety filter's keep-out from the pedestrian has no altitude exemption: when
+  the intruder circles over the patrol square, the interceptor is held off and the
+  engagement slows down. The altitude and geofence conditions of the engagement
+  gate, and the abort logic, are P3.4's job.
+- The interceptor flies at 8 m/s and the intruder at 6 m/s, so the closing speed
+  available is small. The capture rates of the plan's exit criteria (hover, 10 m/s
+  straight, weave) are measured by the scenario runner of P3.5.
 

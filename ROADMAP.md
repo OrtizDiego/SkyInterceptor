@@ -198,9 +198,9 @@ Any agent or person can read and edit this file: Claude Code, Codex, Cursor, a s
 
 ### P4 – Integration and docs
 
-- **Status:** todo
+- **Status:** in_progress
 - **Depends on:** P2.5, P3.5
 - **PR:** —
-- **Branch:** —
+- **Branch:** feat/p4-docs-and-rviz
 - **Scope:** follow/intercept launch files, mode-switch demo, RViz config with tracks, keep-out circles and setpoints, README/CLAUDE.md updates.
-- **Notes:** —
+- **Notes:** The documentation and the RViz config are done: README.md (the two modes, the architecture, the launch files and their arguments, the config files, the tests), CLAUDE.md (the node table with the follow planner, the intercept guidance, the safety filter and the target drone behaviours, the ROS-free libraries, the config table, `make check`) and docs/ (INTERCEPT.md for the rename, the terminal capture law and the safety filter in series, SAFETY.md for the engagement gate and the keep-out markers, a new FOLLOW.md for the presets, the heading smoothing, the lost-track machine and how to measure a session, plus "Done" notes in AGENT_PROMPTS.md). The RViz config shows the two robot models, the tracks (/tracks/markers), the keep-out circles (/safety/keepouts) and the guidance vectors (/guidance/vectors). Still open, and it is the rest of P4: the follow/intercept launch files and the mode-switch demo, which wait for P2.4 (the metrics harness), P3.4 (the engagement gate and the abort) and P3.5 (the scenario runner and the capture metrics). One gap found while writing the docs and not fixed here because it is a source change: the safety filter publishes no marker for the setpoint it hands to the controller (/setpoint/safe is a custom message, which RViz cannot draw), so the filtered setpoint is not visible in RViz; adding a small marker to safety_filter_node would close it.
