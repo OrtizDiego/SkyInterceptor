@@ -166,7 +166,7 @@ Any agent or person can read and edit this file: Claude Code, Codex, Cursor, a s
 
 - **Status:** review
 - **Depends on:** P1.2, P2.1, P2.2
-- **PR:** —
+- **PR:** 27
 - **Branch:** feat/p3-3-intercept-guidance
 - **Scope:** intercept_guidance_node: phases, APN, the terminal capture law, capture logic, GuidanceCommand telemetry.
 - **Notes:** The law lives in a ROS-free library (pure PN and augmented PN with the (N/2) * a_T_perp term, validated by a numerical sweep). The node is now called intercept_guidance_node (the name the plan asks for): the source file, the executable, the launch files, the config comment and the docs were renamed; the topics and the parameters are unchanged, and the node name in the ROS graph changed with them.
