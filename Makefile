@@ -4,7 +4,7 @@ PROJECT_DIR := $(shell pwd)
 LOG_DIR := $(PROJECT_DIR)/logs
 SERVICE_NAME := interceptor
 
-.PHONY: help build up down shell test clean logs status build-ws sim full teleop
+.PHONY: help build up down shell test check clean logs status build-ws sim full teleop
 
 help:
 	@echo "Interceptor Drone - Commands"
@@ -18,6 +18,7 @@ help:
 	@echo "  make teleop         - Fly the drone with the keyboard (run next to make sim)"
 	@echo "  make full           - Launch full system"
 	@echo "  make test           - Run project tests"
+	@echo "  make check          - Run the same checks as CI (static + build + test)"
 	@echo "  make clean          - Remove build artifacts"
 
 build:
@@ -48,6 +49,13 @@ test:
 		colcon test --packages-select interceptor_drone interceptor_interfaces && \
 		colcon test-result --verbose \
 	"
+
+# The local mirror of CI: static checks, a build with -Werror and the full
+# test suite. It builds in a scratch workspace inside the container, so it
+# tests this checkout even when the container's src is mounted from
+# somewhere else, and it leaves the shared build volumes alone.
+check:
+	./scripts/check.sh
 
 sim:
 	docker-compose exec $(SERVICE_NAME) bash -c " \
