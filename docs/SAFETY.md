@@ -204,7 +204,11 @@ and the "Tracks" display next to them shows the tracks the circles come from.
   class of the selected target.
 - **P2.4** measures the result over randomized runs. The exit criteria are in the plan
   §5 Phase 2.
-- The filter publishes no marker for the setpoint it hands to the controller: the
-  filtered velocity is on `/setpoint/safe`, a custom message that RViz cannot draw.
-  What RViz shows of the setpoint is the guidance's own `/guidance/vectors` (the line
-  of sight and the commanded acceleration), not the filtered command.
+- The filter publishes the command it hands to the controller on `/safety/keepouts`,
+  in the `setpoint_velocity` and `setpoint_target` namespaces: an arrow in the
+  direction of the filtered velocity and the point it reaches in a second. The
+  filtered velocity itself is on `/setpoint/safe`, a custom message that RViz cannot
+  draw, so without that marker the one command that matters — the filtered one —
+  would be invisible. The guidance's own `/guidance/vectors` (the line of sight and
+  the commanded acceleration) is a different thing: it is what the *planner* asked
+  for, before the filter had its say.
