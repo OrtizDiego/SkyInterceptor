@@ -33,8 +33,20 @@ class Recorder(Node):
 
     def on_interceptor(self, msg):
         p = msg.pose.pose.position
+        # The odometry twist is in the child (body) frame, so it has to be
+        # rotated into the world frame before it can be compared with the
+        # target's velocity: the interceptor's nose points at the target, so
+        # the body and the world frames differ by the whole heading.
         v = msg.twist.twist.linear
-        self.interceptor = (p.x, p.y, p.z, v.x, v.y, v.z)
+        q = msg.pose.pose.orientation
+        yaw = math.atan2(
+            2.0 * (q.w * q.z + q.x * q.y),
+            1.0 - 2.0 * (q.y * q.y + q.z * q.z))
+        cos_y = math.cos(yaw)
+        sin_y = math.sin(yaw)
+        vx = cos_y * v.x - sin_y * v.y
+        vy = sin_y * v.x + cos_y * v.y
+        self.interceptor = (p.x, p.y, p.z, vx, vy, v.z)
 
     def on_target(self, msg):
         p = msg.pose.pose.position

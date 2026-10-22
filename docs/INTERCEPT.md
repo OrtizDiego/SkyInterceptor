@@ -40,40 +40,118 @@ closing-speed term of the pure PN law. A simulation sweep over random engagement
 confirmed that `k = N/2` with the projection intercepts the large majority of the
 cases where pure PN misses.
 
-## From an acceleration to a velocity setpoint
+## The terminal capture law
 
-The interceptor flies a velocity loop (the trajectory controller commands a velocity
-and the onboard autopilot closes it), so the acceleration has to become a velocity
-setpoint. `pnVelocitySetpoint()` splits it:
+PN is a pursuit law: it rotates the LOS onto the target but it never bleeds off the
+closing speed, so the interceptor flies *through* the target. Before this law
+existed the demo reached the capture envelope (1.5 m) at 10-12 m/s relative speed,
+against a limit of 5 m/s: the capture was **detected, not flown**.
 
-- along the LOS: the closing speed the interceptor sustains, capped at `max_speed`;
-- perpendicular to the LOS: the guidance acceleration, scaled by
-  `accel_to_velocity_gain` (the effective time constant of the velocity loop).
+The law commands the *relative* velocity:
 
-The guidance acceleration is the **only** lateral authority. Adding the target's
-velocity to the setpoint instead would track the target directly and hide what the
-guidance law contributes.
+```
+v_M = v_T + u * v_close(r) + a_pn * tau
+```
+
+- `v_T` is the target's velocity, a feedforward: the interceptor goes where the
+  target goes, so what the law shapes is the relative velocity
+  `v_r = v_T - v_M = -u * v_close(r) - a_pn * tau`. The interceptor flies *with* the
+  target and closes on it instead of flying at it, and the relative speed at the
+  capture is the closing speed, which the profile below governs.
+- `u * v_close(r)` is the governed closure along the line of sight.
+- `a_pn * tau` is the PN lateral term, scaled by `accel_to_velocity_gain` (the
+  effective time constant of the velocity loop). It is the **only** lateral
+  authority, and keeping it is what the earlier "relative-velocity match in the
+  capture phase" experiment got wrong: dropping it loses the lateral correction and
+  the range oscillates instead of shrinking.
+
+### The closure profile
+
+The commanded closing speed is the fastest speed from which the vehicle can still
+slow down to `final_closing_speed` at the hold radius under a constant
+deceleration `approach_decel`:
+
+```
+v_profile(r) = sqrt( v_final^2 + 2 * a * (r - r_hold) )   for r > r_hold
+v_profile(r) = 0                                           for r <= r_hold
+```
+
+This is the braking curve of a pursuer: the deceleration it asks for is exactly `a`
+everywhere, so it is a profile the vehicle can actually track, and the closing speed
+at the hold radius is `v_final` by construction. The hold radius is *inside* the
+capture radius on purpose: the range converges to it, so aiming at the envelope
+boundary would approach the boundary asymptotically and never enter the envelope.
+
+The profile on its own is not enough, because it is an open-loop schedule on the
+range: the range closes at the speed the vehicle actually flies, so the profile
+falls behind, the vehicle carries more speed into the envelope than the profile
+asks for, and it arrives at the capture too fast. The measured closing speed is
+therefore fed back against the profile:
+
+```
+v_close = v_profile - k * (V_c - v_profile)
+```
+
+The steady state is the profile itself, but on the way in the vehicle is slowed
+down as soon as it is closing faster than the profile wants.
+
+### Why the old along-LOS term was wrong
+
+The setpoint used before this law commanded, along the LOS, the *measured* closing
+speed `V_c`. That term has no integral action: in the steady state the
+interceptor's along-LOS velocity converges to the target's, so the range stops
+shrinking and the interceptor simply matches the target's speed. Measured in the
+sweep: against a target flying away at a constant 2, 4 or 6 m/s the range never
+changed at all (20 m at the start, 20 m after 40 s). The old law only closed the
+gap in the demo because the intruder accelerated from a standstill.
+
+### The sweep
+
+The law was validated numerically against a model of the vehicle (the X500 flight
+model with the autopilot's velocity PI, `include/flight/flight_controller.hpp`) over
+the target's speed (0-10 m/s), its manoeuvre (hover, straight, head-on, crossing,
+weave and the demo's accelerating intruder), the initial range (5-30 m), the
+geometry and the lag of the vehicle's velocity loop. The sweep is a gtest
+(`test/test_guidance.cpp`), and the results are asserted, not just printed:
+
+| | |
+|---|---|
+| scenarios | 19 |
+| captures (envelope reached, relative speed below 5 m/s) | 19/19 |
+| the range at the capture | 1.50 m (the envelope) |
+| relative speed at the capture | 1.5 - 3.3 m/s |
+| the range shrinks monotonically into the envelope | 19/19 |
+| the interceptor stays with the target after the capture | 19/19 |
+| the same sweep on a vehicle with a lag of 0.3 - 1.0 s | the capture holds, 4.1 m/s at worst |
+
+Without the closing-speed feedback the same sweep gives a relative speed at the
+capture of 3.9 m/s and the interceptor overshoots the target by about a metre; with
+it, the arrival is gentle and the interceptor stops overshooting.
+
+The lag matters: the feedback goes through the lag of the vehicle's velocity loop,
+so the gain has to stay well below 1. At a gain of 1 the loop rings on the real
+airframe, and in the simulator the interceptor circles the target instead of
+closing on it.
 
 ## The phases
 
-`guidance_controller_node` runs the phase machine of plan §4.4:
+`intercept_guidance_node` runs the phase machine of plan §4.4:
 
 | Phase | What it does |
 |---|---|
 | `SEARCH` | No valid target: climb to `cruise_altitude` and hold. |
-| `PURSUE` | PN or APN on the line of sight. |
-| `CAPTURE` | The same law, now inside `capture_start_range`. |
-| `DONE` | Target captured. |
+| `PURSUE` | The terminal capture law: PN or APN laterally, the governed closure along the line of sight. |
+| `CAPTURE` | The same law, now inside `capture_start_range`: the capture envelope is armed. |
+| `DONE` | Target captured. The law keeps running, so the interceptor holds the offset instead of flying through the target. |
 
 The engagement gate (plan §4.4) must hold before `PURSUE` starts: the track must be
 a `uav`, confirmed and valid, above `min_engage_altitude_agl`, and the operator must
 have armed the mission.
 
-The capture is **detected, not flown**. Switching to a plain relative-velocity match
-inside the capture radius loses the lateral correction, and the interceptor ends up
-chasing the target's own turn instead of closing on it — the range then oscillates
-around the capture start range instead of shrinking. The law therefore keeps running
-to contact and the node reports the capture when it happens.
+The capture is **flown**: the terminal capture law above brings the interceptor
+into the envelope with a relative speed of 1.5-2.4 m/s in the sweep, and the node
+confirms the capture when the range and the relative speed are both inside their
+limits at the same instant.
 
 `capture_max_rel_speed` is 5 m/s rather than the 3 m/s of the plan: the X500 closes
 on the target at several m/s, so 3 m/s is not reachable with this platform.

@@ -248,7 +248,7 @@ the parts of a merged task that are still missing.
 ### Phase 3 – INTERCEPT mode (~5–7 days, after Phase 1, 2.1, 2.2)
 - **3.1** ✅ Target drone: a Crazyflie 2.1 (`target_drone`) and `target_drone_behavior_node`, which moves it via `/set_entity_state` with an accelerating, curving profile. See `docs/INTERCEPT.md`.
 - **3.2** UAS detection. COCO has no drone class, so auto-label sim images: project the target drone's ground-truth bounding box into the left camera, generate a YOLO dataset, fine-tune `yolov8n` with class `uav`, and export to ONNX/TensorRT. Until this is done, use `perception_source:=groundtruth`.
-- **3.3** ✅ `guidance_controller_node` (phases, pure PN and augmented PN, `GuidanceCommand` telemetry). The law lives in the ROS-free library `interceptor_drone_guidance`.
+- **3.3** ✅ `intercept_guidance_node` (phases, pure PN and augmented PN, the terminal capture law, `GuidanceCommand` telemetry). The law lives in the ROS-free library `interceptor_drone_guidance`.
 - **3.4** Engagement gate and abort logic in `safety_filter_node`, with tests. Include a test that a `person` track, however it's configured, can never be engaged.
 - **3.5** Scenarios and metrics: hover target, 10 m/s straight target, weaving target, plus a "bystander" scenario where a person is placed near the target's path.
 

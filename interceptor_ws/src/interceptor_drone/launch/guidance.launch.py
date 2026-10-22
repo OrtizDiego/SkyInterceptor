@@ -36,10 +36,10 @@ def generate_launch_description():
 
     # INTERCEPT guidance: PN / augmented PN with the SEARCH -> PURSUE -> CAPTURE
     # phase machine (plan 3.3).
-    guidance_controller = Node(
+    intercept_guidance = Node(
         package='interceptor_drone',
-        executable='guidance_controller_node',
-        name='guidance_controller_node',
+        executable='intercept_guidance_node',
+        name='intercept_guidance_node',
         output='screen',
         parameters=[
             intercept_params,
@@ -112,7 +112,7 @@ def generate_launch_description():
                         'straight, weave or curve',
         ),
         target_tracker,
-        guidance_controller,
+        intercept_guidance,
         follow_planner,
         target_behavior,
     ])

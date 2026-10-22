@@ -68,7 +68,7 @@ Perception → Estimation → Guidance → Control → Platform
 | Perception | `target_detector.py` | YOLOv8 via Ultralytics |
 | Perception | `groundtruth_target_node` | Gazebo entity poses (`/get_entity_state`) + noise, dropout and tree occlusion → `/target/detection_3d` (used when `perception_source:=groundtruth`) |
 | Estimation | `target_tracker_node` | IMM-EKF library: frames by stamp → tracks; `/tracks`, selected `/target/state`, `/tracks/markers` |
-| Guidance | `guidance_controller_node` | PN / augmented PN on the line of sight, phase machine SEARCH → PURSUE → CAPTURE → DONE |
+| Guidance | `intercept_guidance_node` | PN / augmented PN laterally plus the terminal capture law, phase machine SEARCH → PURSUE → CAPTURE → DONE |
 | Safety | `safety_filter_node` | `/setpoint/raw` + `/tracks` + `/odom` → `/setpoint/safe`: keep-out barrier for every person/vehicle track and static obstacle (inflated by the track covariance), speed/altitude/geofence limits, latching e-stop, INTERCEPT engagement gate. Logic in the ROS-free `safety::SafetyFilter` (`include/safety/`) |
 | Simulation | `target_drone_behavior_node` | Flies the target drone (the intruder) with an accelerating, curving profile, kinematically through `/set_entity_state` |
 | Control | `trajectory_controller_node` | `/setpoint/safe` + `/odom` → `/cmd_vel` (world-frame velocity + yaw rate): position PID with velocity feed-forward, anti-windup (integral zone, clamp, back-calculation), yaw P with rate limit, 0.3 s setpoint timeout. Logic in the ROS-free `control::TrajectoryController` (`include/control/`) |
@@ -105,7 +105,7 @@ Its defaults match `config/ekf_params.yaml`; they were tuned on the synthetic tr
 `interceptor_drone_guidance` (`include/guidance/`, `src/guidance/`) is plain C++/Eigen with no ROS dependency, like the flight and estimation libraries. See `docs/INTERCEPT.md`:
 - `pn_guidance.hpp` — the proportional navigation law: `computeLosKinematics()` (range, LOS unit vector, closing speed `V_c`, LOS rate `lambda_dot`, time to go), `purePn()` (`a = N * V_c * lambda_dot`), `augmentedPn()` (pure PN plus the textbook `(N/2) * a_T_perp` term, the target acceleration projected perpendicular to the LOS), `zeroEffortMiss()` and `pnVelocitySetpoint()` (the acceleration law turned into a velocity setpoint for the velocity-commanded interceptor)
 
-`guidance_controller_node` wraps it: the SEARCH → PURSUE → CAPTURE → DONE phase machine, the engagement gate, the setpoint and the `GuidanceCommand` telemetry. The capture is detected, not flown: switching to a relative-velocity match inside the capture radius loses the lateral correction and the range then oscillates instead of shrinking.
+`intercept_guidance_node` wraps it: the SEARCH → PURSUE → CAPTURE → DONE phase machine, the engagement gate, the setpoint and the `GuidanceCommand` telemetry. The capture is flown, not detected: the terminal capture law commands the relative velocity (the target's velocity as a feedforward, a range-governed closure along the LOS, and the PN lateral term), so the interceptor arrives inside the envelope at 1.5-2.4 m/s relative speed instead of flying through the target at 12 m/s. The law and its numerical sweep live in `include/guidance/pn_guidance.hpp` and `test/test_guidance.cpp`.
 
 The guidance also commands the yaw: the stereo camera hangs off the front of the airframe, so the nose has to follow the target for the cameras to see it. The yaw setpoint is the bearing of the target in the world frame.
 
@@ -214,7 +214,7 @@ interceptor_ws/
         common/                 # Shared library sources
         perception/             # stereo_sync, depth_processor, 3d_localizer, target_detector.py, groundtruth_target_node
         estimation/             # IMM-EKF library (no ROS) + target_tracker_node
-        guidance/               # guidance_controller_node (PN)
+        guidance/               # intercept_guidance_node (PN + the capture law)
         control/                # trajectory_controller
         safety/                 # safety filter library (no ROS) + safety_filter_node
         evasion/                # evasion_controller_node

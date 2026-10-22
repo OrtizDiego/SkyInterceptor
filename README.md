@@ -95,7 +95,7 @@ Perception  →  Estimation  →  Guidance  →  Control  →  Platform (Gazebo)
 | Perception | `target_detector.py` | YOLOv8 object detection (Ultralytics) | ✅ Done |
 | Perception | `target_3d_localizer` | Back-projects 2D detections to 3D positions | ✅ Done |
 | Estimation | `target_tracker_node` | IMM-EKF multi-target tracking and target selection (`/tracks`, `/target/state`) | ✅ Done |
-| Guidance | `guidance_controller_node` | Proportional navigation | 🚧 Skeleton |
+| Guidance | `intercept_guidance_node` | Proportional navigation + the terminal capture law | 🚧 Skeleton |
 | Control | `trajectory_controller_node` | Position PID → velocity, yaw P | ✅ Done |
 | Evasion | `evasion_controller_node` | Target-drone behaviour | 🚧 Skeleton |
 | Mission | `mission_manager_node` | Mission mode (`/mission/set_mode` service, latched `/mission/mode`) | ✅ Done |
@@ -144,7 +144,7 @@ SkyInterceptor/
             │   ├── perception/      # stereo_sync_node, stereo_depth_processor,
             │   │                    # target_3d_localizer, target_detector.py
             │   ├── estimation/      # target_tracker_node (IMM-EKF)
-            │   ├── guidance/        # guidance_controller_node (proportional navigation)
+            │   ├── guidance/        # intercept_guidance_node (proportional navigation)
             │   ├── control/         # trajectory_controller_node
             │   ├── evasion/         # evasion_controller_node
             │   ├── mission/         # mission_manager_node
