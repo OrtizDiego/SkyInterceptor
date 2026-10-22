@@ -55,7 +55,12 @@ public:
     metrics::RecorderParams params;
     // The thresholds come from the safety parameters: the recorder has to measure
     // the distances the filter promises, not a copy of them.
-    params.d_min = declare_parameter("safety.d_min_horizontal", params.d_min);
+    params.d_min_3d = declare_parameter("safety.d_min_3d", params.d_min_3d);
+    params.d_min_horizontal = declare_parameter("safety.d_min_horizontal", params.d_min_horizontal);
+    params.keepout_horizontal_altitude =
+      declare_parameter("safety.keepout_horizontal_altitude", params.keepout_horizontal_altitude);
+    params.keepout_horizontal_taper =
+      declare_parameter("safety.keepout_horizontal_taper", params.keepout_horizontal_taper);
     params.d_obstacle_min = declare_parameter("safety.d_obstacle_min", params.d_obstacle_min);
     params.drone_radius = declare_parameter("safety.drone_radius", params.drone_radius);
     params.uncertainty_gain =
@@ -108,9 +113,9 @@ public:
 
     RCLCPP_INFO(
       get_logger(),
-      "Metrics recorder: scenario '%s', d_min %.1f m, d_obstacle_min %.1f m, "
-      "%zu obstacles, warm-up %.1f s, %.0f Hz",
-      params.scenario.c_str(), params.d_min, params.d_obstacle_min,
+      "Metrics recorder: scenario '%s', d_min_3d %.1f m, d_min_horizontal %.1f m, "
+      "d_obstacle_min %.1f m, %zu obstacles, warm-up %.1f s, %.0f Hz",
+      params.scenario.c_str(), params.d_min_3d, params.d_min_horizontal, params.d_obstacle_min,
       recorder_.obstacles().size(), params.warmup_s, rate_hz);
   }
 

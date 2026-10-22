@@ -32,7 +32,10 @@ constexpr double kPi = 3.14159265358979323846;
 RecorderParams testParams()
 {
   RecorderParams params;
-  params.d_min = 5.0;
+  params.d_min_3d = 5.0;
+  params.d_min_horizontal = 5.0;
+  params.keepout_horizontal_altitude = 5.0;
+  params.keepout_horizontal_taper = 1.0;
   params.d_obstacle_min = 3.0;
   params.drone_radius = 0.3;
   params.uncertainty_gain = 2.0;
@@ -141,11 +144,17 @@ TEST(MetricsRecorder, MinimumDistanceToEveryTrack)
   recorder.addSample(sample);
 
   const Summary summary = recorder.summarize();
-  EXPECT_NEAR(summary.min_person_distance, 5.0, 1e-9);
+  // The hard rule is the 3D distance: the person is at (3, 4, 1) and the drone
+  // at the origin, so 5 m away in the horizontal plane and a bit more in 3D.
+  EXPECT_NEAR(summary.min_person_distance_horizontal, 5.0, 1e-9);
   EXPECT_EQ(summary.min_person_track_id, 8);
+  EXPECT_NEAR(summary.min_person_distance_3d, std::sqrt(26.0), 1e-9);
   // The distances are between the surfaces.
-  EXPECT_NEAR(summary.min_person_surface_distance, 4.7, 1e-9);
-  EXPECT_NEAR(summary.min_person_margin, -0.3, 1e-9);
+  EXPECT_NEAR(summary.min_person_surface_distance_3d, std::sqrt(26.0) - 0.3, 1e-9);
+  EXPECT_GT(summary.min_person_margin_3d, 0.0);
+  // The horizontal rule is in force: the drone is at the ground, so it is at most
+  // keepout_horizontal_altitude above the person.
+  EXPECT_NEAR(summary.min_person_margin_horizontal, -0.3, 1e-9);
   EXPECT_FALSE(summary.distance_ok);
 }
 
@@ -157,7 +166,8 @@ TEST(MetricsRecorder, DistanceToEveryTrackNotOnlyTheSelectedOne)
   recorder.addSample(sample);
 
   const Summary summary = recorder.summarize();
-  EXPECT_NEAR(summary.min_person_distance, 2.0, 1e-9);
+  EXPECT_NEAR(summary.min_person_distance_horizontal, 2.0, 1e-9);
+  EXPECT_NEAR(summary.min_person_distance_3d, std::sqrt(5.0), 1e-9);
   EXPECT_EQ(summary.min_person_track_id, 8);
 }
 
@@ -171,12 +181,12 @@ TEST(MetricsRecorder, TheUncertaintyIsPartOfTheEffectiveMargin)
   recorder.addSample(sample);
 
   const Summary summary = recorder.summarize();
-  // The surface distance is 5.1 m: the margin against d_min is 0.1 m, but the
-  // filter enforces d_min + k * sigma = 6.0 m, so the margin against that is
-  // negative: the filter would have pushed the drone away.
-  EXPECT_NEAR(summary.min_person_surface_distance, 5.1, 1e-9);
-  EXPECT_NEAR(summary.min_person_margin, 0.1, 1e-9);
-  EXPECT_NEAR(summary.min_person_margin_effective, -0.9, 1e-9);
+  // The surface distance is 5.1 m: the margin against d_min_3d is 0.1 m, but
+  // the filter enforces d_min_3d + k * sigma = 6.0 m, so the margin against that
+  // is negative: the filter would have pushed the drone away.
+  EXPECT_NEAR(summary.min_person_surface_distance_3d, 5.1, 1e-9);
+  EXPECT_NEAR(summary.min_person_margin_3d, 0.1, 1e-9);
+  EXPECT_NEAR(summary.min_person_margin_3d_effective, -0.9, 1e-9);
 }
 
 TEST(MetricsRecorder, TheMinimumIsOverTheWholeRun)
@@ -191,7 +201,8 @@ TEST(MetricsRecorder, TheMinimumIsOverTheWholeRun)
   recorder.addSample(sampleAt(2.0));
 
   const Summary summary = recorder.summarize();
-  EXPECT_NEAR(summary.min_person_distance, 6.0, 1e-9);
+  EXPECT_NEAR(summary.min_person_distance_horizontal, 6.0, 1e-9);
+  EXPECT_NEAR(summary.min_person_distance_3d, std::sqrt(37.0), 1e-9);
 }
 
 TEST(MetricsRecorder, ObstaclesAreMeasuredToTheirSurface)
@@ -418,7 +429,8 @@ TEST(MetricsRecorder, TheJsonHasTheNumbersAndTheVerdicts)
   recorder.addSample(sampleAt(1.0));
   const std::string json = MetricsRecorder::toJson(recorder.summarize(), recorder.params());
   EXPECT_NE(json.find("\"framing_score\""), std::string::npos);
-  EXPECT_NE(json.find("\"min_person_distance\""), std::string::npos);
+  EXPECT_NE(json.find("\"min_person_distance_3d\""), std::string::npos);
+  EXPECT_NE(json.find("\"min_person_margin_horizontal\""), std::string::npos);
   EXPECT_NE(json.find("\"all_ok\": true"), std::string::npos);
   EXPECT_NE(json.find("\"scenario\": \"walker\""), std::string::npos);
 }

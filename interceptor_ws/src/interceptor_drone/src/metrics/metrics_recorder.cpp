@@ -106,6 +106,26 @@ double MetricsRecorder::horizontalDistance(
   return std::hypot(a.x() - b.x(), a.y() - b.y());
 }
 
+double MetricsRecorder::distance(const Eigen::Vector3d & a, const Eigen::Vector3d & b)
+{
+  return (a - b).norm();
+}
+
+double MetricsRecorder::horizontalStandoff(
+  double vertical_separation, double position_sigma) const
+{
+  // The same formula as the safety filter's own horizontalStandoff: the plan's
+  // flat standoff, given up with the height above the person. Above the relief
+  // altitude the rule is not in force at all, and the 3D rule governs alone.
+  const double relief =
+    std::max(0.0, vertical_separation - params_.keepout_horizontal_altitude);
+  const double nominal = params_.d_min_horizontal - relief * params_.keepout_horizontal_taper;
+  if (nominal <= 0.0) {
+    return 0.0;
+  }
+  return nominal + params_.uncertainty_gain * position_sigma;
+}
+
 double MetricsRecorder::azimuthError(
   double yaw, const Eigen::Vector3d & from, const Eigen::Vector3d & to)
 {
@@ -149,6 +169,15 @@ void MetricsRecorder::addSample(const Sample & sample)
     }
     min_person_distance = std::min(
       min_person_distance, horizontalDistance(sample.drone_position, track.position));
+  }
+  // The 3D distance is the hard rule; the horizontal one is the plan's standoff.
+  double min_person_distance_3d = std::numeric_limits<double>::infinity();
+  for (const TrackSample & track : sample.tracks) {
+    if (!isGroundClass(track.class_id)) {
+      continue;
+    }
+    min_person_distance_3d = std::min(
+      min_person_distance_3d, distance(sample.drone_position, track.position));
   }
 
   double min_obstacle_distance = std::numeric_limits<double>::infinity();
@@ -214,7 +243,10 @@ Summary MetricsRecorder::summarize() const
   summary.duration_s = t1 - t0;
 
   double min_person_distance = std::numeric_limits<double>::infinity();
-  double min_person_sigma = 0.0;
+  double min_person_distance_3d = std::numeric_limits<double>::infinity();
+  double min_person_margin_horizontal = std::numeric_limits<double>::infinity();
+  double min_person_margin_3d = std::numeric_limits<double>::infinity();
+  double min_person_margin_3d_effective = std::numeric_limits<double>::infinity();
   int min_person_track_id = -1;
   double min_obstacle_distance = std::numeric_limits<double>::infinity();
   std::string min_obstacle_name;
@@ -240,11 +272,25 @@ Summary MetricsRecorder::summarize() const
       if (!isGroundClass(track.class_id)) {
         continue;
       }
-      const double distance = horizontalDistance(sample.drone_position, track.position);
-      if (distance < min_person_distance) {
-        min_person_distance = distance;
+      const double horizontal = horizontalDistance(sample.drone_position, track.position);
+      if (horizontal < min_person_distance) {
+        min_person_distance = horizontal;
         min_person_track_id = track.track_id;
-        min_person_sigma = track.position_sigma;
+      }
+      // The 3D rule: the hard minimum distance, at any altitude.
+      const double range_3d = distance(sample.drone_position, track.position);
+      min_person_distance_3d = std::min(min_person_distance_3d, range_3d);
+      const double surface_3d = range_3d - params_.drone_radius;
+      min_person_margin_3d = std::min(min_person_margin_3d, surface_3d - params_.d_min_3d);
+      min_person_margin_3d_effective = std::min(
+        min_person_margin_3d_effective,
+        surface_3d - (params_.d_min_3d + params_.uncertainty_gain * track.position_sigma));
+      // The horizontal rule: the plan's standoff, given up with the height.
+      const double standoff = horizontalStandoff(
+        sample.drone_position.z() - track.position.z(), track.position_sigma);
+      if (standoff > 0.0) {
+        min_person_margin_horizontal = std::min(
+          min_person_margin_horizontal, horizontal - params_.drone_radius - standoff);
       }
     }
     for (const Obstacle & obstacle : obstacles_) {
@@ -317,12 +363,12 @@ Summary MetricsRecorder::summarize() const
     }
   }
 
-  summary.min_person_distance = min_person_distance;
-  summary.min_person_surface_distance =
-    min_person_distance - params_.drone_radius;
-  summary.min_person_margin = summary.min_person_surface_distance - params_.d_min;
-  summary.min_person_margin_effective = summary.min_person_surface_distance -
-    (params_.d_min + params_.uncertainty_gain * min_person_sigma);
+  summary.min_person_distance_3d = min_person_distance_3d;
+  summary.min_person_surface_distance_3d = min_person_distance_3d - params_.drone_radius;
+  summary.min_person_margin_3d = min_person_margin_3d;
+  summary.min_person_margin_3d_effective = min_person_margin_3d_effective;
+  summary.min_person_distance_horizontal = min_person_distance;
+  summary.min_person_margin_horizontal = min_person_margin_horizontal;
   summary.min_person_track_id = min_person_track_id;
   summary.min_obstacle_distance = min_obstacle_distance;
   summary.min_obstacle_margin = min_obstacle_distance - params_.d_obstacle_min;
@@ -379,8 +425,11 @@ Summary MetricsRecorder::summarize() const
   }
 
   // --- The verdicts ---------------------------------------------------------
-  summary.distance_ok = std::isfinite(min_person_distance) &&
-    summary.min_person_margin >= 0.0 && summary.min_obstacle_margin >= 0.0;
+  // The two rules of the keep-out are both in force, and the stricter of the two
+  // governs: both margins have to hold.
+  summary.distance_ok = std::isfinite(min_person_distance_3d) &&
+    summary.min_person_margin_3d >= 0.0 && summary.min_person_margin_horizontal >= 0.0 &&
+    summary.min_obstacle_margin >= 0.0;
   summary.framing_ok = !framing_errors.empty() &&
     summary.framing_score >= params_.min_framing_score;
   summary.reacquire_ok = summary.long_loss_count == 0 ||
@@ -396,19 +445,24 @@ std::string MetricsRecorder::toJson(const Summary & summary, const RecorderParam
   out << "{\n";
   out << "  \"scenario\": " << jsonString(params.scenario) << ",\n";
   out << "  \"seed\": " << params.seed << ",\n";
-  out << "  \"d_min\": " << jsonNumber(params.d_min) << ",\n";
+  out << "  \"d_min_3d\": " << jsonNumber(params.d_min_3d) << ",\n";
+  out << "  \"d_min_horizontal\": " << jsonNumber(params.d_min_horizontal) << ",\n";
   out << "  \"d_obstacle_min\": " << jsonNumber(params.d_obstacle_min) << ",\n";
   out << "  \"framing_tolerance_deg\": " << jsonNumber(params.framing_tolerance_deg) << ",\n";
   out << "  \"warmup_s\": " << jsonNumber(params.warmup_s) << ",\n";
   out << "  \"sample_count\": " << summary.sample_count << ",\n";
   out << "  \"duration_s\": " << jsonNumber(summary.duration_s) << ",\n";
   out << "  \"scored_time_s\": " << jsonNumber(summary.scored_time_s) << ",\n";
-  out << "  \"min_person_distance\": " << jsonNumber(summary.min_person_distance) << ",\n";
-  out << "  \"min_person_surface_distance\": " <<
-    jsonNumber(summary.min_person_surface_distance) << ",\n";
-  out << "  \"min_person_margin\": " << jsonNumber(summary.min_person_margin) << ",\n";
-  out << "  \"min_person_margin_effective\": " <<
-    jsonNumber(summary.min_person_margin_effective) << ",\n";
+  out << "  \"min_person_distance_3d\": " << jsonNumber(summary.min_person_distance_3d) << ",\n";
+  out << "  \"min_person_surface_distance_3d\": " <<
+    jsonNumber(summary.min_person_surface_distance_3d) << ",\n";
+  out << "  \"min_person_margin_3d\": " << jsonNumber(summary.min_person_margin_3d) << ",\n";
+  out << "  \"min_person_margin_3d_effective\": " <<
+    jsonNumber(summary.min_person_margin_3d_effective) << ",\n";
+  out << "  \"min_person_distance_horizontal\": " <<
+    jsonNumber(summary.min_person_distance_horizontal) << ",\n";
+  out << "  \"min_person_margin_horizontal\": " <<
+    jsonNumber(summary.min_person_margin_horizontal) << ",\n";
   out << "  \"min_person_track_id\": " << summary.min_person_track_id << ",\n";
   out << "  \"min_obstacle_distance\": " << jsonNumber(summary.min_obstacle_distance) << ",\n";
   out << "  \"min_obstacle_margin\": " << jsonNumber(summary.min_obstacle_margin) << ",\n";
@@ -464,9 +518,11 @@ std::string MetricsRecorder::toText(const Summary & summary, const RecorderParam
     (params.seed != 0 ? " (seed " + std::to_string(params.seed) + ")" : "") << " ===\n";
   out << "samples " << summary.sample_count << " over " << summary.duration_s <<
     " s, scored " << summary.scored_time_s << " s\n";
-  out << "min distance to a person/vehicle: " << summary.min_person_distance <<
-    " m (surface " << summary.min_person_surface_distance <<
-    " m, margin " << summary.min_person_margin << " m, track " <<
+  out << "min distance to a person/vehicle: " << summary.min_person_distance_3d <<
+    " m in 3D (surface " << summary.min_person_surface_distance_3d <<
+    " m, margin " << summary.min_person_margin_3d << " m), " <<
+    summary.min_person_distance_horizontal << " m horizontal (margin " <<
+    summary.min_person_margin_horizontal << " m), track " <<
     summary.min_person_track_id << ")\n";
   out << "min distance to an obstacle: " << summary.min_obstacle_distance <<
     " m (margin " << summary.min_obstacle_margin << " m, " << summary.min_obstacle_name << ")\n";

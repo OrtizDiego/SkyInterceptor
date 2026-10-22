@@ -21,17 +21,22 @@
  * -------------
  * The safety rule is about *every* person and vehicle, not only the one that is
  * being followed, so the recorder looks at every track the tracker reports. The
- * distances are the same ones the safety filter enforces (section 4.3):
+ * distances are the ones the safety filter enforces (section 4.3), which after
+ * P3.4 are two rules at once, and the stricter of the two governs:
  *
- *   * a track: the horizontal distance between the centres, minus the drone's own
- *     radius, has to be at least d_min. The filter inflates d_min with the track's
- *     position uncertainty (d_min + k * sigma), so the recorder reports that
- *     effective threshold as well: the margin against it is what the filter
- *     actually guarantees.
- *   * an obstacle: the horizontal distance between the centres, minus the obstacle's
- *     own radius, has to be at least d_obstacle_min. A short obstacle is not a
- *     hazard for a drone that flies above it, so the same height rule as the
- *     filter's applies: an obstacle the drone is above is not counted.
+ *   * the 3D rule: the distance between the centres, in three dimensions, minus
+ *     the drone's own radius, has to be at least d_min_3d, at any altitude. The
+ *     filter inflates it with the track's position uncertainty
+ *     (d_min_3d + k * sigma), so the recorder reports the margin against that
+ *     effective threshold as well.
+ *   * the horizontal rule: the plan's flat standoff d_min_horizontal, in force
+ *     while the drone is at most keepout_horizontal_altitude above the person.
+ *     Above that the margin is given up at keepout_horizontal_taper metres per
+ *     metre of climb, and the 3D rule governs alone.
+ *   * an obstacle: the horizontal distance between the centres, minus the
+ *     obstacle's own radius, has to be at least d_obstacle_min. A short obstacle
+ *     is not a hazard for a drone that flies above it, so the same height rule
+ *     as the filter's applies: an obstacle the drone is above is not counted.
  *
  * The framing error
  * -----------------
@@ -117,7 +122,12 @@ struct Sample
 struct RecorderParams
 {
   // --- The thresholds of the exit criteria ---------------------------------
-  double d_min = 5.0;            // m, to any person or vehicle track
+  // The hard 3D distance to any person or vehicle track [m].
+  double d_min_3d = 5.0;
+  // The plan's horizontal standoff [m], given up above keepout_horizontal_altitude.
+  double d_min_horizontal = 5.0;
+  double keepout_horizontal_altitude = 5.0;  // m, the height of the horizontal keep-out
+  double keepout_horizontal_taper = 1.0;     // m of margin per m of climb
   double d_obstacle_min = 3.0;   // m, to the surface of any static obstacle
   double drone_radius = 0.3;     // m, the drone's own radius
   double uncertainty_gain = 2.0;  // k in d_min + k * sigma, the filter's inflation
@@ -160,16 +170,23 @@ struct TimeSeriesPoint
 struct Summary
 {
   // --- The distances --------------------------------------------------------
-  /// The smallest horizontal distance to the centre of any person or vehicle track
-  /// over the whole run [m].
-  double min_person_distance = 0.0;
+  /// The smallest 3D distance to the centre of any person or vehicle track over
+  /// the whole run [m]. This is the distance the hard rule is about.
+  double min_person_distance_3d = 0.0;
   /// The same, between the surfaces (the drone's own radius comes off) [m].
-  double min_person_surface_distance = 0.0;
-  /// The smallest margin against d_min: surface distance - d_min [m]. Negative
-  /// means the criterion was broken.
-  double min_person_margin = 0.0;
-  /// The margin against the threshold the filter actually enforces, d_min + k*sigma.
-  double min_person_margin_effective = 0.0;
+  double min_person_surface_distance_3d = 0.0;
+  /// The smallest margin against d_min_3d: the surface distance - d_min_3d [m].
+  /// Negative means the criterion was broken.
+  double min_person_margin_3d = 0.0;
+  /// The margin against the uncertainty-inflated threshold the filter enforces,
+  /// d_min_3d + k * sigma.
+  double min_person_margin_3d_effective = 0.0;
+  /// The smallest horizontal distance to the centre of any person or vehicle
+  /// track [m].
+  double min_person_distance_horizontal = 0.0;
+  /// The smallest margin against the horizontal standoff the filter enforces at
+  /// that height: the surface distance - the effective standoff [m].
+  double min_person_margin_horizontal = 0.0;
   int min_person_track_id = -1;
   /// The smallest distance to the surface of any obstacle over the whole run [m].
   double min_obstacle_distance = 0.0;
@@ -258,6 +275,14 @@ public:
 
   /// The horizontal distance between two points [m].
   static double horizontalDistance(const Eigen::Vector3d & a, const Eigen::Vector3d & b);
+
+  /// The 3D distance between two points [m].
+  static double distance(const Eigen::Vector3d & a, const Eigen::Vector3d & b);
+
+  /// The horizontal standoff the filter enforces at a height above the person,
+  /// the same formula as the filter's own: the plan's flat standoff, given up
+  /// with the height. Zero when the rule is not in force.
+  double horizontalStandoff(double vertical_separation, double position_sigma) const;
 
 private:
   RecorderParams params_;
