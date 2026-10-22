@@ -31,6 +31,28 @@ It always works on velocity: a position setpoint is turned into one first, with 
 controller's own `kp_pos`, and the output always carries `position_valid = false`, so the
 controller tracks the *filtered* velocity instead of adding a position term of its own.
 
+## The engagement gate
+
+The gate is enforced in the filter as well as in the intercept guidance, so the two
+do not have to be trusted to agree. In INTERCEPT mode the filter replaces the
+planner's command with a hover (a zero velocity, so the drone stops where it is)
+unless **all** of the following hold:
+
+- the mission is armed (`/mission/mode` carries the `armed` flag);
+- the selected track (`/target/state`) is of class `uav`;
+- that track is confirmed and valid.
+
+Anything else and the filter replaces the planner's command with a hover, and says
+why in `MissionStatus.reason` ("engagement gate closed"). The class check is the
+one that must never be relaxed: a person is never a valid target, whatever else is
+configured.
+
+The other half of the plan's gate (plan §4.4) is still open and is P3.4's job: the
+target's altitude, the geofence, and the abort logic — a bystander near the
+predicted capture point, the target below the altitude floor, the track lost. The
+intercept guidance node checks the altitude and the arming itself today; the
+filter checks the mode, the arming and the class.
+
 ## The barrier
 
 ### The plan's form, and why it is not enough
@@ -162,6 +184,18 @@ velocity still satisfies every barrier: the keep-out is never traded away for sp
 When the barriers conflict with each other — the drone is boxed in — the filter commands
 hover and says so, rather than relaxing one of the distances.
 
+## Seeing it in RViz
+
+The filter publishes two things an operator can watch:
+
+| Topic | What it carries |
+|---|---|
+| `/safety/keepouts` | A `MarkerArray` with one translucent cylinder per person or vehicle track and one per static obstacle. The radius of a track's circle is its *effective* standoff (`d_min + k·σ_pos`), so a badly tracked person gets a visibly bigger circle. The obstacle circles are the obstacle's own radius plus `d_obstacle_min`. |
+| `/mission/status` | A `MissionStatus`: the mode, the phase, the selected track, the distance to it, whether the filter is active and — in `reason` — why it intervened ("keep-out from track 3", "engagement gate closed", "stale setpoint", "conflicting keep-out constraints"). |
+
+The "Safety Keep-outs" display of `rviz/interceptor_config.rviz` shows the circles,
+and the "Tracks" display next to them shows the tracks the circles come from.
+
 ## What is not here yet
 
 - **P3.4** adds the rest of the engagement gate (the target's altitude, the geofence) and
@@ -170,3 +204,7 @@ hover and says so, rather than relaxing one of the distances.
   class of the selected target.
 - **P2.4** measures the result over randomized runs. The exit criteria are in the plan
   §5 Phase 2.
+- The filter publishes no marker for the setpoint it hands to the controller: the
+  filtered velocity is on `/setpoint/safe`, a custom message that RViz cannot draw.
+  What RViz shows of the setpoint is the guidance's own `/guidance/vectors` (the line
+  of sight and the commanded acceleration), not the filtered command.
