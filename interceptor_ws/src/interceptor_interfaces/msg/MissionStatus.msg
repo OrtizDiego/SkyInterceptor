@@ -24,5 +24,9 @@ float64 distance_to_target  # m, NaN when there is no target
 # True whenever the safety filter modified the planner's setpoint
 bool safety_active
 
+# True when the INTERCEPT engagement was aborted (plan 4.4). The abort is latched:
+# the safety filter brakes the drone and the guidance stops commanding a closure.
+bool abort_active
+
 # Why the safety filter intervened or the planner holds (empty when nominal)
 string reason

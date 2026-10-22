@@ -99,6 +99,7 @@ target_link_libraries(${PROJECT_NAME}_guidance Eigen3::Eigen)
 # synthetic geometry.
 add_library(${PROJECT_NAME}_safety SHARED
   src/safety/safety_filter.cpp
+  src/safety/engagement_gate.cpp
 )
 target_link_libraries(${PROJECT_NAME}_safety Eigen3::Eigen)
 
@@ -340,6 +341,9 @@ if(BUILD_TESTING)
 
   ament_add_gtest(test_safety_filter test/test_safety_filter.cpp)
   target_link_libraries(test_safety_filter ${PROJECT_NAME}_safety)
+
+  ament_add_gtest(test_engagement_gate test/test_engagement_gate.cpp)
+  target_link_libraries(test_engagement_gate ${PROJECT_NAME}_safety)
 
   ament_add_gtest(test_follow_planner test/test_follow_planner.cpp)
   target_link_libraries(test_follow_planner ${PROJECT_NAME}_follow)

@@ -61,7 +61,10 @@ FilterSetpoint positionSetpoint(const Eigen::Vector3d & position)
   return setpoint;
 }
 
-FilterState stateAt(double x, double y, double z = 10.0)
+/// The drone's state. The default altitude is the height of a person: the tests
+/// are about the keep-out of a person at the drone's own level, which is the
+/// case the plan's horizontal rule is written for.
+FilterState stateAt(double x, double y, double z = 1.5)
 {
   FilterState state;
   state.position = Eigen::Vector3d(x, y, z);
@@ -81,6 +84,81 @@ double maxClosingSpeed(
     bound = std::min(bound, 0.0);
   }
   return bound;
+}
+
+/// The horizontal standoff of a track at a given height above it, computed the
+/// way the filter computes it (see the header of safety_filter.hpp).
+double horizontalStandoff(
+  double vertical_separation, const SafetyFilterParams & params, double sigma)
+{
+  const double relief =
+    std::max(0.0, vertical_separation - params.keepout_horizontal_altitude);
+  const double nominal =
+    params.d_min_horizontal - relief * params.keepout_horizontal_taper;
+  if (nominal <= 0.0) {
+    return 0.0;
+  }
+  return nominal + params.uncertainty_gain * sigma;
+}
+
+/// A constraint the velocity has to satisfy: normal . v >= bound.
+struct VelocityConstraint
+{
+  Eigen::Vector3d normal;
+  double bound = 0.0;
+  std::string name;
+};
+
+/// The constraints the filter enforces for one track, computed the way the
+/// filter computes them: the 3D barrier (the safety distance) and, when it is
+/// in force, the horizontal barrier (the plan's flat standoff).
+std::vector<VelocityConstraint> trackConstraints(
+  const SafetyFilterParams & params, const KeepOutTarget & target, const FilterState & state)
+{
+  std::vector<VelocityConstraint> out;
+
+  // The 3D barrier.
+  const Eigen::Vector3d delta = state.position - target.position;
+  const double distance3 = delta.norm();
+  if (distance3 > 1e-6) {
+    const Eigen::Vector3d normal = delta / distance3;
+    const double h3 = distance3 -
+      (params.d_min_3d + params.uncertainty_gain * target.position_sigma) -
+      params.drone_radius;
+    const double target_los = normal.dot(target.velocity);
+    const double closing = target_los - normal.dot(state.velocity);
+    const double c_cmd_max =
+      maxClosingSpeed(h3, closing, target_los, params);
+    out.push_back({normal, target_los - c_cmd_max, "3D"});
+  }
+
+  // The horizontal barrier, when the standoff is not given up at this height.
+  const double standoff =
+    horizontalStandoff(state.position.z() - target.position.z(), params, target.position_sigma);
+  const Eigen::Vector2d delta2 = state.position.head<2>() - target.position.head<2>();
+  const double distance2 = delta2.norm();
+  if (standoff > 0.0 && distance2 > 1e-6) {
+    const Eigen::Vector3d normal(delta2.x() / distance2, delta2.y() / distance2, 0.0);
+    const double h2 = distance2 - standoff - params.drone_radius;
+    const double target_los = normal.dot(target.velocity);
+    const double closing = target_los - normal.dot(state.velocity);
+    const double c_cmd_max =
+      maxClosingSpeed(h2, closing, target_los, params);
+    out.push_back({normal, target_los - c_cmd_max, "horizontal"});
+  }
+  return out;
+}
+
+/// Checks that a velocity satisfies every constraint of a track.
+void expectSatisfiesTrack(
+  const SafetyFilterParams & params, const KeepOutTarget & target, const FilterState & state,
+  const Eigen::Vector3d & velocity)
+{
+  for (const VelocityConstraint & constraint : trackConstraints(params, target, state)) {
+    EXPECT_GE(constraint.normal.dot(velocity), constraint.bound - 1e-6)
+      << "the " << constraint.name << " constraint of track " << target.track_id
+      << " was violated";
+  }
 }
 
 /// Runs the filter with the default "everything is fresh" arguments.
@@ -108,8 +186,8 @@ struct LagPlant
 };
 
 /// Closes the filter around a plant that flies towards a person: the filter is asked
-/// for a velocity every tick and the plant follows it. Returns the smallest margin
-/// above the keep-out distance that was reached.
+/// for a velocity every tick and the plant follows it. Returns the smallest 3D
+/// margin above the safety distance that was reached.
 double closedLoopMinimumMargin(
   SafetyFilter & filter, const std::vector<KeepOutTarget> & targets, double seconds = 30.0,
   double dt = 0.02, const Eigen::Vector3d & initial_velocity = Eigen::Vector3d::Zero(),
@@ -130,7 +208,7 @@ double closedLoopMinimumMargin(
 
     for (const KeepOutTarget & target : targets) {
       const double margin = (plant.state.position - target.position).norm() -
-        filter.params().d_min_horizontal;
+        filter.params().d_min_3d;
       minimum = std::min(minimum, margin);
     }
   }
@@ -190,16 +268,7 @@ TEST(SafetyFilterTest, SeveralBystandersPlusTheTargetViolateNothing)
 
   // Every barrier has to hold for the command that comes out.
   for (const KeepOutTarget & target : targets) {
-    const Eigen::Vector2d delta = state.position.head<2>() - target.position.head<2>();
-    const double distance = delta.norm();
-    const Eigen::Vector2d normal = delta / distance;
-    const double target_los = normal.dot(target.velocity.head<2>());
-    const double closing = target_los - normal.dot(state.velocity.head<2>());
-    const double h = distance - filter.params().d_min_horizontal;
-    const double c_cmd_max =
-      maxClosingSpeed(h, closing, target_los, filter.params());
-    EXPECT_GE(normal.dot(result.velocity.head<2>()), target_los - c_cmd_max - 1e-6)
-      << "the barrier of track " << target.track_id << " was violated";
+    expectSatisfiesTrack(filter.params(), target, state, result.velocity);
   }
 }
 
@@ -303,18 +372,19 @@ TEST(SafetyFilterTest, TheBarrierAlwaysHoldsAfterTheFilter)
   std::uniform_real_distribution<double> position(-30.0, 30.0);
   std::uniform_real_distribution<double> velocity(-8.0, 8.0);
   std::uniform_real_distribution<double> distance(1.0, 25.0);
+  std::uniform_real_distribution<double> height(0.0, 12.0);
 
   int violations = 0;
   for (int trial = 0; trial < 2000; ++trial) {
-    const FilterState state = stateAt(position(rng), position(rng), 10.0);
+    const FilterState state = stateAt(position(rng), position(rng), height(rng));
     const FilterSetpoint setpoint = velocitySetpoint(
       Eigen::Vector3d(velocity(rng), velocity(rng), 0.0));
 
-    // A person somewhere around the drone, at a random distance.
+    // A person somewhere around the drone, at a random distance and height.
     const double angle = 2.0 * kPi * (static_cast<double>(rng() % 3600) / 3600.0);
     KeepOutTarget target = person(
       1, state.position.x() + distance(rng) * std::cos(angle),
-      state.position.y() + distance(rng) * std::sin(angle));
+      state.position.y() + distance(rng) * std::sin(angle), height(rng));
     target.velocity = Eigen::Vector3d(velocity(rng), velocity(rng), 0.0);
 
     const FilterResult result = run(filter, setpoint, state, {target});
@@ -323,30 +393,27 @@ TEST(SafetyFilterTest, TheBarrierAlwaysHoldsAfterTheFilter)
     if (!result.feasible) {
       continue;
     }
-    const Eigen::Vector2d delta = state.position.head<2>() - target.position.head<2>();
-    const double d = delta.norm();
-    if (d < 1e-6) {
-      continue;
-    }
-    const Eigen::Vector2d normal = delta / d;
-    const double target_los = normal.dot(target.velocity.head<2>());
-    const double closing = target_los - normal.dot(state.velocity.head<2>());
-    const double h = d - filter.params().d_min_horizontal;
-    const double c_cmd_max = maxClosingSpeed(h, closing, target_los, filter.params());
-    if (normal.dot(result.velocity.head<2>()) < target_los - c_cmd_max - 1e-6) {
-      ++violations;
+    for (const VelocityConstraint & constraint :
+      trackConstraints(filter.params(), target, state))
+    {
+      if (constraint.normal.dot(result.velocity) < constraint.bound - 1e-6) {
+        ++violations;
+      }
     }
   }
   EXPECT_EQ(violations, 0) << violations << " barrier violations in 2000 random cases";
 }
 
 /// A randomized property test: 10,000 random states and commands, and after a
-/// simulated step the distance to the person never goes below d_min - 0.05 m.
+/// simulated step the 3D distance to the person never goes below d_min_3d - 0.05 m.
 ///
 /// The drone flies the command it is given, through a lag, and the person walks with
 /// its own velocity. The filter has to hold the distance in spite of the lag: that is
 /// what the barrier is for, and it is the case the plan's relative-degree-1 form does
 /// not cover.
+///
+/// The heights are random as well, so the property is checked in the whole 3D
+/// geometry and not only in a horizontal plane.
 TEST(SafetyFilterTest, RandomizedPropertyTheDistanceNeverDropsBelowTheLimit)
 {
   SafetyFilterParams params = testParams();
@@ -357,10 +424,11 @@ TEST(SafetyFilterTest, RandomizedPropertyTheDistanceNeverDropsBelowTheLimit)
   std::uniform_real_distribution<double> velocity(-10.0, 10.0);
   std::uniform_real_distribution<double> person_speed(-2.0, 2.0);
   std::uniform_real_distribution<double> dt(0.01, 0.1);
+  std::uniform_real_distribution<double> height(0.0, 12.0);
 
   // The drone moves with the command it gets, the person with its own velocity.
-  FilterState state = stateAt(position(rng), position(rng), 10.0);
-  KeepOutTarget target = person(1, position(rng), position(rng));
+  FilterState state = stateAt(position(rng), position(rng), height(rng));
+  KeepOutTarget target = person(1, position(rng), position(rng), height(rng));
   target.velocity = Eigen::Vector3d(person_speed(rng), person_speed(rng), 0.0);
 
   LagPlant plant;
@@ -386,7 +454,7 @@ TEST(SafetyFilterTest, RandomizedPropertyTheDistanceNeverDropsBelowTheLimit)
 
   // The filter never lets the drone closer than the limit, with a small tolerance
   // for the integration step.
-  EXPECT_GE(minimum_distance, params.d_min_horizontal - 0.05)
+  EXPECT_GE(minimum_distance, params.d_min_3d - 0.05)
     << "the drone came within " << minimum_distance << " m of the person";
 }
 
@@ -499,7 +567,7 @@ TEST(SafetyFilterTest, APositionSetpointIsTurnedIntoAVelocity)
   const FilterState state = stateAt(0.0, 0.0);
   // The setpoint is right on top of a person.
   const std::vector<KeepOutTarget> targets = {person(1, 2.0, 0.0)};
-  const FilterSetpoint setpoint = positionSetpoint(Eigen::Vector3d(2.0, 0.0, 10.0));
+  const FilterSetpoint setpoint = positionSetpoint(Eigen::Vector3d(2.0, 0.0, 1.5));
 
   const FilterResult result = run(filter, setpoint, state, targets);
 
@@ -588,14 +656,7 @@ TEST(SafetyFilterTest, ABoxedInDroneHoldsInsteadOfRelaxingADistance)
   // Either it holds, or the command it returns satisfies every barrier.
   if (result.feasible) {
     for (const KeepOutTarget & target : targets) {
-      const Eigen::Vector2d delta = state.position.head<2>() - target.position.head<2>();
-      const double d = delta.norm();
-      const Eigen::Vector2d normal = delta / d;
-      const double target_los = normal.dot(target.velocity.head<2>());
-      const double closing = target_los - normal.dot(state.velocity.head<2>());
-      const double h = d - filter.params().d_min_horizontal;
-      const double c_cmd_max = maxClosingSpeed(h, closing, target_los, filter.params());
-      EXPECT_GE(normal.dot(result.velocity.head<2>()), target_los - c_cmd_max - 1e-6);
+      expectSatisfiesTrack(filter.params(), target, state, result.velocity);
     }
   } else {
     EXPECT_EQ(result.velocity.norm(), 0.0);
@@ -648,13 +709,94 @@ TEST(SafetyFilterTest, TheKeepOutWinsOverTheSpeedCap)
 
   // The command has to satisfy the barrier, even if that means going faster than
   // the cap: the keep-out is the top-level rule.
-  const Eigen::Vector2d delta = state.position.head<2>() - targets[0].position.head<2>();
-  const double d = delta.norm();
-  const Eigen::Vector2d normal = delta / d;
-  const double closing = -normal.dot(state.velocity.head<2>());
-  const double h = d - filter.params().d_min_horizontal;
-  const double c_cmd_max = maxClosingSpeed(h, closing, 0.0, filter.params());
-  EXPECT_GE(normal.dot(result.velocity.head<2>()), -c_cmd_max - 1e-6);
+  expectSatisfiesTrack(filter.params(), targets[0], state, result.velocity);
+}
+
+// ---------------------------------------------------------------------------
+// The keep-out of a person: 3D, with an altitude relief (P3.4)
+// ---------------------------------------------------------------------------
+
+/// A person 12 m below the drone does not push the interceptor sideways.
+///
+/// This is the problem the intercept guidance ran into: the plan's horizontal
+/// keep-out has no altitude exemption, so an INTERCEPT over a park with
+/// pedestrians was impossible. The 3D rule is the safety distance, and a person
+/// 12 m below the drone is 12 m away, so the horizontal rule is given up.
+TEST(SafetyFilterTest, APersonFarBelowTheDroneDoesNotPushItSideways)
+{
+  SafetyFilter filter(testParams());
+  // The drone is 12 m above the person, right above it.
+  const FilterState state = stateAt(0.0, 0.0, 12.0);
+  const std::vector<KeepOutTarget> targets = {person(1, 0.0, 0.0)};
+
+  const FilterSetpoint setpoint = velocitySetpoint(Eigen::Vector3d(10.0, 0.0, 0.0));
+  const FilterResult result = run(filter, setpoint, state, targets);
+
+  // The command is not modified: the drone is 12 m away from the person.
+  EXPECT_FALSE(result.safety_active) << "the drone was pushed away from a person 12 m below";
+  EXPECT_GT(result.velocity.x(), 0.0);
+}
+
+/// The horizontal standoff is in force while the drone is at the person's level.
+TEST(SafetyFilterTest, TheHorizontalStandoffIsInForceAtThePersonsLevel)
+{
+  SafetyFilter filter(testParams());
+  const FilterState state = stateAt(0.0, 0.0, 1.5);
+  const std::vector<KeepOutTarget> targets = {person(1, 6.0, 0.0)};
+
+  const FilterSetpoint setpoint = velocitySetpoint(Eigen::Vector3d(10.0, 0.0, 0.0));
+  const FilterResult result = run(filter, setpoint, state, targets);
+
+  // The person is 6 m away, so the margin is 1 m and the closing speed is
+  // limited to alpha * h = 1 m/s.
+  const double allowed = filter.params().cbf_alpha * (6.0 - filter.params().d_min_horizontal);
+  EXPECT_TRUE(result.safety_active);
+  EXPECT_LE(result.velocity.x(), allowed + 1e-6);
+}
+
+/// The drone never descends onto a person: the 3D keep-out stops it at the
+/// safety distance, even when the horizontal standoff has been given up.
+TEST(SafetyFilterTest, TheDroneNeverDescendsOntoAPerson)
+{
+  SafetyFilterParams params = testParams();
+  SafetyFilter filter(params);
+
+  // The drone hovers 12 m above a person and is commanded straight down at it.
+  LagPlant plant;
+  plant.state = stateAt(0.0, 0.0, 12.0);
+  const std::vector<KeepOutTarget> targets = {person(1, 0.0, 0.0)};
+
+  double minimum = std::numeric_limits<double>::infinity();
+  for (double t = 10.0; t < 40.0; t += 0.02) {
+    const FilterSetpoint setpoint = velocitySetpoint(Eigen::Vector3d(0.0, 0.0, -5.0));
+    const FilterResult result = filter.filter(
+      setpoint, plant.state, targets, {}, FilterMode::FOLLOW, t, 0.0, 0.0, false, true);
+    plant.step(result.velocity, 0.02);
+    minimum = std::min(minimum, plant.state.position.z());
+  }
+
+  // The distance to the person is the height: it may never drop below the
+  // safety distance.
+  EXPECT_GE(minimum, params.d_min_3d - 0.05)
+    << "the drone descended to " << minimum << " m above the person";
+}
+
+/// An abort brakes the drone and says why.
+TEST(SafetyFilterTest, AnAbortBrakesTheDroneToAHover)
+{
+  SafetyFilter filter(testParams());
+  const FilterState state = stateAt(0.0, 0.0);
+  const FilterSetpoint setpoint = velocitySetpoint(Eigen::Vector3d(10.0, 0.0, 0.0));
+
+  const FilterResult result = filter.filter(
+    setpoint, state, {}, {}, FilterMode::INTERCEPT, 10.0, 0.0, 0.0, false, true,
+    "a person is 8 m from the capture point");
+
+  EXPECT_TRUE(result.aborted);
+  EXPECT_TRUE(result.safety_active);
+  EXPECT_EQ(result.velocity.norm(), 0.0) << "the abort did not brake the drone";
+  EXPECT_NE(result.reason.find("a person is 8 m"), std::string::npos)
+    << "the reason does not say why the engagement was aborted: " << result.reason;
 }
 
 }  // namespace

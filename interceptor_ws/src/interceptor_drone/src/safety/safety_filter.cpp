@@ -71,10 +71,29 @@ double SafetyFilter::speedCap(FilterMode mode) const
   return std::min(params_.speed_cap_follow, params_.speed_cap_intercept);
 }
 
-double SafetyFilter::effectiveDistance(const KeepOutTarget & target) const
+double SafetyFilter::effectiveDistance3d(const KeepOutTarget & target) const
 {
   // d_eff = d_min + k * sigma_pos: a poorly tracked person gets a bigger margin.
-  return params_.d_min_horizontal + params_.uncertainty_gain * target.position_sigma;
+  return params_.d_min_3d + params_.uncertainty_gain * target.position_sigma;
+}
+
+double SafetyFilter::horizontalStandoff(
+  double vertical_separation, const KeepOutTarget & target) const
+{
+  // The plan's flat horizontal standoff, given up with the height above the
+  // person. The margin is only relaxed above keepout_horizontal_altitude: below
+  // it the plan's rule is in force unchanged.
+  const double relief =
+    std::max(0.0, vertical_separation - params_.keepout_horizontal_altitude);
+  const double nominal =
+    params_.d_min_horizontal - relief * params_.keepout_horizontal_taper;
+  if (nominal <= 0.0) {
+    // The horizontal rule is not in force at this height: the 3D rule governs
+    // alone. The uncertainty does not bring it back, otherwise a noisy track
+    // would push the drone sideways again.
+    return 0.0;
+  }
+  return nominal + params_.uncertainty_gain * target.position_sigma;
 }
 
 void SafetyFilter::reset()
@@ -156,7 +175,7 @@ FilterResult SafetyFilter::filter(
   const FilterSetpoint & setpoint, const FilterState & state,
   const std::vector<KeepOutTarget> & targets, const std::vector<Obstacle> & obstacles,
   FilterMode mode, double time_s, double setpoint_age_s, double odom_age_s,
-  bool estop_latched, bool engage_allowed)
+  bool estop_latched, bool engage_allowed, const std::string & abort_reason)
 {
   FilterResult result;
   result.yaw = setpoint.yaw;
@@ -168,6 +187,14 @@ FilterResult SafetyFilter::filter(
   const bool forgot = collectTargets(targets, time_s, keep_outs);
 
   // --- The conditions that stop the drone dead -----------------------------
+  if (!abort_reason.empty()) {
+    // The engagement was aborted: the filter has the final say on the setpoint,
+    // so the abort is enforced here. The drone brakes to a hover and the reason
+    // says why. The abort is latched by the engagement gate, so it stays.
+    FilterResult aborted = hold(state, "abort: " + abort_reason);
+    aborted.aborted = true;
+    return aborted;
+  }
   if (estop_latched) {
     return hold(state, "e-stop latched");
   }
@@ -205,15 +232,20 @@ FilterResult SafetyFilter::filter(
   // --- The keep-out barriers ----------------------------------------------
   // Each barrier is the plan's half-space (section 4.3):
   //
-  //     n . (v_xy - v_t,xy) >= -c_cmd_max
+  //     n . (v - v_t) >= -c_cmd_max
   //
   // where n points from the target to the drone and c_cmd_max is the largest closing
   // speed the drone may command along the line of sight. Since
-  // n . (v_xy - v_t,xy) is minus the commanded closing speed, this is an upper bound on
+  // n . (v - v_t) is minus the commanded closing speed, this is an upper bound on
   // the closing speed.
+  //
+  // A person or a vehicle gets two barriers: the 3D one, which is the safety
+  // distance and is in force at every altitude, and the horizontal one, which
+  // is the plan's flat standoff and is given up with the height above the
+  // person. The two are both enforced, so the stricter of the two is in force.
   struct Barrier
   {
-    Eigen::Vector2d normal;
+    Eigen::Vector3d normal;   // unit, in the plane the constraint applies to
     double target_los = 0.0;  // the target's velocity along the LOS [m/s]
     double c_cmd_max = 0.0;   // the largest closing speed that may be commanded [m/s]
     std::string name;
@@ -221,34 +253,65 @@ FilterResult SafetyFilter::filter(
   std::vector<Barrier> barriers;
 
   for (const KeepOutTarget & target : keep_outs) {
-    const Eigen::Vector2d delta = state.position.head<2>() - target.position.head<2>();
-    const double distance = delta.norm();
-    if (distance < 1e-6) {
+    // The 3D barrier: the safety distance. The closing speed is the one along
+    // the 3D line of sight, so the drone is kept from closing on the person and
+    // from descending onto it.
+    const Eigen::Vector3d delta3 = state.position - target.position;
+    const double distance3 = delta3.norm();
+    if (distance3 < 1e-6) {
       // The drone is exactly on top of the track: the direction is undefined, so the
       // barrier is not well posed. Hold: the safest answer when the geometry is
       // degenerate.
       return hold(state, "on top of track " + std::to_string(target.track_id));
     }
     // n points from the target to the drone.
-    const Eigen::Vector2d normal = delta / distance;
+    const Eigen::Vector3d normal3 = delta3 / distance3;
     // The standoff is measured between the surfaces, so the drone's own radius comes
     // off the distance to the track's centre.
-    const double h = distance - effectiveDistance(target) - params_.drone_radius;
+    const double h3 = distance3 - effectiveDistance3d(target) - params_.drone_radius;
 
     // The velocities along the line of sight. n points from the target to the drone,
     // so the closing speed (the rate at which the range shrinks) is
     // n . (v_target - v_drone), and the target's own closing rate on the drone is
     // n . v_target (positive when the target moves towards the drone).
-    const double target_los = normal.dot(target.velocity.head<2>());
-    const double drone_los = normal.dot(state.velocity.head<2>());
-    const double closing = target_los - drone_los;
-    const double target_closing = target_los;
+    const double target_los3 = normal3.dot(target.velocity);
+    const double drone_los3 = normal3.dot(state.velocity);
+    const double closing3 = target_los3 - drone_los3;
 
-    const double c_cmd_max = maxClosingSpeed(
-      h, closing, target_closing, params_.cbf_alpha,
+    const double c_cmd_max3 = maxClosingSpeed(
+      h3, closing3, target_los3, params_.cbf_alpha,
       params_.barrier_omega, params_.velocity_lag_tau);
     barriers.push_back(
-      {normal, target_los, c_cmd_max, "track " + std::to_string(target.track_id)});
+      {normal3, target_los3, c_cmd_max3, "track " + std::to_string(target.track_id)});
+
+    // The horizontal barrier: the plan's flat standoff. It is only in force while
+    // the drone is at most keepout_horizontal_altitude above the person; above
+    // that the 3D rule governs alone, so the interceptor is not pushed sideways
+    // by a pedestrian that is far below it.
+    const double standoff = horizontalStandoff(state.position.z() - target.position.z(), target);
+    if (standoff <= 0.0) {
+      continue;
+    }
+    const Eigen::Vector2d delta2 = state.position.head<2>() - target.position.head<2>();
+    const double distance2 = delta2.norm();
+    if (distance2 < 1e-6) {
+      // The drone is directly above the track: the horizontal direction is
+      // undefined. The 3D barrier is well posed and keeps the drone from
+      // descending onto the person, so there is nothing to add here.
+      continue;
+    }
+    const Eigen::Vector3d normal2(
+      delta2.x() / distance2, delta2.y() / distance2, 0.0);
+    const double h2 = distance2 - standoff - params_.drone_radius;
+    const double target_los2 = normal2.dot(target.velocity);
+    const double drone_los2 = normal2.dot(state.velocity);
+    const double closing2 = target_los2 - drone_los2;
+    const double c_cmd_max2 = maxClosingSpeed(
+      h2, closing2, target_los2, params_.cbf_alpha,
+      params_.barrier_omega, params_.velocity_lag_tau);
+    barriers.push_back(
+      {normal2, target_los2, c_cmd_max2,
+        "track " + std::to_string(target.track_id) + " (horizontal)"});
   }
 
   for (const Obstacle & obstacle : obstacles) {
@@ -270,7 +333,9 @@ FilterResult SafetyFilter::filter(
     const double closing = -normal.dot(state.velocity.head<2>());
     const double c_cmd_max = maxClosingSpeed(
       h, closing, 0.0, params_.cbf_alpha, params_.barrier_omega, params_.velocity_lag_tau);
-    barriers.push_back({normal, 0.0, c_cmd_max, "obstacle " + obstacle.name});
+    barriers.push_back(
+      {Eigen::Vector3d(normal.x(), normal.y(), 0.0), 0.0, c_cmd_max,
+        "obstacle " + obstacle.name});
   }
 
   // --- Project onto the barriers -------------------------------------------
@@ -286,7 +351,7 @@ FilterResult SafetyFilter::filter(
   // boundary, along the normal.
   const auto satisfied = [&barriers](const Eigen::Vector3d & v) {
       for (const Barrier & barrier : barriers) {
-        if (barrier.normal.dot(v.head<2>()) < barrier.target_los - barrier.c_cmd_max - 1e-9) {
+        if (barrier.normal.dot(v) < barrier.target_los - barrier.c_cmd_max - 1e-9) {
           return false;
         }
       }
@@ -299,7 +364,7 @@ FilterResult SafetyFilter::filter(
   for (int iteration = 0; iteration < params_.max_projection_iterations; ++iteration) {
     all_satisfied = true;
     for (const Barrier & barrier : barriers) {
-      const double value = barrier.normal.dot(velocity.head<2>());
+      const double value = barrier.normal.dot(velocity);
       const double bound = barrier.target_los - barrier.c_cmd_max;
       if (value < bound - 1e-9) {
         all_satisfied = false;
@@ -309,8 +374,7 @@ FilterResult SafetyFilter::filter(
         if (first_violation.empty()) {
           first_violation = barrier.name;
         }
-        velocity.x() += barrier.normal.x() * (bound - value);
-        velocity.y() += barrier.normal.y() * (bound - value);
+        velocity += barrier.normal * (bound - value);
       }
     }
     if (all_satisfied) {
@@ -395,6 +459,14 @@ FilterResult SafetyFilter::filter(
     }
   }
   velocity.z() = std::clamp(velocity.z(), -params_.max_vertical_speed, params_.max_vertical_speed);
+
+  // The flight limits are applied after the projection, and they can break a
+  // barrier: the altitude floor can stop the climb a 3D keep-out asks for, and
+  // the vertical speed cap can slow it down. A distance is never relaxed to
+  // make a command feasible, so the drone holds instead.
+  if (!satisfied(velocity)) {
+    return hold(state, "the flight limits conflict with the keep-out");
+  }
 
   result.velocity = velocity;
   return result;
