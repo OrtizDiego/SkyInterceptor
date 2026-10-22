@@ -18,6 +18,12 @@
  * planner and the trajectory controller and has the final say, so it owns /setpoint/safe.
  * Publishing on both would put two publishers on the topic the controller reads, and the
  * controller would sometimes fly an unfiltered setpoint.
+ *
+ * The abort (plan 4.4) is owned by the safety filter too: it is the one that knows
+ * about the bystanders and about the engagement gate. The filter brakes the drone
+ * itself, and it says so on /mission/status (abort_active). This node follows that
+ * signal and stops commanding a closure: the vehicle holds position and the phase
+ * machine goes to ABORT.
  */
 
 #include <Eigen/Geometry>
@@ -31,6 +37,7 @@
 #include <interceptor_interfaces/msg/flight_setpoint.hpp>
 #include <interceptor_interfaces/msg/guidance_command.hpp>
 #include <interceptor_interfaces/msg/mission_mode.hpp>
+#include <interceptor_interfaces/msg/mission_status.hpp>
 #include <interceptor_interfaces/msg/target_state.hpp>
 #include <nav_msgs/msg/odometry.hpp>
 #include <rclcpp/rclcpp.hpp>
@@ -46,6 +53,7 @@ namespace interceptor
 using FlightSetpointMsg = interceptor_interfaces::msg::FlightSetpoint;
 using GuidanceCommandMsg = interceptor_interfaces::msg::GuidanceCommand;
 using MissionModeMsg = interceptor_interfaces::msg::MissionMode;
+using MissionStatusMsg = interceptor_interfaces::msg::MissionStatus;
 using TargetStateMsg = interceptor_interfaces::msg::TargetState;
 using BoolMsg = std_msgs::msg::Bool;
 
@@ -133,6 +141,11 @@ public:
     mode_sub_ = create_subscription<MissionModeMsg>(
       "/mission/mode", rclcpp::QoS(1).reliable().transient_local(),
       [this](MissionModeMsg::ConstSharedPtr msg) {onMode(*msg);});
+    // The abort comes from the safety filter: it is the node that knows about the
+    // bystanders and about the engagement gate.
+    status_sub_ = create_subscription<MissionStatusMsg>(
+      "/mission/status", 10,
+      [this](MissionStatusMsg::ConstSharedPtr msg) {onStatus(*msg);});
 
     // On the node clock, so it follows simulation time
     timer_ = rclcpp::create_timer(
@@ -156,6 +169,7 @@ private:
     PURSUE,   // PN / APN on the line of sight
     CAPTURE,  // inside the capture range: the capture is armed
     DONE,     // captured
+    ABORT,    // the safety filter aborted the engagement: hold position
   };
 
   static constexpr const char * phaseName(Phase phase)
@@ -165,6 +179,7 @@ private:
       case Phase::PURSUE: return "PURSUE";
       case Phase::CAPTURE: return "CAPTURE";
       case Phase::DONE: return "DONE";
+      case Phase::ABORT: return "ABORT";
     }
     return "UNKNOWN";
   }
@@ -202,10 +217,26 @@ private:
       phase_ = Phase::SEARCH;
       capture_confirmed_ = false;
       capture_reported_ = false;
+      aborted_ = false;
     }
     has_mode_ = true;
     mode_ = msg.mode;
     armed_ = msg.armed;
+  }
+
+  /// The safety filter's status: the abort comes from there.
+  ///
+  /// The abort is latched here as well, so a single dropped message does not
+  /// resume the closure.
+  void onStatus(const MissionStatusMsg & msg)
+  {
+    if (msg.abort_active && !aborted_) {
+      aborted_ = true;
+      phase_ = Phase::ABORT;
+      RCLCPP_WARN(
+        get_logger(), "Engagement aborted by the safety filter: %s",
+        msg.reason.c_str());
+    }
   }
 
   /// The engagement gate of plan 4.4: the target must be a uav, confirmed, high
@@ -313,12 +344,22 @@ private:
       case Phase::DONE:
         // Hold the position until the operator resets the mission.
         break;
+
+      case Phase::ABORT:
+        // The safety filter aborted the engagement: hold position. The filter
+        // brakes the drone anyway, but the guidance must not keep commanding a
+        // closure.
+        break;
     }
   }
 
   /// The velocity setpoint for the current phase.
   Eigen::Vector3d computeVelocity()
   {
+    if (aborted_) {
+      // The engagement was aborted: hold position.
+      return Eigen::Vector3d::Zero();
+    }
     switch (phase_) {
       case Phase::SEARCH: {
           // Climb to the cruise altitude and hold it.
@@ -352,6 +393,10 @@ private:
           return clampSpeed(
             guidance_->velocitySetpoint(state, result, accel_to_velocity_gain_));
         }
+
+      case Phase::ABORT:
+        // The safety filter aborted the engagement: hold position.
+        return Eigen::Vector3d::Zero();
     }
     return Eigen::Vector3d::Zero();
   }
@@ -444,7 +489,7 @@ private:
       msg.mode = guidance_->params().law == guidance::GuidanceLaw::PURE_PN ?
         GuidanceCommandMsg::MODE_PN : GuidanceCommandMsg::MODE_APN;
     }
-    msg.is_feasible = engagementAllowed();
+    msg.is_feasible = engagementAllowed() && !aborted_;
     msg.status_message = phaseName(phase_);
 
     pub_command_->publish(msg);
@@ -537,6 +582,8 @@ private:
   bool armed_ = false;
   uint8_t mode_ = 0;
   bool arm_sent_ = false;
+  /// The safety filter aborted the engagement.
+  bool aborted_ = false;
 
   // Target and interceptor state (world frame)
   Eigen::Vector3d target_position_ = Eigen::Vector3d::Zero();
@@ -566,6 +613,7 @@ private:
   rclcpp::Subscription<TargetStateMsg>::SharedPtr target_sub_;
   rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr odom_sub_;
   rclcpp::Subscription<MissionModeMsg>::SharedPtr mode_sub_;
+  rclcpp::Subscription<MissionStatusMsg>::SharedPtr status_sub_;
   rclcpp::TimerBase::SharedPtr timer_;
 };
 

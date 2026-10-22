@@ -7,8 +7,15 @@
  * publishes a setpoint the drone can actually fly without coming closer to a person,
  * a vehicle or a static obstacle than the configured standoff.
  *
- * All the maths lives in the ROS-free library include/safety/safety_filter.hpp; this
- * file only does the plumbing.
+ * It also owns the INTERCEPT engagement gate and the abort (plan section 4.4): it
+ * decides whether the interceptor may engage the selected target at all, and it
+ * breaks the engagement off when something makes it unacceptable. The gate and the
+ * abort live in the ROS-free library include/safety/engagement_gate.hpp; the filter
+ * itself is in include/safety/safety_filter.hpp. This file only does the plumbing.
+ *
+ * The abort reaches the vehicle through the setpoint: the filter has the final say,
+ * so an abort brakes the drone to a hover. The guidance learns about it from
+ * /mission/status (abort_active), and stops commanding a closure.
  *
  * Topics
  * ------
@@ -44,6 +51,7 @@
 #include <visualization_msgs/msg/marker_array.hpp>
 
 #include "common/mission.hpp"
+#include "safety/engagement_gate.hpp"
 #include "safety/safety_filter.hpp"
 
 namespace interceptor
@@ -66,8 +74,13 @@ public:
     const safety::SafetyFilterParams defaults;
 
     safety::SafetyFilterParams params;
+    params.d_min_3d = declare_parameter("safety.d_min_3d", defaults.d_min_3d);
     params.d_min_horizontal =
       declare_parameter("safety.d_min_horizontal", defaults.d_min_horizontal);
+    params.keepout_horizontal_altitude =
+      declare_parameter("safety.keepout_horizontal_altitude", defaults.keepout_horizontal_altitude);
+    params.keepout_horizontal_taper =
+      declare_parameter("safety.keepout_horizontal_taper", defaults.keepout_horizontal_taper);
     params.d_obstacle_min = declare_parameter("safety.d_obstacle_min", defaults.d_obstacle_min);
     params.h_min_above = declare_parameter("safety.h_min_above", defaults.h_min_above);
     params.uncertainty_gain =
@@ -106,6 +119,27 @@ public:
     filter_ = std::make_unique<safety::SafetyFilter>(params);
     obstacles_ = readObstacles();
 
+    // The engagement gate and the abort (plan section 4.4). The gate's
+    // parameters come from intercept_params.yaml, which the launch file passes
+    // to this node as well; the geofence is the filter's own.
+    safety::EngagementParams engagement_params;
+    engagement_params.require_armed =
+      declare_parameter("intercept.require_armed", engagement_params.require_armed);
+    engagement_params.min_engage_altitude_agl = declare_parameter(
+      "intercept.min_engage_altitude_agl", engagement_params.min_engage_altitude_agl);
+    engagement_params.min_confirmed_frames = declare_parameter(
+      "intercept.min_confirmed_frames", engagement_params.min_confirmed_frames);
+    engagement_params.abort_ground_radius = declare_parameter(
+      "intercept.abort_ground_radius", engagement_params.abort_ground_radius);
+    engagement_params.engage_altitude_band = declare_parameter(
+      "safety.engage_altitude_band", engagement_params.engage_altitude_band);
+    engagement_params.geofence_x_min = params.geofence_x_min;
+    engagement_params.geofence_x_max = params.geofence_x_max;
+    engagement_params.geofence_y_min = params.geofence_y_min;
+    engagement_params.geofence_y_max = params.geofence_y_max;
+    engagement_params.geofence_margin = params.geofence_margin;
+    gate_ = std::make_unique<safety::EngagementGate>(engagement_params);
+
     const double rate_hz = declare_parameter("rate_hz", 50.0);
     if (!(rate_hz > 0.0)) {
       throw std::invalid_argument("rate_hz must be positive");
@@ -141,8 +175,15 @@ public:
 
     RCLCPP_INFO(
       get_logger(),
-      "Safety filter started: d_min=%.1f m, d_obstacle_min=%.1f m, %zu obstacles",
-      params.d_min_horizontal, params.d_obstacle_min, obstacles_.size());
+      "Safety filter started: d_min_3d=%.1f m, d_min_horizontal=%.1f m, "
+      "d_obstacle_min=%.1f m, %zu obstacles",
+      params.d_min_3d, params.d_min_horizontal, params.d_obstacle_min, obstacles_.size());
+    RCLCPP_INFO(
+      get_logger(),
+      "Engagement gate: min_engage_altitude_agl=%.1f m, altitude_band=%.1f m, "
+      "abort_ground_radius=%.1f m, min_confirmed_frames=%d",
+      engagement_params.min_engage_altitude_agl, engagement_params.engage_altitude_band,
+      engagement_params.abort_ground_radius, engagement_params.min_confirmed_frames);
   }
 
 private:
@@ -235,6 +276,14 @@ private:
 
   void onMode(const MissionModeMsg & msg)
   {
+    // A new mode or a new arming state is a new mission: the gate's latch and
+    // the abort are cleared, so a new engagement can be started.
+    if (has_mode_ && (msg.mode != mode_ || msg.armed != armed_)) {
+      gate_->reset();
+      filter_->reset();
+      abort_reported_ = false;
+      RCLCPP_INFO(get_logger(), "New mission: the engagement gate and the abort are reset");
+    }
     mode_ = msg.mode;
     armed_ = msg.armed;
     has_mode_ = true;
@@ -253,25 +302,33 @@ private:
     }
   }
 
-  /// The INTERCEPT engagement gate (plan section 4.4).
+  /// The INTERCEPT engagement gate and the abort (plan section 4.4).
   ///
-  /// The gate is enforced here so a planner bug cannot bypass it. P3.4 adds the
-  /// altitude and geofence conditions and the abort logic; the class check below is
-  /// the one that must never be relaxed: a person is never a valid target, whatever
-  /// else is configured.
-  bool engagementAllowed() const
+  /// The gate is enforced here so a planner bug cannot bypass it. The class rule
+  /// is the one that must never be relaxed: a person is never a valid target,
+  /// whatever else is configured. The gate and the abort are in the ROS-free
+  /// library include/safety/engagement_gate.hpp, so they can be tested without
+  /// ROS.
+  safety::EngagementDecision evaluateGate()
   {
-    if (mode_ != static_cast<uint8_t>(MissionMode::INTERCEPT)) {
-      return true;
+    safety::EngagementContext context;
+    context.intercept_mode = mode_ == static_cast<uint8_t>(MissionMode::INTERCEPT);
+    context.armed = armed_;
+    context.estop = estop_latched_;
+    context.target_track_id = selected_track_id_;
+    context.target_class_id = selected_class_id_;
+    context.target_confirmed = selected_confirmed_;
+    context.target_valid = selected_valid_;
+    context.target_position = selected_position_;
+    context.interceptor_position = state_.position;
+    context.tracks = tracks_;
+
+    const safety::EngagementDecision decision = gate_->update(context);
+    if (decision.aborted && !abort_reported_) {
+      abort_reported_ = true;
+      RCLCPP_WARN(get_logger(), "Engagement aborted: %s", decision.reason.c_str());
     }
-    if (!armed_) {
-      return false;
-    }
-    // The selected target has to be a uav, confirmed and valid.
-    if (selected_class_id_ != static_cast<int32_t>(TargetClass::UAV)) {
-      return false;
-    }
-    return selected_confirmed_ && selected_valid_;
+    return decision;
   }
 
   safety::FilterMode currentMode() const
@@ -305,12 +362,18 @@ private:
       setpoint.velocity = Eigen::Vector3d::Zero();
     }
 
+    // The gate and the abort are evaluated first: they decide whether the
+    // interceptor may engage the target at all, and an abort brakes the drone
+    // whatever the planner asks for.
+    const safety::EngagementDecision decision = evaluateGate();
+    const std::string abort_reason = decision.aborted ? decision.reason : std::string();
+
     const safety::FilterResult result = filter_->filter(
       setpoint, state_, tracks_, obstacles_, currentMode(), now_s, setpoint_age, odom_age,
-      estop_latched_, engagementAllowed());
+      estop_latched_, decision.engage_allowed, abort_reason);
 
     publishSetpoint(result);
-    publishStatus(result);
+    publishStatus(result, decision);
     publishMarkers();
   }
 
@@ -336,25 +399,34 @@ private:
     pub_setpoint_->publish(msg);
   }
 
-  void publishStatus(const safety::FilterResult & result)
+  void publishStatus(
+    const safety::FilterResult & result, const safety::EngagementDecision & decision)
   {
     MissionStatusMsg msg;
     msg.header.stamp = now();
     msg.header.frame_id = "map";
     msg.mode = mode_;
-    msg.phase = phaseFor(result);
+    msg.phase = phaseFor(result, decision);
     msg.target_track_id = selected_track_id_;
     msg.distance_to_target = distanceToSelected();
     msg.safety_active = result.safety_active;
-    msg.reason = result.reason;
+    msg.abort_active = decision.aborted;
+    // The reason of the gate is more informative than the one of the filter
+    // when the gate is the reason: the operator wants to know why the
+    // engagement is refused.
+    msg.reason = decision.reason.empty() ? result.reason : decision.reason;
 
     pub_status_->publish(msg);
   }
 
   /// The phase the filter can see. The planners own the detailed phase; this is the
   /// filter's view of it, for the status overlay.
-  uint8_t phaseFor(const safety::FilterResult & result) const
+  uint8_t phaseFor(
+    const safety::FilterResult & result, const safety::EngagementDecision & decision) const
   {
+    if (decision.aborted) {
+      return MissionStatusMsg::PHASE_ABORT;
+    }
     if (result.safety_active && estop_latched_) {
       return MissionStatusMsg::PHASE_IDLE;
     }
@@ -362,7 +434,7 @@ private:
       case safety::FilterMode::FOLLOW:
         return MissionStatusMsg::PHASE_TRACKING;
       case safety::FilterMode::INTERCEPT:
-        return engagementAllowed() ? MissionStatusMsg::PHASE_PURSUE :
+        return decision.engage_allowed ? MissionStatusMsg::PHASE_PURSUE :
                MissionStatusMsg::PHASE_SEARCH;
       case safety::FilterMode::HOLD:
         break;
@@ -433,6 +505,7 @@ private:
 
   // The filter and its inputs
   std::unique_ptr<safety::SafetyFilter> filter_;
+  std::unique_ptr<safety::EngagementGate> gate_;
   std::vector<safety::Obstacle> obstacles_;
   std::vector<safety::KeepOutTarget> tracks_;
   safety::FilterSetpoint setpoint_;
@@ -449,6 +522,8 @@ private:
   bool armed_ = false;
   bool has_mode_ = false;
   bool estop_latched_ = false;
+  /// True once the abort has been reported, so it is logged only once.
+  bool abort_reported_ = false;
 
   // The selected target, from /target/state
   int32_t selected_track_id_ = -1;

@@ -8,10 +8,15 @@
     intercept:
       # --- Engagement gate -----------------------------------------------
       # The track's class must be uav and confirmed for min_confirmed_frames.
+      # The gate itself is enforced by safety_filter_node (P3.4), which reads
+      # these parameters as well.
       min_confirmed_frames: 10
       min_engage_altitude_agl: 10.0   # m, the target must be high enough to engage
       require_armed: true              # the operator has to arm the system
-      abort_ground_radius: 15.0        # m, horizontal, to a person or vehicle
+      # The abort radius: a person or a vehicle within this radius (measured
+      # in 3D, like the safety distance it protects) of the interceptor, or of
+      # the capture point, aborts the engagement.
+      abort_ground_radius: 15.0        # m, to a person or vehicle
       eligible_classes: ["uav"]
 
       # --- Capture ------------------------------------------------------
