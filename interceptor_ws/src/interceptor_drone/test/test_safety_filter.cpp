@@ -304,6 +304,94 @@ TEST(SafetyFilterTest, CommandedAtATreeStopsAtTheObstacleDistance)
     << " m of the tree's surface";
 }
 
+/// The distance to an obstacle is the 3D distance to its cylinder: to the side
+/// beside it, to the top above it, to the rim diagonally.
+TEST(SafetyFilterTest, TheObstacleDistanceIsToTheCylinder)
+{
+  const Obstacle tree{"tree", 0.0, 0.0, 4.0, 6.5};
+
+  const ObstacleDistance beside = obstacleDistance(tree, Eigen::Vector3d(10.0, 0.0, 3.0));
+  EXPECT_NEAR(beside.distance, 6.0, 1e-9);
+  EXPECT_NEAR(beside.normal.x(), 1.0, 1e-9);
+
+  const ObstacleDistance above = obstacleDistance(tree, Eigen::Vector3d(1.0, 1.0, 9.0));
+  EXPECT_NEAR(above.distance, 2.5, 1e-9);
+  EXPECT_NEAR(above.normal.z(), 1.0, 1e-9);
+
+  const ObstacleDistance rim = obstacleDistance(tree, Eigen::Vector3d(7.0, 0.0, 10.5));
+  EXPECT_NEAR(rim.distance, 5.0, 1e-9);  // 3 m out, 4 m up
+  EXPECT_NEAR(rim.normal.x(), 0.6, 1e-9);
+  EXPECT_NEAR(rim.normal.z(), 0.8, 1e-9);
+
+  const ObstacleDistance inside = obstacleDistance(tree, Eigen::Vector3d(3.0, 0.0, 2.0));
+  EXPECT_NEAR(inside.distance, -1.0, 1e-9);
+}
+
+/// A drone above a tree that is commanded down stops d_obstacle_min above the
+/// canopy: it cannot sink into the tree from above.
+TEST(SafetyFilterTest, TheDroneCannotSinkIntoACanopy)
+{
+  SafetyFilter filter(testParams());
+  const std::vector<Obstacle> obstacles = {{"oak", 0.0, 0.0, 4.0, 6.5}};
+  LagPlant plant;
+  plant.state = stateAt(1.0, 0.0, 14.0);
+
+  double lowest = std::numeric_limits<double>::infinity();
+  for (double t = 10.0; t < 30.0; t += 0.02) {
+    const FilterSetpoint setpoint = velocitySetpoint(Eigen::Vector3d(0.0, 0.0, -3.0));
+    const FilterResult result = filter.filter(
+      setpoint, plant.state, {}, obstacles, FilterMode::FOLLOW, t, 0.0, 0.0, false, true);
+    plant.step(result.velocity, 0.02);
+    lowest = std::min(lowest, plant.state.position.z());
+  }
+  EXPECT_GE(lowest - obstacles[0].height, filter.params().d_obstacle_min - 0.05)
+    << "the drone descended to " << lowest - obstacles[0].height << " m above the canopy";
+}
+
+/// A drone flying across a tree at the height of its canopy keeps d_obstacle_min
+/// from the canopy in 3D, whichever way round it goes. This is the case the old
+/// rule (a 2D circle that stopped at the tree's height) got wrong: just above the
+/// canopy the tree did not exist, and the drone drifted over it and sank into it.
+TEST(SafetyFilterTest, ADroneCrossingATreeAtCanopyHeightKeepsItsDistance)
+{
+  SafetyFilter filter(testParams());
+  const std::vector<Obstacle> obstacles = {{"oak", 20.0, 0.0, 4.0, 6.5}};
+
+  for (double z0 : {5.5, 6.3, 6.7, 8.0}) {
+    for (double y0 : {0.0, 1.0}) {
+      LagPlant plant;
+      plant.state = stateAt(0.0, y0, z0);
+      double minimum = std::numeric_limits<double>::infinity();
+      for (double t = 10.0; t < 40.0; t += 0.02) {
+        // Straight across the tree, and gently down.
+        const FilterSetpoint setpoint = velocitySetpoint(Eigen::Vector3d(4.0, 0.0, -0.3));
+        const FilterResult result = filter.filter(
+          setpoint, plant.state, {}, obstacles, FilterMode::FOLLOW, t, 0.0, 0.0, false, true);
+        plant.step(result.velocity, 0.02);
+        minimum = std::min(
+          minimum, obstacleDistance(obstacles[0], plant.state.position).distance);
+      }
+      EXPECT_GE(minimum, filter.params().d_obstacle_min - 0.05)
+        << "start at z = " << z0 << ", y = " << y0 << ": the drone came within "
+        << minimum << " m of the canopy";
+    }
+  }
+}
+
+/// A low obstacle far below the drone does not get in its way.
+TEST(SafetyFilterTest, ABenchFarBelowDoesNotConstrainTheDrone)
+{
+  SafetyFilter filter(testParams());
+  const std::vector<Obstacle> obstacles = {{"bench", 2.0, 0.0, 0.75, 0.5}};
+  const FilterSetpoint setpoint = velocitySetpoint(Eigen::Vector3d(3.0, 0.0, 0.0));
+
+  const FilterResult result =
+    run(filter, setpoint, stateAt(0.0, 0.0, 6.0), {}, obstacles);
+
+  EXPECT_FALSE(result.safety_active) << result.reason;
+  EXPECT_NEAR(result.velocity.x(), 3.0, 1e-9);
+}
+
 /// A noisy track (large covariance) gets a larger margin than a precise one.
 ///
 /// The margin is inflated with the track's position uncertainty, so a poorly tracked
