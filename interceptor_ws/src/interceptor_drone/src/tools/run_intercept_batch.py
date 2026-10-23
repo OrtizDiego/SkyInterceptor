@@ -141,13 +141,15 @@ def layout(scenario, seed):
                 weave_speed=6.0, weave_amplitude=2.0, weave_frequency=0.25,
                 weave_direction_yaw=heading, weave_ramp_time=3.0)
     else:
-        # The bystander: the intruder hovers above the pedestrian's patrol square,
-        # so the pedestrian is inside the abort radius of the capture point.
+        # The bystander: the intruder hovers above the centre of the pedestrian's
+        # patrol square, 11 m up, so the pedestrian (whose hip is 1 m up) is within
+        # 14.6 m of the capture point wherever it is on the square: inside the 15 m
+        # abort radius all the time. An earlier layout moved the intruder up to 2 m
+        # off the centre at 12 m, and then a quarter of the patrol was outside the
+        # radius: one run in 25 captured with the pedestrian really 15+ m away.
         interceptor = (7.5, -12.0)
         target.update(
-            start_x=7.5 + rng.uniform(-2.0, 2.0),
-            start_y=7.5 + rng.uniform(-2.0, 2.0),
-            start_z=12.0,
+            start_x=7.5, start_y=7.5, start_z=11.0,
             start_yaw=rng.uniform(-3.14, 3.14))
     return {
         'interceptor': interceptor,
@@ -170,23 +172,24 @@ def write_target_params(defaults_path, overrides, path):
 
 
 class ManoeuvreTrigger:
-    """Starts the intruder's manoeuvre once the interceptor is in the engagement band."""
+    """
+    Starts the intruder's manoeuvre once the interceptor is in the engagement band.
 
-    def __init__(self, behaviour, trigger_altitude):
-        """Watch /odom and switch the intruder to the behaviour above the altitude."""
+    One trigger serves the whole batch and is armed again for every run: tearing
+    an executor down while its thread is still spinning can crash the process.
+    """
+
+    def __init__(self):
+        """Watch /odom; arm() says what to switch the intruder to, and when."""
         import rclpy
         import rclpy.executors
         from nav_msgs.msg import Odometry
-        from rcl_interfaces.msg import Parameter, ParameterType, ParameterValue
         from rcl_interfaces.srv import SetParameters
 
-        self._rclpy = rclpy
-        self.behaviour = behaviour
-        self.trigger_altitude = trigger_altitude
+        self.behaviour = None
+        self.trigger_altitude = 0.0
         self.triggered = False
-        self._request = SetParameters.Request(parameters=[Parameter(
-            name='behaviour',
-            value=ParameterValue(type=ParameterType.PARAMETER_STRING, string_value=behaviour))])
+        self._lock = threading.Lock()
         self.node = rclpy.create_node('intercept_batch_trigger')
         self._client = self.node.create_client(
             SetParameters, '/target_drone_behavior_node/set_parameters')
@@ -196,19 +199,40 @@ class ManoeuvreTrigger:
         self._thread = threading.Thread(target=self._executor.spin, daemon=True)
         self._thread.start()
 
+    def arm(self, behaviour, trigger_altitude):
+        """Switch the intruder to the behaviour when the interceptor reaches the altitude."""
+        from rcl_interfaces.msg import Parameter, ParameterType, ParameterValue
+        from rcl_interfaces.srv import SetParameters
+        with self._lock:
+            self.behaviour = behaviour
+            self.trigger_altitude = trigger_altitude
+            self.triggered = False
+            self._request = SetParameters.Request(parameters=[Parameter(
+                name='behaviour',
+                value=ParameterValue(
+                    type=ParameterType.PARAMETER_STRING, string_value=behaviour))])
+
+    def disarm(self):
+        """Stop triggering: the run is over."""
+        with self._lock:
+            self.behaviour = None
+
     def _on_odom(self, msg):
         """Switch the behaviour the first time the interceptor reaches the altitude."""
-        if self.triggered or msg.pose.pose.position.z < self.trigger_altitude:
-            return
-        if not self._client.service_is_ready():
-            return
-        self.triggered = True
-        self._client.call_async(self._request)
+        with self._lock:
+            if self.behaviour is None or self.triggered:
+                return
+            if msg.pose.pose.position.z < self.trigger_altitude:
+                return
+            if not self._client.service_is_ready():
+                return
+            self.triggered = True
+            self._client.call_async(self._request)
         print(f'    manoeuvre: {self.behaviour} at '
               f'{msg.pose.pose.position.z:.1f} m', flush=True)
 
     def close(self):
-        """Stop watching."""
+        """Stop watching, at the end of the batch."""
         self._executor.shutdown()
         self.node.destroy_node()
 
@@ -251,7 +275,7 @@ def read_row(path):
     return rows[-1] if rows else None
 
 
-def run_one(scenario, seed, args, run_dir, gazebo_port, attempt=0):
+def run_one(scenario, seed, args, run_dir, gazebo_port, trigger, attempt=0):
     """Run one scenario and return the CSV line of its row, or None when it failed."""
     from ament_index_python.packages import get_package_share_directory
     share = Path(get_package_share_directory('interceptor_drone'))
@@ -279,7 +303,7 @@ def run_one(scenario, seed, args, run_dir, gazebo_port, attempt=0):
 
     print(f'--- {scenario} (seed {seed}) ---', flush=True)
     started = time.time()
-    trigger = None
+    triggered = None
     # The output goes to a file and not to a pipe: a full pipe blocks the launch.
     log_path = run_dir / f'launch_attempt{attempt}.log'
     with log_path.open('w') as log_file:
@@ -288,7 +312,7 @@ def run_one(scenario, seed, args, run_dir, gazebo_port, attempt=0):
             start_new_session=True)
     try:
         if geometry['behaviour'] is not None:
-            trigger = ManoeuvreTrigger(geometry['behaviour'], geometry['trigger_altitude'])
+            trigger.arm(geometry['behaviour'], geometry['trigger_altitude'])
         # The metrics node writes the row and exits when the engagement ends.
         while time.time() - started < args.timeout:
             if read_row(row_path) is not None or process.poll() is not None:
@@ -300,8 +324,9 @@ def run_one(scenario, seed, args, run_dir, gazebo_port, attempt=0):
                 break
             time.sleep(1.0)
     finally:
-        if trigger is not None:
-            trigger.close()
+        if geometry['behaviour'] is not None:
+            triggered = trigger.triggered
+        trigger.disarm()
         stop(process)
 
     row = read_row(row_path)
@@ -311,9 +336,10 @@ def run_one(scenario, seed, args, run_dir, gazebo_port, attempt=0):
         # port of its own.
         print(f'    FAILED after {duration:.0f} s: no samples', flush=True)
         if attempt < args.retries:
-            return run_one(scenario, seed, args, run_dir, gazebo_port + 100, attempt + 1)
+            return run_one(
+                scenario, seed, args, run_dir, gazebo_port + 100, trigger, attempt + 1)
         return None
-    if trigger is not None and not trigger.triggered:
+    if triggered is False:
         print('    note: the manoeuvre was never triggered', flush=True)
     print(
         f"    {duration:.0f} s wall clock: capture {row['capture_confirmed']}, "
@@ -339,6 +365,7 @@ def main(argv=None):
     os.environ['ROS_DOMAIN_ID'] = str(args.domain_id)
     import rclpy
     rclpy.init()
+    trigger = ManoeuvreTrigger()
 
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -361,7 +388,7 @@ def main(argv=None):
                 if (scenario, seed) in done:
                     continue
                 run_dir = output_dir / f'{scenario}_seed{seed:03d}'
-                line = run_one(scenario, seed, args, run_dir, port)
+                line = run_one(scenario, seed, args, run_dir, port, trigger)
                 port += 1
                 if line is None:
                     continue
@@ -370,6 +397,7 @@ def main(argv=None):
                 lines.append(line)
                 runs_csv.write_text('\n'.join([header] + lines) + '\n')
     finally:
+        trigger.close()
         rclpy.shutdown()
 
     if not lines:

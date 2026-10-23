@@ -375,6 +375,44 @@ the way, and both are open work rather than guidance bugs:
   engagement slows down. The altitude and geofence conditions of the engagement
   gate, and the abort logic, are P3.4's job.
 - The interceptor flies at 8 m/s and the intruder at 6 m/s, so the closing speed
-  available is small. The capture rates of the plan's exit criteria (hover, 10 m/s
-  straight, weave) are measured by the scenario runner of P3.5.
+  available is small. The capture rates of the plan's exit criteria are measured
+  by the scenario batch below.
+
+## The scenarios and the exit criteria
+
+`run_intercept_batch.py` flies the plan's four scenarios in Gazebo, one full
+simulation per run (`launch/intercept_scenario.launch.py`), and
+`intercept_metrics_node` writes one row of CSV per run. The rows are scored by
+`intercept_metrics_report`, which uses the same aggregator and the same criteria
+(`metrics::criteriaFor`) as the unit tests.
+
+```bash
+ros2 run interceptor_drone run_intercept_batch.py --runs-per-scenario 25 --output-dir /tmp/batch
+```
+
+The layout:
+
+| Scenario | The intruder | The interceptor starts at |
+|---|---|---|
+| `hover` | hovers at (60, 50) ± (5, 10) m, 12-15 m up | (40, 50) |
+| `straight` | flies at the interceptor at 10 m/s from (85, 50 ± 8), heading error ± 0.15 rad | (45, 50) |
+| `weave` | the same, at 6 m/s with a ± 2 m weave at 0.25 Hz | (45, 50) |
+| `bystander` | hovers 11 m above the centre of the pedestrian's patrol square | (7.5, -12) |
+
+The capture scenarios are flown 40 m and more from the pedestrian, so the abort
+(a person within 15 m of the interceptor or of the capture point) is not in play;
+the bystander scenario puts the capture point right above the pedestrian, so it
+must be. The abort radius is the configured 15 m in every scenario.
+
+The intruder hovers at the start of its path until the interceptor has climbed
+into the engagement band, and then starts its manoeuvre with a smooth ramp (5 s to
+10 m/s, 3 s into the weave). The interceptor flies at 8 m/s, so it cannot catch a
+10 m/s intruder from behind: the straight and weave intruders fly at it, and the
+capture law backs away along the intruder's path and lets it close at the speed of
+its braking curve. That is how the head-on runs end at 1-4 m/s relative speed.
+
+### The results
+
+BATCH_RESULTS
+
 
