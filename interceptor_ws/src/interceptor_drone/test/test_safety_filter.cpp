@@ -492,6 +492,108 @@ TEST(SafetyFilterTest, AJoggerRunningAtTheDroneNextToABystanderIsNotABox)
   EXPECT_GT(result.velocity.norm(), 1.0) << "the drone stopped while the jogger ran at it";
 }
 
+/// The scene logged in the P2.4 jogger runs: a jogger runs at the drone from one
+/// side, and an oak stands behind it 7 m away. The jogger's barrier demands an
+/// escape faster than the oak's barrier lets the drone approach the oak, so the
+/// rates conflict while there is plenty of room. The oak's rate is relaxed (its
+/// distance is not at stake), and the drone escapes instead of holding.
+TEST(SafetyFilterTest, AConflictRelaxesTheLeastUrgentBarrierInsteadOfHolding)
+{
+  SafetyFilterParams params;
+  params.drone_radius = 0.3;
+  SafetyFilter filter(params);
+
+  FilterState state;
+  state.position = Eigen::Vector3d(0.0, 0.0, 6.0);
+  KeepOutTarget jogger = person(1, -4.0, 0.0, 1.0);
+  jogger.velocity = Eigen::Vector3d(5.0, 0.0, 0.0);
+  jogger.position_sigma = 0.15;
+  // The canopy's surface is 7 m from the drone, so the oak has 3.7 m of margin.
+  const std::vector<Obstacle> obstacles = {{"oak", 11.0, 0.0, 4.0, 6.5}};
+
+  const FilterResult result = filter.filter(
+    velocitySetpoint(Eigen::Vector3d::Zero()), state, {jogger}, obstacles,
+    FilterMode::FOLLOW, 10.0, 0.0, 0.0, false, true);
+
+  EXPECT_EQ(result.reason.find("conflicting"), std::string::npos) << result.reason;
+  EXPECT_NE(result.reason.find("rate relaxed for obstacle oak"), std::string::npos)
+    << result.reason;
+  EXPECT_GT(result.velocity.x(), 3.7) << "the drone did not get out of the jogger's way";
+}
+
+/// A barrier with less than relax_min_margin of distance left is never relaxed:
+/// with every keep-out close, a conflict still holds the drone.
+TEST(SafetyFilterTest, ACloseKeepOutIsNeverRelaxed)
+{
+  SafetyFilterParams params;
+  params.drone_radius = 0.3;
+  params.relax_min_margin = 100.0;  // nothing is comfortable enough
+  SafetyFilter filter(params);
+
+  FilterState state;
+  state.position = Eigen::Vector3d(0.0, 0.0, 6.0);
+  KeepOutTarget jogger = person(1, -4.0, 0.0, 1.0);
+  jogger.velocity = Eigen::Vector3d(5.0, 0.0, 0.0);
+  const std::vector<Obstacle> obstacles = {{"oak", 11.0, 0.0, 4.0, 6.5}};
+
+  const FilterResult result = filter.filter(
+    velocitySetpoint(Eigen::Vector3d::Zero()), state, {jogger}, obstacles,
+    FilterMode::FOLLOW, 10.0, 0.0, 0.0, false, true);
+
+  EXPECT_NE(result.reason.find("conflicting"), std::string::npos) << result.reason;
+  EXPECT_EQ(result.velocity.norm(), 0.0);
+}
+
+/// Closed loop: the jogger runs at the drone with the oak behind it. The drone
+/// gets out of the way, and neither keep-out is broken: the relaxed rate never
+/// becomes a broken distance, because a barrier is only relaxed while it has a
+/// comfortable margin, and is enforced again once it does not.
+///
+/// The jogger passes 0.5-2 m to the side of the drone. Exactly in line (jogger,
+/// drone and the tree's centre on one line) the barriers only see the radial
+/// rate, the sideways escape is invisible to them, and once the tree is too close
+/// to relax the drone holds: the jogger then gets to 4.7 m (limit 5.0). That case
+/// is a limitation of the barrier, not of the relaxation (docs/SAFETY.md).
+TEST(SafetyFilterTest, ADroneBetweenAJoggerAndATreeKeepsBothDistances)
+{
+  SafetyFilterParams params;
+  params.drone_radius = 0.3;
+  SafetyFilter filter(params);
+  const Obstacle oak{"oak", 11.0, 0.0, 4.0, 6.5};
+
+  for (double lateral : {0.5, 1.0, 2.0}) {
+    LagPlant plant;
+    plant.state = stateAt(0.0, lateral, 6.0);
+    Eigen::Vector3d jogger_position(-6.0, 0.0, 1.0);
+    const Eigen::Vector3d jogger_velocity(4.0, 0.0, 0.0);
+
+    double worst_person = std::numeric_limits<double>::infinity();
+    double worst_oak = std::numeric_limits<double>::infinity();
+    int holds = 0;
+    for (double t = 10.0; t < 13.0; t += 0.02) {
+      KeepOutTarget jogger = person(1, jogger_position.x(), jogger_position.y(), 1.0);
+      jogger.velocity = jogger_velocity;
+      jogger.position_sigma = 0.15;
+      const FilterResult result = filter.filter(
+        velocitySetpoint(Eigen::Vector3d::Zero()), plant.state, {jogger}, {oak},
+        FilterMode::FOLLOW, t, 0.0, 0.0, false, true);
+      if (result.reason.find("conflicting") != std::string::npos) {
+        ++holds;
+      }
+      plant.step(result.velocity, 0.02);
+      jogger_position += jogger_velocity * 0.02;
+
+      const Eigen::Vector3d delta = plant.state.position - jogger_position;
+      worst_person = std::min(worst_person, delta.norm() - params.drone_radius);
+      worst_oak = std::min(
+        worst_oak, obstacleDistance(oak, plant.state.position).distance - params.drone_radius);
+    }
+    EXPECT_GE(worst_person, params.d_min_3d - 0.1) << "lateral " << lateral;
+    EXPECT_GE(worst_oak, params.d_obstacle_min - 0.1) << "lateral " << lateral;
+    EXPECT_EQ(holds, 0) << "lateral " << lateral << ": the drone held while the jogger came";
+  }
+}
+
 /// A noisy track (large covariance) gets a larger margin than a precise one.
 ///
 /// The margin is inflated with the track's position uncertainty, so a poorly tracked

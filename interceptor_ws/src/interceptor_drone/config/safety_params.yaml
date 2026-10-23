@@ -45,6 +45,11 @@
 
       # --- The barrier ------------------------------------------------------
       cbf_alpha: 1.0                # 1/s, the rate at which the barrier is enforced
+      # When the barriers conflict, the rate limit of a barrier with at least this
+      # much distance margin may be relaxed, least urgent first, before the drone
+      # holds. At 15 m/s and 50 Hz the drone covers 0.3 m per cycle, so 2 m leaves
+      # several cycles before a relaxed keep-out could be reached.
+      relax_min_margin: 2.0         # m
       # The lag correction. The autopilot's velocity loop has a time constant of
       # 0.34 s (measured on the X500 flight model), and the drone's actual motion
       # lags the command, so the barrier has to be relative degree 2 on the

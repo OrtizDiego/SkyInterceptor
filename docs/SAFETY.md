@@ -184,6 +184,7 @@ All in `config/safety_params.yaml`:
 | `velocity_lag_tau` | 0.5 s | the assumed velocity-loop time constant (measured 0.34 s) |
 | `barrier_omega` | 3.0 /s | the natural frequency of the lag correction |
 | `coast_timeout` | 2.0 s | how long a disappeared track keeps its keep-out |
+| `relax_min_margin` | 2.0 m | the distance margin a barrier needs for its rate to be relaxed in a conflict |
 | `speed_cap` | 15 / 30 m/s | FOLLOW / INTERCEPT |
 | `obstacles` | the trees and benches | flat `x, y, radius, height` quadruples |
 
@@ -224,8 +225,23 @@ floor and ceiling (`safety::projectOntoHalfSpaces`): the closest velocity that s
 every one. In 3D that point is fixed by at most three active half-spaces, so every set of
 one, two and three is tried and the one that meets the KKT conditions is the answer.
 
-Only when the intersection is empty — the drone really is boxed in — does the filter
-command hover, and say so, rather than relax one of the distances.
+When the intersection is empty, the *rates* of two barriers conflict, which can happen
+with plenty of room: a jogger running at the drone demands an escape faster than a tree
+7 m behind it lets the drone approach the tree (both barriers limit the closing speed, the
+tree's to α·h). Holding then lets the jogger run into the drone. So the rate limits of the
+least urgent barriers — the largest distance margin first — are relaxed one at a time until
+the rest can be satisfied, and the reason says which ("rate relaxed for obstacle oak_1").
+Only a barrier with at least `relax_min_margin` (2 m) of distance left is eligible: its
+distance is not at stake this cycle (at 15 m/s and 50 Hz the drone covers 0.3 m), and the
+next cycle enforces it again. **A distance is never relaxed, only the rate at which a
+distant keep-out is approached.** Only when nothing is eligible — the drone really is
+boxed in — does the filter command hover, and say so.
+
+A known limitation: a barrier constrains the rate along its own normal, so it cannot see
+a sideways escape. With a jogger, the drone and the tree's centre exactly in line, the drone
+escapes towards the tree until the tree is too close to relax, then holds, and the jogger
+gets to 4.7 m (limit 5.0) in the closed-loop test. With the jogger 0.5 m or more off that
+line the drone gets out of the way and both distances hold.
 
 The first version projected onto the half-spaces one at a time, ten rounds, and called it
 a box when the rounds ran out. With several barriers pulling in different directions that

@@ -218,6 +218,9 @@ struct SafetyFilterParams
 
   // --- Barrier ------------------------------------------------------------
   double cbf_alpha = 1.0;           // 1/s, the rate at which the barrier is enforced
+  // When the barriers conflict, the rate limit of a barrier with at least this much
+  // distance margin may be relaxed, least urgent first, before the drone holds [m].
+  double relax_min_margin = 2.0;
   // The assumed time constant of the autopilot's velocity loop [s]. The measured
   // value on the X500 flight model is 0.34 s; the default is deliberately larger,
   // so the filter assumes a slower vehicle than it is.
