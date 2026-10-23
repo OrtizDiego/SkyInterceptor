@@ -158,6 +158,35 @@ Eigen::Vector3d SafetyFilter::requestedVelocity(
   return params_.kp_pos * (setpoint.position - state.position) + setpoint.velocity;
 }
 
+ObstacleDistance obstacleDistance(const Obstacle & obstacle, const Eigen::Vector3d & point)
+{
+  ObstacleDistance out;
+  const Eigen::Vector2d delta = point.head<2>() - Eigen::Vector2d(obstacle.x, obstacle.y);
+  const double range = delta.norm();
+  const Eigen::Vector2d outward =
+    range > 1e-9 ? Eigen::Vector2d(delta / range) : Eigen::Vector2d::UnitX();
+  // How far the point is outside the side of the cylinder, and above its top.
+  const double beside = range - obstacle.radius;
+  const double above = obstacle.height > 0.0 ? point.z() - obstacle.height : -1e9;
+
+  if (above <= 0.0) {
+    // Level with the obstacle: the distance is to its side. Inside it (beside < 0)
+    // the distance is negative and the way out is sideways.
+    out.distance = beside;
+    out.normal = Eigen::Vector3d(outward.x(), outward.y(), 0.0);
+  } else if (beside <= 0.0) {
+    // Over the top: the distance is straight up.
+    out.distance = above;
+    out.normal = Eigen::Vector3d::UnitZ();
+  } else {
+    // Beyond the rim: the distance is to the rim, diagonally.
+    out.distance = std::hypot(beside, above);
+    out.normal = Eigen::Vector3d(
+      outward.x() * beside, outward.y() * beside, above) / out.distance;
+  }
+  return out;
+}
+
 FilterResult SafetyFilter::hold(const FilterState & state, const std::string & reason)
 {
   FilterResult result;
@@ -327,27 +356,24 @@ FilterResult SafetyFilter::filter(
   }
 
   for (const Obstacle & obstacle : obstacles) {
-    // A short obstacle is not a hazard for a drone flying above it.
-    if (obstacle.height > 0.0 && state.position.z() > obstacle.height) {
-      continue;
-    }
+    // The obstacle is a cylinder from the ground to its height, and the keep-out is
+    // the 3D distance to its surface: beside it, above it and over its rim alike.
     const Eigen::Vector2d delta =
       state.position.head<2>() - Eigen::Vector2d(obstacle.x, obstacle.y);
-    const double distance = delta.norm();
-    if (distance < 1e-6) {
+    const bool level = obstacle.height <= 0.0 || state.position.z() <= obstacle.height;
+    if (delta.norm() < 1e-6 && level) {
+      // On the obstacle's axis, inside it: the way out is undefined.
       return hold(state, "inside obstacle " + obstacle.name);
     }
-    const Eigen::Vector2d normal = delta / distance;
-    const double h = distance - (obstacle.radius + params_.d_obstacle_min) - params_.drone_radius;
+    const ObstacleDistance geometry = obstacleDistance(obstacle, state.position);
+    const double h = geometry.distance - params_.d_obstacle_min - params_.drone_radius;
 
-    // Static: the obstacle does not move, so the target's velocity along the LOS is
+    // Static: the obstacle does not move, so the target's velocity along the normal is
     // zero and the closing speed is just the drone's own.
-    const double closing = -normal.dot(state.velocity.head<2>());
+    const double closing = -geometry.normal.dot(state.velocity);
     const double c_cmd_max = maxClosingSpeed(
       h, closing, 0.0, params_.cbf_alpha, params_.barrier_omega, params_.velocity_lag_tau);
-    barriers.push_back(
-      {Eigen::Vector3d(normal.x(), normal.y(), 0.0), 0.0, c_cmd_max,
-        "obstacle " + obstacle.name});
+    barriers.push_back({geometry.normal, 0.0, c_cmd_max, "obstacle " + obstacle.name});
   }
 
   // --- Project onto the barriers -------------------------------------------

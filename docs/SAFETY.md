@@ -193,6 +193,20 @@ list of dictionaries. The values come from `worlds/intercept_scenario.world`, an
 canopies are the same cylinders `config/groundtruth_params.yaml` uses for its occlusion
 test, so the two agree on where a tree is.
 
+Each obstacle is a **vertical cylinder** from the ground to its height, and
+`d_obstacle_min` is the 3D distance to its surface: beside the cylinder it is the
+horizontal distance to its side, above it the height above its top, and beyond the
+rim the diagonal distance to the rim (`safety::obstacleDistance`). The barrier pushes
+along that direction. So a drone keeps 3 m from a tree's canopy whichever way it
+passes: around it, over it, or over its edge. A low bench far below the drone does not
+get in its way.
+
+The first version was a 2D circle that stopped at the obstacle's height. The FOLLOW
+drone flies 5 m above a person, at 6-7 m, which is the height of an oak's canopy. Above
+6.5 m the tree did not exist for the filter, so the drone drifted over the canopy, and
+when it sank below 6.5 m it was already inside the circle. The P2.4 scenario runs
+measured it 1 m inside the canopy.
+
 **If you change `velocity_lag_tau` or `barrier_omega`, re-run the sweep.** A value that is
 too small lets the drone coast past the margin; a value that is too large makes it
 approach so slowly that it never reaches the standoff. The defaults are deliberately
