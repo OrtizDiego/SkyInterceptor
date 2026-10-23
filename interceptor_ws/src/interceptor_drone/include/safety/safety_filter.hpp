@@ -133,8 +133,25 @@ struct Obstacle
   double x = 0.0;       // m, world frame
   double y = 0.0;       // m, world frame
   double radius = 0.0;  // m, the obstacle's own radius
-  double height = 0.0;  // m, its top; the keep-out only applies below this
+  double height = 0.0;  // m, its top (<= 0: unbounded, a wall-like column)
 };
+
+/// The distance from a point to an obstacle, and the direction that increases it.
+///
+/// The obstacle is a vertical cylinder from the ground to its height, so the
+/// distance is to the nearest point of its surface, in 3D: beside the cylinder it is
+/// the horizontal distance to the side, above it the distance to the top, and next
+/// to the rim the distance to the rim. The keep-out d_obstacle_min therefore holds
+/// above an obstacle as well as beside it: a drone flying over a tree keeps
+/// d_obstacle_min above the canopy, and cannot sink into it from above.
+struct ObstacleDistance
+{
+  double distance = 0.0;   // m, from the point to the surface (negative inside)
+  Eigen::Vector3d normal = Eigen::Vector3d::UnitX();  // unit, away from the obstacle
+};
+
+/// The distance from a point to an obstacle (see ObstacleDistance).
+ObstacleDistance obstacleDistance(const Obstacle & obstacle, const Eigen::Vector3d & point);
 
 /// A track the filter keeps out of. One per person or vehicle on /tracks.
 struct KeepOutTarget
