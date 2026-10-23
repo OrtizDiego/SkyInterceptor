@@ -30,6 +30,11 @@ and only then starts its manoeuvre. The take-off is the same in every run, so
 the manoeuvre always meets an interceptor that is ready to engage, whatever
 the simulator's start-up time was.
 
+The manoeuvre starts with a smooth ramp from the hover (5 s to 10 m/s for the
+straight run, 3 s for the weave): with a 2 s ramp (a peak of 8 m/s^2) the
+tracker sometimes replaced the intruder's track with a new one mid-engagement,
+and a change of the engaged track aborts the engagement by design.
+
 The interceptor flies at 8 m/s and cannot catch a 10 m/s intruder from behind,
 so the straight and weave intruders fly at the interceptor (head-on, with a
 random lateral offset and heading error): the capture law then backs away along
@@ -129,12 +134,12 @@ def layout(scenario, seed):
             behaviour = 'straight'
             target.update(
                 straight_speed=10.0, straight_direction_yaw=heading,
-                straight_duration=0.0, straight_distance=0.0, straight_ramp_time=2.0)
+                straight_duration=0.0, straight_distance=0.0, straight_ramp_time=5.0)
         else:
             behaviour = 'weave'
             target.update(
                 weave_speed=6.0, weave_amplitude=2.0, weave_frequency=0.25,
-                weave_direction_yaw=heading, weave_ramp_time=2.0)
+                weave_direction_yaw=heading, weave_ramp_time=3.0)
     else:
         # The bystander: the intruder hovers above the pedestrian's patrol square,
         # so the pedestrian is inside the abort radius of the capture point.
@@ -228,6 +233,16 @@ def stop(process):
     process.wait()
 
 
+def simulator_died(log_path):
+    """Return True when the launch log says that gzserver has died."""
+    try:
+        text = log_path.read_text(errors='replace')
+    except OSError:
+        return False
+    return any(
+        'process has died' in line and '[gzserver' in line for line in text.splitlines())
+
+
 def read_row(path):
     """Return the row of a run's CSV as a dict, or None when there is none."""
     if not path.exists():
@@ -266,7 +281,8 @@ def run_one(scenario, seed, args, run_dir, gazebo_port, attempt=0):
     started = time.time()
     trigger = None
     # The output goes to a file and not to a pipe: a full pipe blocks the launch.
-    with (run_dir / f'launch_attempt{attempt}.log').open('w') as log_file:
+    log_path = run_dir / f'launch_attempt{attempt}.log'
+    with log_path.open('w') as log_file:
         process = subprocess.Popen(
             command, env=environment, stdout=log_file, stderr=subprocess.STDOUT,
             start_new_session=True)
@@ -276,6 +292,11 @@ def run_one(scenario, seed, args, run_dir, gazebo_port, attempt=0):
         # The metrics node writes the row and exits when the engagement ends.
         while time.time() - started < args.timeout:
             if read_row(row_path) is not None or process.poll() is not None:
+                break
+            if simulator_died(log_path):
+                # gzserver crashes now and then (a segfault early in the run).
+                # The sim clock stops with it, so the run would only end at the
+                # wall clock timeout: give up on it at once and retry.
                 break
             time.sleep(1.0)
     finally:
