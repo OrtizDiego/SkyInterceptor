@@ -370,6 +370,7 @@ FilterResult SafetyFilter::filter(
     double target_los = 0.0;  // the target's velocity along the LOS [m/s]
     double c_cmd_max = 0.0;   // the largest closing speed that may be commanded [m/s]
     std::string name;
+    double margin = 0.0;      // h: how far the drone is outside this keep-out [m]
   };
   std::vector<Barrier> barriers;
 
@@ -403,7 +404,7 @@ FilterResult SafetyFilter::filter(
       h3, closing3, target_los3, params_.cbf_alpha,
       params_.barrier_omega, params_.velocity_lag_tau);
     barriers.push_back(
-      {normal3, target_los3, c_cmd_max3, "track " + std::to_string(target.track_id)});
+      {normal3, target_los3, c_cmd_max3, "track " + std::to_string(target.track_id), h3});
 
     // The horizontal barrier: the plan's flat standoff. It is only in force while
     // the drone is at most keepout_horizontal_altitude above the person; above
@@ -432,7 +433,7 @@ FilterResult SafetyFilter::filter(
       params_.barrier_omega, params_.velocity_lag_tau);
     barriers.push_back(
       {normal2, target_los2, c_cmd_max2,
-        "track " + std::to_string(target.track_id) + " (horizontal)"});
+        "track " + std::to_string(target.track_id) + " (horizontal)", h2});
   }
 
   for (const Obstacle & obstacle : obstacles) {
@@ -453,7 +454,7 @@ FilterResult SafetyFilter::filter(
     const double closing = -geometry.normal.dot(state.velocity);
     const double c_cmd_max = maxClosingSpeed(
       h, closing, 0.0, params_.cbf_alpha, params_.barrier_omega, params_.velocity_lag_tau);
-    barriers.push_back({geometry.normal, 0.0, c_cmd_max, "obstacle " + obstacle.name});
+    barriers.push_back({geometry.normal, 0.0, c_cmd_max, "obstacle " + obstacle.name, h});
   }
 
   // --- Project onto the barriers -------------------------------------------
@@ -463,6 +464,9 @@ FilterResult SafetyFilter::filter(
   //
   // which is a half-space in the drone's velocity. The command is the closest
   // velocity to the planner's that satisfies all of them.
+  // half_spaces holds the barriers in force: a barrier whose rate limit is relaxed
+  // below (see "relax") is taken out of it, so the checks after the projection do
+  // not put it back.
   std::vector<HalfSpace> half_spaces;
   half_spaces.reserve(barriers.size());
   std::string first_violation;
@@ -481,24 +485,72 @@ FilterResult SafetyFilter::filter(
       }
       return true;
     };
+  std::string relaxed;
   if (!first_violation.empty()) {
     // The vertical limits go into the projection as well, so the velocity it finds
     // is one the limits applied below leave alone: the vertical speed cap, and no
     // descent at the altitude floor or climb at the ceiling.
-    std::vector<HalfSpace> limited = half_spaces;
-    limited.push_back({-Eigen::Vector3d::UnitZ(), -params_.max_vertical_speed});
-    limited.push_back({Eigen::Vector3d::UnitZ(), -params_.max_vertical_speed});
+    std::vector<HalfSpace> limits;
+    limits.push_back({-Eigen::Vector3d::UnitZ(), -params_.max_vertical_speed});
+    limits.push_back({Eigen::Vector3d::UnitZ(), -params_.max_vertical_speed});
     if (state.position.z() <= params_.altitude_floor) {
-      limited.push_back({Eigen::Vector3d::UnitZ(), 0.0});
+      limits.push_back({Eigen::Vector3d::UnitZ(), 0.0});
     }
     if (state.position.z() >= params_.altitude_ceiling) {
-      limited.push_back({-Eigen::Vector3d::UnitZ(), 0.0});
+      limits.push_back({-Eigen::Vector3d::UnitZ(), 0.0});
     }
+    const auto withLimits = [&limits](const std::vector<HalfSpace> & sets) {
+        std::vector<HalfSpace> out = sets;
+        out.insert(out.end(), limits.begin(), limits.end());
+        return out;
+      };
+
     Eigen::Vector3d projected;
-    if (!projectOntoHalfSpaces(velocity, limited, projected)) {
-      // No velocity satisfies every barrier: the drone is boxed in. Hover and say
-      // so. A distance is never relaxed to make a command feasible.
-      return hold(state, "conflicting keep-out constraints (" + first_violation + ")");
+    if (!projectOntoHalfSpaces(velocity, withLimits(half_spaces), projected)) {
+      // The barriers conflict. A barrier limits the *rate* at which the drone may
+      // close on its keep-out, and the rates of two barriers can conflict while
+      // there is plenty of room: a jogger running at the drone demands an escape
+      // faster than a tree 7 m behind it allows the drone to approach the tree.
+      // Holding then lets the jogger run into the drone. So the rate limits of
+      // the least urgent barriers - the ones with the largest distance margin -
+      // are relaxed one at a time, most comfortable first, until the rest can be
+      // satisfied. Only barriers with at least relax_min_margin of distance left
+      // are eligible: their distance is not at stake this cycle (at 15 m/s and
+      // 50 Hz the drone covers 0.3 m), and the next cycle re-evaluates them. A
+      // distance is never relaxed, only the rate at which a distant keep-out is
+      // approached.
+      std::vector<size_t> order(barriers.size());
+      for (size_t i = 0; i < order.size(); ++i) {
+        order[i] = i;
+      }
+      std::sort(
+        order.begin(), order.end(),
+        [&barriers](size_t a, size_t b) {return barriers[a].margin > barriers[b].margin;});
+      std::vector<bool> dropped(barriers.size(), false);
+      bool feasible = false;
+      for (size_t index : order) {
+        if (barriers[index].margin < params_.relax_min_margin) {
+          break;  // the rest are too close to relax
+        }
+        dropped[index] = true;
+        relaxed += (relaxed.empty() ? "" : ", ") + barriers[index].name;
+        std::vector<HalfSpace> kept;
+        for (size_t i = 0; i < barriers.size(); ++i) {
+          if (!dropped[i]) {
+            kept.push_back(half_spaces[i]);
+          }
+        }
+        if (projectOntoHalfSpaces(velocity, withLimits(kept), projected)) {
+          half_spaces = kept;
+          feasible = true;
+          break;
+        }
+      }
+      if (!feasible) {
+        // Every barrier that could be relaxed was, and the rest still conflict:
+        // the drone is boxed in. Hover and say so.
+        return hold(state, "conflicting keep-out constraints (" + first_violation + ")");
+      }
     }
     velocity = projected;
   }
@@ -507,6 +559,9 @@ FilterResult SafetyFilter::filter(
   if (!first_violation.empty()) {
     result.safety_active = true;
     result.reason = "keep-out from " + first_violation;
+    if (!relaxed.empty()) {
+      result.reason += "; rate relaxed for " + relaxed;
+    }
   }
 
   // --- Vertical keep-out ---------------------------------------------------
