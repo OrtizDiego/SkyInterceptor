@@ -413,6 +413,31 @@ its braking curve. That is how the head-on runs end at 1-4 m/s relative speed.
 
 ### The results
 
-BATCH_RESULTS
+125 runs in Gazebo, ground-truth perception, augmented PN, 2026-10-23. Every run
+that produced a result is counted; the 26 attempts in which `gzserver` crashed
+(a segfault early in the run, so no samples) were retried and are not counted.
+
+| Scenario | Runs | Plan's criterion | Result | Capture range (median) | Worst relative speed at capture |
+|---|---|---|---|---|---|
+| `hover` | 25 | envelope >= 90 % | **25/25 (100 %)** | 1.46 m | 2.27 m/s |
+| `straight` (10 m/s) | 25 | envelope >= 80 % | **24/25 (96 %)** | 1.39 m | 3.81 m/s |
+| `weave` | 25 | envelope >= 60 % | **25/25 (100 %)** | 1.40 m | 3.66 m/s |
+| `bystander` | 25 | abort in 100 % | **25/25 (100 %)** | — | — |
+| all | 100 | zero non-uav engagements | **0** | | |
+
+Every capture is a *confirmed* one (inside 1.5 m and under 5 m/s at the same
+instant), not just the envelope. The one straight run scored as a miss (seed 11)
+was confirmed by the guidance itself, but the scorer samples at 20 Hz and saw
+1.52 m at its closest: it is counted as a miss.
+
+The bystander scenario was first flown with the intruder up to 2 m off the centre
+of the square at 12 m: 24 of 25 runs aborted, and the 25th captured. That run was
+not an abort failure: from where its intruder hovered, a quarter of the
+pedestrian's patrol is outside the 15 m abort radius, and the pedestrian was on
+that stretch for the whole 7 s engagement. A bystander run in which the person is
+not in the way is not a bystander run, so the layout was fixed (the centre, at
+11 m, keeps the whole patrol inside the radius) rather than the abort, and the 25
+bystander runs above are the re-run. Every abort fired for the right reason ("a
+person is 13-15 m from the capture point").
 
 
