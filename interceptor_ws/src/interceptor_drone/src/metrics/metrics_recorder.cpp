@@ -12,6 +12,8 @@
 #include <limits>
 #include <sstream>
 
+#include "safety/safety_filter.hpp"
+
 namespace interceptor
 {
 namespace metrics
@@ -297,11 +299,12 @@ Summary MetricsRecorder::summarize() const
       }
     }
     for (const Obstacle & obstacle : obstacles_) {
-      if (obstacle.height > 0.0 && sample.drone_position.z() > obstacle.height) {
-        continue;
-      }
-      const double distance = horizontalDistance(
-        sample.drone_position, Eigen::Vector3d(obstacle.x, obstacle.y, 0.0)) - obstacle.radius;
+      // The safety filter's own distance: the 3D distance to the obstacle's
+      // cylinder, beside it, above it or over its rim (safety::obstacleDistance).
+      const safety::Obstacle cylinder{
+        obstacle.name, obstacle.x, obstacle.y, obstacle.radius, obstacle.height};
+      const double distance =
+        safety::obstacleDistance(cylinder, sample.drone_position).distance;
       if (distance < min_obstacle_distance) {
         min_obstacle_distance = distance;
         min_obstacle_name = obstacle.name;

@@ -57,8 +57,11 @@ follow_scenario_node:
           corner_radius: 1.5
         bystander:
           enabled: false
-          x: -1.0
-          y: 15.0
+          # Parked out of the way: the model is in the world in every scenario
+          # and the ground-truth source reports it, so a "disabled" bystander is
+          # still a person the safety filter keeps out of.
+          x: -90.0
+          y: -90.0
           yaw: 0.0
 
       # The same loop at 4.0 m/s: the target turns with a 2.5 m radius, which is
@@ -76,8 +79,11 @@ follow_scenario_node:
           corner_radius: 2.5
         bystander:
           enabled: false
-          x: -1.0
-          y: 15.0
+          # Parked out of the way: the model is in the world in every scenario
+          # and the ground-truth source reports it, so a "disabled" bystander is
+          # still a person the safety filter keeps out of.
+          x: -90.0
+          y: -90.0
           yaw: 0.0
 
       # A loop that walks the target behind the oak at (20, 7): the right leg of
@@ -100,8 +106,11 @@ follow_scenario_node:
           corner_radius: 2.0
         bystander:
           enabled: false
-          x: -1.0
-          y: 15.0
+          # Parked out of the way: the model is in the world in every scenario
+          # and the ground-truth source reports it, so a "disabled" bystander is
+          # still a person the safety filter keeps out of.
+          x: -90.0
+          y: -90.0
           yaw: 0.0
 
       # The walker, with a second person standing 4 m from the path: the keep-out

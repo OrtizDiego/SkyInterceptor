@@ -77,7 +77,7 @@ struct Obstacle
   double x = 0.0;       // m, world frame
   double y = 0.0;       // m, world frame
   double radius = 0.0;  // m, the obstacle's own radius
-  double height = 0.0;  // m, its top; the keep-out only applies below this
+  double height = 0.0;  // m, its top (<= 0: unbounded); the keep-out is 3D to the cylinder
 };
 
 /// A person or vehicle track, as the tracker reports it.

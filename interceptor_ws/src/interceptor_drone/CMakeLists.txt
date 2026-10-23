@@ -132,7 +132,8 @@ target_link_libraries(${PROJECT_NAME}_follow Eigen3::Eigen)
 add_library(${PROJECT_NAME}_metrics SHARED
   src/metrics/metrics_recorder.cpp
 )
-target_link_libraries(${PROJECT_NAME}_metrics Eigen3::Eigen)
+# It measures the obstacles with the safety filter's own distance, so it links it.
+target_link_libraries(${PROJECT_NAME}_metrics ${PROJECT_NAME}_safety Eigen3::Eigen)
 
 # Gazebo plugin that flies the drone with the flight dynamics library
 add_library(quadrotor_dynamics_plugin SHARED src/simulation/quadrotor_dynamics_plugin.cpp)

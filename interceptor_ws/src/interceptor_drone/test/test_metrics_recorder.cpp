@@ -237,7 +237,7 @@ TEST(MetricsRecorder, ObstaclesAreMeasuredToTheirSurface)
   EXPECT_TRUE(summary.distance_ok);
 }
 
-TEST(MetricsRecorder, AnObstacleTheDroneIsAboveIsNotAHazard)
+TEST(MetricsRecorder, AnObstacleFarBelowTheDroneIsNotAHazard)
 {
   MetricsRecorder recorder(testParams());
   Obstacle bench;
@@ -248,15 +248,37 @@ TEST(MetricsRecorder, AnObstacleTheDroneIsAboveIsNotAHazard)
   bench.height = 0.5;
   recorder.setObstacles({bench});
 
-  // The drone flies over the bench: the keep-out of a 0.5 m bench does not apply.
+  // The drone flies over the bench, 5.5 m above its top: further than d_obstacle_min.
   Sample sample = sampleAt(0.0);
-  sample.drone_position = Eigen::Vector3d(0.0, 0.0, 6.0);
+  sample.drone_position = Eigen::Vector3d(1.0, 0.0, 6.0);
   recorder.addSample(sample);
 
   const Summary summary = recorder.summarize();
-  // The bench is not counted at all: the drone is above it, so it is not a hazard.
-  EXPECT_TRUE(std::isinf(summary.min_obstacle_distance));
+  // The distance is the 3D one to the bench's top, the safety filter's own.
+  EXPECT_NEAR(summary.min_obstacle_distance, 5.5, 1e-9);
   EXPECT_TRUE(summary.distance_ok);
+}
+
+/// A drone just above a canopy is 0.5 m from it, not clear of it: the old metric
+/// (a 2D circle that stopped at the tree's height) did not count it at all.
+TEST(MetricsRecorder, ADroneJustAboveACanopyIsTooClose)
+{
+  MetricsRecorder recorder(testParams());
+  Obstacle tree;
+  tree.name = "oak_1";
+  tree.x = 0.0;
+  tree.y = 0.0;
+  tree.radius = 4.0;
+  tree.height = 6.5;
+  recorder.setObstacles({tree});
+
+  Sample sample = sampleAt(0.0);
+  sample.drone_position = Eigen::Vector3d(2.0, 0.0, 7.0);
+  recorder.addSample(sample);
+
+  const Summary summary = recorder.summarize();
+  EXPECT_NEAR(summary.min_obstacle_distance, 0.5, 1e-9);
+  EXPECT_FALSE(summary.distance_ok);
 }
 
 // --- The framing -------------------------------------------------------------
