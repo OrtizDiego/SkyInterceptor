@@ -313,6 +313,42 @@ TEST(FlightControllerClosedLoop, YawRate)
   EXPECT_NEAR(sim.state.position.z(), 5.0, 0.05);
 }
 
+// The heading setpoint may lead a vehicle that turns slower than the command, but a
+// lead against the command is stale and is dropped. Without that, an outer heading
+// loop rings: the stored lead keeps the vehicle turning the old way after the
+// command has reversed (in Gazebo the nose swung +-80 degrees around its target).
+TEST(FlightController, ALeadAgainstTheCommandIsDropped)
+{
+  const QuadrotorParams vehicle = makeX500Params();
+  FlightControllerParams params;
+  params.max_yaw_rate = 1.5;
+  params.max_yaw_error = 1.6;  // the window of the URDF
+  FlightController controller(vehicle, params);
+
+  // A vehicle that does not turn at all: the setpoint runs ahead of it.
+  RigidBodyState state = stateAt(5.0);
+  controller.reset(state);
+  VelocityCommand command;
+  command.velocity.z() = 0.2;  // leave the landed state
+  command.yaw_rate = 1.5;
+  for (int k = 0; k < 2000; ++k) {
+    controller.update(state, command, kDt);
+  }
+  EXPECT_NEAR(controller.yawSetpoint(), 1.6, 1e-6) << "the lead should fill the window";
+
+  // The command reverses: the lead is dropped at once, and the setpoint starts again
+  // from the vehicle's heading.
+  command.yaw_rate = -0.5;
+  controller.update(state, command, kDt);
+  EXPECT_NEAR(controller.yawSetpoint(), -0.5 * kDt, 1e-9);
+
+  // A lead in the same direction as the command is kept.
+  for (int k = 0; k < 100; ++k) {
+    controller.update(state, command, kDt);
+  }
+  EXPECT_NEAR(controller.yawSetpoint(), -0.5 * 101 * kDt, 1e-9);
+}
+
 TEST(FlightControllerClosedLoop, RejectsWindAndGusts)
 {
   ClosedLoopSim sim;

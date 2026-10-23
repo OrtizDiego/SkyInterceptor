@@ -147,7 +147,18 @@ RotorArray FlightController::update(
     landed_ = false;
   }
 
-  // Heading setpoint: integrate the yaw-rate command, never far ahead of the vehicle
+  // Heading setpoint: integrate the yaw-rate command, never far ahead of the vehicle.
+  //
+  // Anti-windup: the setpoint may run up to max_yaw_error ahead of a vehicle that
+  // turns slower than the command, and that lead is only right while the command
+  // keeps turning the same way. Once the command turns the other way the lead is
+  // stale, and the vehicle would keep turning the old way until it was unwound at
+  // max_yaw_rate: an outer heading loop around this one then rings, with the nose
+  // swinging tens of degrees either side of its target. So a lead against the
+  // command is dropped, and the setpoint starts again from the vehicle's heading.
+  if (wrapAngle(yaw_setpoint_ - yaw) * yaw_rate < 0.0) {
+    yaw_setpoint_ = yaw;
+  }
   yaw_setpoint_ = wrapAngle(yaw_setpoint_ + yaw_rate * dt);
   const double yaw_error = wrapAngle(yaw_setpoint_ - yaw);
   if (std::abs(yaw_error) > params_.max_yaw_error) {
