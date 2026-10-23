@@ -115,6 +115,9 @@ def run_one(scenario, seed, args, run_dir, gazebo_port, attempt=0):
         return None
 
     print(f'--- {scenario} (seed {seed}) ---', flush=True)
+    if summary_path.exists():
+        # A summary of an earlier attempt would end this one at once.
+        summary_path.unlink()
     started = time.time()
     # The output goes to a file and not to a pipe: the pipe fills up after a few
     # kilobytes and the launch blocks on it.
@@ -134,6 +137,11 @@ def run_one(scenario, seed, args, run_dir, gazebo_port, attempt=0):
                 time.sleep(2.0)
                 break
             if process.poll() is not None:
+                break
+            if simulator_died(log_path):
+                # gzserver crashes now and then (a segfault early in the run). The
+                # sim clock stops with it, so the run would only end at the wall
+                # clock timeout: give up on it at once and retry.
                 break
             time.sleep(1.0)
     finally:
@@ -180,9 +188,34 @@ def run_one(scenario, seed, args, run_dir, gazebo_port, attempt=0):
         return None
     print(
         f'    {duration:.0f} s wall clock: framing {summary["framing_score"] * 100:.1f} %, '
-        f'min person {summary["min_person_distance"]:.2f} m, '
+        f'min person {summary["min_person_distance_3d"]:.2f} m (3D), '
         f'min obstacle {summary["min_obstacle_distance"]:.2f} m, '
         f'verdict {"PASS" if summary["all_ok"] else "FAIL"}', flush=True)
+    return summary
+
+
+def simulator_died(log_path):
+    """Return True when the launch log says that gzserver has died."""
+    try:
+        text = log_path.read_text(errors='replace')
+    except OSError:
+        return False
+    return any(
+        'process has died' in line and '[gzserver' in line for line in text.splitlines())
+
+
+def load_summary(run_dir, args):
+    """Return the summary of a run that is already done, or None."""
+    path = run_dir / 'summary.json'
+    if not path.exists():
+        return None
+    try:
+        with path.open() as handle:
+            summary = json.load(handle)
+    except (OSError, ValueError):
+        return None
+    if summary.get('duration_s', 0.0) < 0.5 * args.run_duration:
+        return None
     return summary
 
 
@@ -209,8 +242,9 @@ def score(summaries, args):
         'distance_ok_runs': len(distance_ok),
         'framing_ok_runs': len(framing_ok),
         'reacquire_ok_runs': len(reacquire_ok),
-        'min_person_distance': worst('min_person_distance'),
-        'min_person_margin': worst('min_person_margin'),
+        'min_person_distance_3d': worst('min_person_distance_3d'),
+        'min_person_margin_3d': worst('min_person_margin_3d'),
+        'min_person_margin_horizontal': worst('min_person_margin_horizontal'),
         'min_obstacle_distance': worst('min_obstacle_distance'),
         'min_obstacle_margin': worst('min_obstacle_margin'),
         'framing_score_mean': mean('framing_score'),
@@ -248,8 +282,9 @@ def report(score, summaries, args):
     lines.append('=== FOLLOW batch ===')
     lines.append(f"runs: {score['runs']}, passed: {score['passed']}")
     lines.append(
-        f"min distance to a person/vehicle: {number(score['min_person_distance'])} m "
-        f"(margin {number(score['min_person_margin'])} m)")
+        f"min 3D distance to a person/vehicle: {number(score['min_person_distance_3d'])} m "
+        f"(margin to d_min_3d {number(score['min_person_margin_3d'])} m, "
+        f"to the horizontal standoff {number(score['min_person_margin_horizontal'])} m)")
     lines.append(
         f"min distance to an obstacle: {number(score['min_obstacle_distance'])} m "
         f"(margin {number(score['min_obstacle_margin'])} m)")
@@ -266,7 +301,7 @@ def report(score, summaries, args):
         per_scenario.setdefault(summary.get('scenario', '?'), []).append(summary)
     for name, group in sorted(per_scenario.items()):
         frames = [g['framing_score'] for g in group]
-        margins = [g['min_person_margin'] for g in group]
+        margins = [g['min_person_margin_3d'] for g in group]
         lines.append(
             f"  {name}: {len(group)} runs, framing {min(frames) * 100:.0f}-"
             f"{max(frames) * 100:.0f} %, worst person margin {min(margins):.2f} m, "
@@ -288,7 +323,10 @@ def main(argv=None):
         scenario = scenarios[index % len(scenarios)]
         seed = args.seed_base + index
         run_dir = output_dir / f'run_{index:03d}_{scenario}_seed{seed}'
-        summary = run_one(scenario, seed, args, run_dir, args.gazebo_port + index)
+        # A batch that was stopped half way is resumed: a run that is done is kept.
+        summary = load_summary(run_dir, args)
+        if summary is None:
+            summary = run_one(scenario, seed, args, run_dir, args.gazebo_port + index)
         if summary is not None:
             summary['run'] = index
             summary['seed'] = seed
