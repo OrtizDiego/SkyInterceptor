@@ -133,6 +133,8 @@ public:
       "intercept.abort_ground_radius", engagement_params.abort_ground_radius);
     engagement_params.engage_altitude_band = declare_parameter(
       "safety.engage_altitude_band", engagement_params.engage_altitude_band);
+    engagement_params.engage_altitude_hysteresis = declare_parameter(
+      "safety.engage_altitude_hysteresis", engagement_params.engage_altitude_hysteresis);
     engagement_params.geofence_x_min = params.geofence_x_min;
     engagement_params.geofence_x_max = params.geofence_x_max;
     engagement_params.geofence_y_min = params.geofence_y_min;
@@ -370,7 +372,7 @@ private:
 
     const safety::FilterResult result = filter_->filter(
       setpoint, state_, tracks_, obstacles_, currentMode(), now_s, setpoint_age, odom_age,
-      estop_latched_, decision.engage_allowed, abort_reason);
+      estop_latched_, decision.engage_allowed, abort_reason, decision.climb_allowed);
 
     publishSetpoint(result);
     publishStatus(result, decision);

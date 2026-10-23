@@ -104,6 +104,7 @@ def generate_launch_description():
             'mission_mode': mission_mode,
             'guidance_law': guidance_law,
             'target_behaviour': target_behaviour,
+            'target_drone_params_file': LaunchConfiguration('target_drone_params_file'),
         }.items()
     )
 
@@ -203,6 +204,11 @@ def generate_launch_description():
             default_value='true',
             description='Spawn the target drone of the INTERCEPT scenarios (the follow '
                         'scenarios have no intruder)',
+        ),
+        DeclareLaunchArgument(
+            'target_drone_params_file',
+            default_value=os.path.join(pkg_interceptor, 'config', 'target_drone_params.yaml'),
+            description='Parameter file of the target drone (the intruder)',
         ),
         DeclareLaunchArgument(
             'auto_arm',

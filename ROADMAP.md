@@ -187,12 +187,15 @@ Any agent or person can read and edit this file: Claude Code, Codex, Cursor, a s
 
 ### P3.5 – Intercept scenarios and metrics
 
-- **Status:** todo
+- **Status:** done
 - **Depends on:** P3.4, P3.1
-- **PR:** —
-- **Branch:** —
+- **PR:** 33
+- **Branch:** feat/p3-5-intercept-scenarios
 - **Scope:** Hover, 10 m/s straight, weaving target and bystander scenarios with capture/abort metrics.
-- **Notes:** —
+- **Notes:** All of Phase 3's exit criteria are met, measured over **125 Gazebo runs** (25 per scenario, plus 25 of an earlier bystander layout): hover 25/25 confirmed captures (criterion 90 %), 10 m/s straight 24/25 (80 %), weave 25/25 (60 %), bystander abort 25/25 (100 %), and zero non-uav engagements in all 100 runs. The table, the layout and the medians are in docs/INTERCEPT.md. 26 attempts in which gzserver segfaulted were retried and are not counted.
+  **The take-off deadlock is resolved by separating the authorisation to climb from the authorisation to engage.** The gate's altitude band (the interceptor at most 5 m below the intruder) is kept: it is a condition on the engagement. But the filter held every setpoint while the gate was closed, so a drone on the ground never climbed into the band. Now an armed mission whose gate waits for a condition that may still clear gets the vertical part of the command only ("engagement gate closed: climb only"); a latched gate, an abort or an unarmed mission still hold. The interceptor reaches the band without ever closing on the intruder from below, which is the hazard the band is there for. Once engaged, the band has a 2 m hysteresis (`safety.engage_altitude_hysteresis`): the first straight run was aborted by the 0.2 m noise of the intruder's altitude because the gate opens at the edge of the band. A gtest flies the gate and the filter together on a first-order vehicle from the ground and checks that the gate opens and that nothing moved horizontally before it did.
+  **The abort was not weakened.** The capture scenarios are flown 40 m and more from the pedestrian's patrol square and the bystander scenario puts the capture point above it; the abort radius is the configured 15 m everywhere. The first bystander layout (up to 2 m off the centre, 12 m up) aborted in 24/25: the 25th captured because a quarter of the patrol is outside the radius from there and the pedestrian was on it for the whole engagement - a scenario that did not put the bystander in the way, not an abort failure. The layout was fixed (the centre, 11 m up: the whole patrol is inside the radius) and the 25 runs re-flown.
+  Added: launch/intercept_scenario.launch.py, src/tools/run_intercept_batch.py (the intruder hovers until the interceptor is in the band, then starts its manoeuvre with a ramp - with a 2 s ramp the tracker sometimes replaced the uav track mid-engagement, which aborts by design), intercept_metrics_report (scores the CSV with the tested aggregator and `metrics::criteriaFor`), a `weave_ramp_time` for the weave (default 0, the demo is unchanged), and the `rviz` and `target_drone_params_file` launch arguments. Verified: scripts/check.sh green (-Werror build, 546 tests, 0 failures, all linters). Open, for later: the scorer samples at 20 Hz, so it scored one capture the guidance confirmed as a miss (1.52 m); the tracker drops a uav track under a ~8 m/s^2 step (worth a look in P1); the 10 m/s straight run can only be captured head-on, since the interceptor flies at 8 m/s.
 
 ## Phase 4 – Integration & docs
 

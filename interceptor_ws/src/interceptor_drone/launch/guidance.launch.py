@@ -14,7 +14,9 @@ def generate_launch_description():
     ekf_params = os.path.join(config_dir, 'ekf_params.yaml')
     follow_params = os.path.join(config_dir, 'follow_params.yaml')
     intercept_params = os.path.join(config_dir, 'intercept_params.yaml')
-    target_drone_params = os.path.join(config_dir, 'target_drone_params.yaml')
+    # The intruder's parameter file. The intercept scenarios pass a file of their
+    # own, with the start pose and the path of the run.
+    target_drone_params = LaunchConfiguration('target_drone_params_file')
 
     use_sim_time = LaunchConfiguration('use_sim_time')
     mission_mode = LaunchConfiguration('mission_mode')
@@ -110,6 +112,11 @@ def generate_launch_description():
             choices=['hover', 'waypoints', 'straight', 'weave', 'curve'],
             description='The behaviour of the target drone: hover, waypoints, '
                         'straight, weave or curve',
+        ),
+        DeclareLaunchArgument(
+            'target_drone_params_file',
+            default_value=os.path.join(config_dir, 'target_drone_params.yaml'),
+            description='Parameter file of the target drone (the intruder)',
         ),
         target_tracker,
         intercept_guidance,

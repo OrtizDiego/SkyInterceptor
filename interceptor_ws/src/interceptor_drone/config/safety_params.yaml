@@ -32,6 +32,10 @@
       # most this far below it. Below the band the interceptor would have to
       # close on the intruder through the clutter on the ground.
       engage_altitude_band: 5.0     # m
+      # Once the engagement is running, the interceptor may drop this much
+      # further below the band before it is aborted: the intruder's altitude
+      # is a noisy estimate, and the gate opens at the edge of the band.
+      engage_altitude_hysteresis: 2.0   # m
       # The standoff is inflated by the track's position uncertainty, so a
       # poorly tracked person gets a bigger margin.
       uncertainty_gain: 2.0         # k in d_eff = d_min + k * sigma_pos

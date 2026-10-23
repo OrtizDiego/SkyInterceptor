@@ -33,25 +33,49 @@ controller tracks the *filtered* velocity instead of adding a position term of i
 
 ## The engagement gate
 
-The gate is enforced in the filter as well as in the intercept guidance, so the two
-do not have to be trusted to agree. In INTERCEPT mode the filter replaces the
-planner's command with a hover (a zero velocity, so the drone stops where it is)
-unless **all** of the following hold:
+The gate and the abort live in the ROS-free `safety::EngagementGate`
+(`include/safety/engagement_gate.hpp`), which `safety_filter_node` evaluates on
+every cycle; the intercept guidance checks a subset of the same conditions itself,
+so the two do not have to be trusted to agree. In INTERCEPT mode the interceptor
+may close on the selected target only when **all** of the following hold:
 
 - the mission is armed (`/mission/mode` carries the `armed` flag);
-- the selected track (`/target/state`) is of class `uav`;
-- that track is confirmed and valid.
+- the selected track (`/target/state`) is of class `uav`, in `/target/state` and in
+  `/tracks` alike, and it has been confirmed for `min_confirmed_frames` cycles;
+- the intruder is above `min_engage_altitude_agl` (10 m) and the interceptor is at
+  most `engage_altitude_band` (5 m) below it;
+- both are inside the geofence.
 
-Anything else and the filter replaces the planner's command with a hover, and says
-why in `MissionStatus.reason` ("engagement gate closed"). The class check is the
-one that must never be relaxed: a person is never a valid target, whatever else is
-configured.
+A person or a vehicle as the selected target latches the gate closed for the rest of
+the mission. A condition that fails *during* an engagement aborts it, and the abort
+latches as well; so does a person or a vehicle within `abort_ground_radius` (15 m,
+in 3D) of the interceptor or of the capture point, and the e-stop. An abort brakes
+the drone to a hover, and `MissionStatus` carries `abort_active` and the reason.
 
-The other half of the plan's gate (plan §4.4) is still open and is P3.4's job: the
-target's altitude, the geofence, and the abort logic — a bystander near the
-predicted capture point, the target below the altitude floor, the track lost. The
-intercept guidance node checks the altitude and the arming itself today; the
-filter checks the mode, the arming and the class.
+### Climbing is not engaging
+
+The altitude band is a condition on the **engagement**, not on the take-off. The
+interceptor starts on the ground, so a gate that held the drone completely until the
+band was met could never open: the drone would never climb into the band. This is
+the deadlock the first intercept runs hit (the guidance started the engagement, the
+filter held every setpoint, and nothing moved).
+
+So the authorisation to engage and the authorisation to climb are separate. While an
+armed mission waits for a gate condition that may still clear (no target yet, not
+confirmed yet, too far below the intruder), the filter lets the **vertical** part of
+the planner's command through and drops the horizontal part ("engagement gate
+closed: climb only"). The interceptor reaches the band without ever closing on the
+intruder from below, which is the hazard the band is there for. The keep-out
+barriers and the altitude limits still apply to the climb. An unarmed mission, a
+latched gate and an abort hold the drone completely.
+
+### The band has a hysteresis
+
+The gate opens at the edge of the band, and the intruder's altitude is an estimate
+with 0.2 m of noise, so without a margin the noise alone aborts an engagement that
+began at the edge (the first straight-run scenario did exactly that). Once the
+engagement is running, the interceptor may drop `engage_altitude_hysteresis` (2 m)
+further before the engagement is aborted.
 
 ## The barrier
 
@@ -198,10 +222,6 @@ and the "Tracks" display next to them shows the tracks the circles come from.
 
 ## What is not here yet
 
-- **P3.4** adds the rest of the engagement gate (the target's altitude, the geofence) and
-  the abort logic: a bystander near the predicted capture point, the target below the
-  altitude floor, the track lost. The gate here only checks the mode, the arming and the
-  class of the selected target.
 - **P2.4** measures the result over randomized runs. The exit criteria are in the plan
   §5 Phase 2.
 - The filter publishes the command it hands to the controller on `/safety/keepouts`,

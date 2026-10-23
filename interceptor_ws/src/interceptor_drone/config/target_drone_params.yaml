@@ -75,6 +75,9 @@ target_drone_behavior_node:
     weave_amplitude: 2.0        # m, the amplitude of the lateral offset
     weave_frequency: 0.25       # Hz
     weave_direction_yaw: 0.0    # rad, the heading the weave is centred on
+    # The smooth start from rest (0 = the weave starts at full speed). The intercept
+    # scenarios use it: their intruder hovers first and then starts to weave.
+    weave_ramp_time: 0.0        # s
 
     # --- CURVE -------------------------------------------------------------
     # The original profile of the demo: the intruder accelerates from a standstill

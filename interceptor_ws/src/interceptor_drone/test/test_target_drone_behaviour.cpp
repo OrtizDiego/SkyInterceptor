@@ -304,6 +304,33 @@ TEST(TargetDroneBehaviour, TheWeaveHasTheConfiguredAmplitudeAndFrequency)
   EXPECT_NEAR(measured, period, 0.02 * period);
 }
 
+/// With a ramp the weave starts from rest, without a step in the velocity, and
+/// it is the plain weave once the ramp is over.
+TEST(TargetDroneBehaviour, TheWeaveRampStartsFromRest)
+{
+  TargetBehaviourParams params = defaultParams(TargetBehaviour::WEAVE);
+  params.weave_ramp_time = 2.0;
+  TargetDroneBehaviour ramped(params);
+  params.weave_ramp_time = 0.0;
+  TargetDroneBehaviour plain(params);
+
+  EXPECT_LT(ramped.state().velocity.norm(), 1e-9) << "the ramped weave does not start at rest";
+  EXPECT_NEAR(ramped.state().yaw, params.weave_direction_yaw, 0.5)
+    << "the heading at rest is not the weave's";
+
+  Eigen::Vector3d previous = ramped.state().velocity;
+  for (int i = 0; i < 400; ++i) {
+    const TargetBehaviourState & state = ramped.step(0.01);
+    plain.step(0.01);
+    // The speed is at most 6 m/s forward plus 2 * 2 * pi * 0.25 = 3.1 m/s across,
+    // and the ramp adds at most pi / (2 * ramp) of it per second.
+    EXPECT_LT((state.velocity - previous).norm(), 0.1) << "a step at t = " << state.time;
+    previous = state.velocity;
+  }
+  // After the ramp the velocity is the plain weave's.
+  EXPECT_LT((ramped.state().velocity - plain.state().velocity).norm(), 1e-9);
+}
+
 TEST(TargetDroneBehaviour, TheWeaveKeepsItsForwardSpeed)
 {
   TargetBehaviourParams params = defaultParams(TargetBehaviour::WEAVE);
