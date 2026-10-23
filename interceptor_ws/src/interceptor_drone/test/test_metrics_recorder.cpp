@@ -158,10 +158,12 @@ TEST(MetricsRecorder, MinimumDistanceToEveryTrack)
   EXPECT_NEAR(summary.min_person_margin_3d, std::sqrt(26.0) - 0.3 - 5.0, 1e-9);
   EXPECT_LT(summary.min_person_margin_3d, 0.0);
   // The horizontal rule is in force: the drone is at the ground, so it is at most
-  // keepout_horizontal_altitude above the person. Its threshold is the flat
-  // standoff inflated by the track's uncertainty, d_min_horizontal + k * sigma
-  // = 5.0 + 2 * 0.2 = 5.4 m, the same inflation the filter applies.
-  EXPECT_NEAR(summary.min_person_margin_horizontal, 5.0 - 0.3 - 5.4, 1e-9);
+  // keepout_horizontal_altitude above the person. The criterion is the plan's flat
+  // standoff, d_min_horizontal = 5.0 m; the threshold the filter enforces is that
+  // inflated by the track's uncertainty, 5.0 + 2 * 0.2 = 5.4 m, and it is reported
+  // on its own.
+  EXPECT_NEAR(summary.min_person_margin_horizontal, 5.0 - 0.3 - 5.0, 1e-9);
+  EXPECT_NEAR(summary.min_person_margin_horizontal_effective, 5.0 - 0.3 - 5.4, 1e-9);
   EXPECT_FALSE(summary.distance_ok);
 }
 

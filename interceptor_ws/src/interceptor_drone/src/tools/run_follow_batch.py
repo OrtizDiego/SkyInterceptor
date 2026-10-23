@@ -245,6 +245,7 @@ def score(summaries, args):
         'min_person_distance_3d': worst('min_person_distance_3d'),
         'min_person_margin_3d': worst('min_person_margin_3d'),
         'min_person_margin_horizontal': worst('min_person_margin_horizontal'),
+        'min_person_margin_horizontal_effective': worst('min_person_margin_horizontal_effective'),
         'min_obstacle_distance': worst('min_obstacle_distance'),
         'min_obstacle_margin': worst('min_obstacle_margin'),
         'framing_score_mean': mean('framing_score'),
@@ -284,7 +285,9 @@ def report(score, summaries, args):
     lines.append(
         f"min 3D distance to a person/vehicle: {number(score['min_person_distance_3d'])} m "
         f"(margin to d_min_3d {number(score['min_person_margin_3d'])} m, "
-        f"to the horizontal standoff {number(score['min_person_margin_horizontal'])} m)")
+        f"to the horizontal standoff {number(score['min_person_margin_horizontal'])} m, "
+        f"to the filter's inflated standoff "
+        f"{number(score['min_person_margin_horizontal_effective'])} m)")
     lines.append(
         f"min distance to an obstacle: {number(score['min_obstacle_distance'])} m "
         f"(margin {number(score['min_obstacle_margin'])} m)")

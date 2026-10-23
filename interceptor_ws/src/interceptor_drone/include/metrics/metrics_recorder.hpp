@@ -185,9 +185,14 @@ struct Summary
   /// The smallest horizontal distance to the centre of any person or vehicle
   /// track [m].
   double min_person_distance_horizontal = 0.0;
-  /// The smallest margin against the horizontal standoff the filter enforces at
-  /// that height: the surface distance - the effective standoff [m].
+  /// The smallest margin against the plan's horizontal standoff at that height:
+  /// the surface distance - the nominal standoff [m]. This is the criterion, like
+  /// the 3D margin: the standoff itself, not the filter's uncertainty cushion.
   double min_person_margin_horizontal = 0.0;
+  /// The margin against the uncertainty-inflated standoff the filter enforces,
+  /// standoff + k * sigma. A track that is born again after an occlusion starts
+  /// with a large sigma, so this keep-out jumps outwards at that moment.
+  double min_person_margin_horizontal_effective = 0.0;
   int min_person_track_id = -1;
   /// The smallest distance to the surface of any obstacle over the whole run [m].
   double min_obstacle_distance = 0.0;
@@ -284,6 +289,8 @@ public:
   /// the same formula as the filter's own: the plan's flat standoff, given up
   /// with the height. Zero when the rule is not in force.
   double horizontalStandoff(double vertical_separation, double position_sigma) const;
+  /// The plan's standoff at a height above the person, without the cushion.
+  double nominalHorizontalStandoff(double vertical_separation) const;
 
 private:
   RecorderParams params_;

@@ -128,6 +128,11 @@ double MetricsRecorder::horizontalStandoff(
   return nominal + params_.uncertainty_gain * position_sigma;
 }
 
+double MetricsRecorder::nominalHorizontalStandoff(double vertical_separation) const
+{
+  return horizontalStandoff(vertical_separation, 0.0);
+}
+
 double MetricsRecorder::azimuthError(
   double yaw, const Eigen::Vector3d & from, const Eigen::Vector3d & to)
 {
@@ -250,6 +255,7 @@ Summary MetricsRecorder::summarize() const
   double min_person_distance = std::numeric_limits<double>::infinity();
   double min_person_distance_3d = std::numeric_limits<double>::infinity();
   double min_person_margin_horizontal = std::numeric_limits<double>::infinity();
+  double min_person_margin_horizontal_effective = std::numeric_limits<double>::infinity();
   double min_person_margin_3d = std::numeric_limits<double>::infinity();
   double min_person_margin_3d_effective = std::numeric_limits<double>::infinity();
   int min_person_track_id = -1;
@@ -291,11 +297,16 @@ Summary MetricsRecorder::summarize() const
         min_person_margin_3d_effective,
         surface_3d - (params_.d_min_3d + params_.uncertainty_gain * track.position_sigma));
       // The horizontal rule: the plan's standoff, given up with the height.
-      const double standoff = horizontalStandoff(
-        sample.drone_position.z() - track.position.z(), track.position_sigma);
+      // The criterion is against the nominal standoff, like the 3D one; the
+      // filter's uncertainty cushion is reported on its own.
+      const double vertical = sample.drone_position.z() - track.position.z();
+      const double standoff = nominalHorizontalStandoff(vertical);
       if (standoff > 0.0) {
         min_person_margin_horizontal = std::min(
           min_person_margin_horizontal, horizontal - params_.drone_radius - standoff);
+        min_person_margin_horizontal_effective = std::min(
+          min_person_margin_horizontal_effective,
+          horizontal - params_.drone_radius - horizontalStandoff(vertical, track.position_sigma));
       }
     }
     for (const Obstacle & obstacle : obstacles_) {
@@ -375,6 +386,7 @@ Summary MetricsRecorder::summarize() const
   summary.min_person_margin_3d_effective = min_person_margin_3d_effective;
   summary.min_person_distance_horizontal = min_person_distance;
   summary.min_person_margin_horizontal = min_person_margin_horizontal;
+  summary.min_person_margin_horizontal_effective = min_person_margin_horizontal_effective;
   summary.min_person_track_id = min_person_track_id;
   summary.min_obstacle_distance = min_obstacle_distance;
   summary.min_obstacle_margin = min_obstacle_distance - params_.d_obstacle_min;
@@ -469,6 +481,8 @@ std::string MetricsRecorder::toJson(const Summary & summary, const RecorderParam
     jsonNumber(summary.min_person_distance_horizontal) << ",\n";
   out << "  \"min_person_margin_horizontal\": " <<
     jsonNumber(summary.min_person_margin_horizontal) << ",\n";
+  out << "  \"min_person_margin_horizontal_effective\": " <<
+    jsonNumber(summary.min_person_margin_horizontal_effective) << ",\n";
   out << "  \"min_person_track_id\": " << summary.min_person_track_id << ",\n";
   out << "  \"min_obstacle_distance\": " << jsonNumber(summary.min_obstacle_distance) << ",\n";
   out << "  \"min_obstacle_margin\": " << jsonNumber(summary.min_obstacle_margin) << ",\n";
