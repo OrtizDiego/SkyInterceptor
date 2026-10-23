@@ -242,6 +242,10 @@ ament_target_dependencies(intercept_metrics_node
   interceptor_interfaces
 )
 
+# Scores the CSV of a batch of INTERCEPT runs against the plan's exit criteria.
+add_executable(intercept_metrics_report src/metrics/intercept_metrics_report.cpp)
+target_link_libraries(intercept_metrics_report ${PROJECT_NAME}_intercept_metrics)
+
 # Evasion node
 add_executable(evasion_controller_node src/evasion/evasion_controller_node.cpp)
 target_link_libraries(evasion_controller_node ${PROJECT_NAME}_lib)
@@ -261,6 +265,7 @@ install(TARGETS
   mission_manager_node
   safety_filter_node
   intercept_metrics_node
+  intercept_metrics_report
   evasion_controller_node
   DESTINATION lib/${PROJECT_NAME}
 )
@@ -281,6 +286,7 @@ install(PROGRAMS
   src/perception/target_detector.py
   src/teleop/drone_teleop_keyboard.py
   src/tools/record_intercept.py
+  src/tools/run_intercept_batch.py
   DESTINATION lib/${PROJECT_NAME}
 )
 

@@ -255,11 +255,27 @@ void TargetDroneBehaviour::updateWeave()
   const double v_lateral = amplitude * omega * std::cos(phase);
   const double a_lateral = -amplitude * omega * omega * std::sin(phase);
 
-  state_.velocity = Eigen::Vector3d(
+  // The start from rest: the whole velocity is scaled by a raised cosine ramp, so a
+  // drone that was hovering does not jump to the weave's speed. The ramp has zero
+  // slope at both ends, so the acceleration is continuous too.
+  const double ramp = std::max(params_.weave_ramp_time, 0.0);
+  double scale = 1.0;
+  double scale_rate = 0.0;
+  if (ramp > 0.0 && state_.time < ramp) {
+    const double ramp_phase = kPi * state_.time / ramp;
+    scale = 0.5 * (1.0 - std::cos(ramp_phase));
+    scale_rate = 0.5 * (kPi / ramp) * std::sin(ramp_phase);
+  }
+
+  const Eigen::Vector3d nominal_velocity(
     speed * forward_x + v_lateral * lateral_x,
     speed * forward_y + v_lateral * lateral_y, 0.0);
-  state_.acceleration = Eigen::Vector3d(a_lateral * lateral_x, a_lateral * lateral_y, 0.0);
-  state_.yaw = std::atan2(state_.velocity.y(), state_.velocity.x());
+  const Eigen::Vector3d nominal_acceleration(
+    a_lateral * lateral_x, a_lateral * lateral_y, 0.0);
+  state_.velocity = scale * nominal_velocity;
+  state_.acceleration = scale_rate * nominal_velocity + scale * nominal_acceleration;
+  // The heading is the nominal one, so it is defined at rest as well.
+  state_.yaw = std::atan2(nominal_velocity.y(), nominal_velocity.x());
 }
 
 void TargetDroneBehaviour::updateCurve()

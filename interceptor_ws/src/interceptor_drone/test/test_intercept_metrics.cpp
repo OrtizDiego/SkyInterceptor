@@ -337,3 +337,16 @@ TEST(InterceptMetricsCsvTest, SkipsATruncatedRow)
   const std::string text = csvHeader() + "\n" + "hover,1,1,1.2\n";
   EXPECT_TRUE(parseCsv(text).empty());
 }
+
+TEST(InterceptMetricsCriteriaTest, AreThePlansNumbers)
+{
+  EXPECT_DOUBLE_EQ(criteriaFor("hover").min_envelope_rate, 0.9);
+  EXPECT_DOUBLE_EQ(criteriaFor("straight").min_envelope_rate, 0.8);
+  EXPECT_DOUBLE_EQ(criteriaFor("weave").min_envelope_rate, 0.6);
+  EXPECT_DOUBLE_EQ(criteriaFor("bystander").min_abort_rate, 1.0);
+  // The bystander run is not expected to capture.
+  EXPECT_DOUBLE_EQ(criteriaFor("bystander").min_envelope_rate, 0.0);
+  for (const char * name : {"hover", "straight", "weave", "bystander", "other"}) {
+    EXPECT_EQ(criteriaFor(name).max_non_uav_engagements, 0) << name;
+  }
+}

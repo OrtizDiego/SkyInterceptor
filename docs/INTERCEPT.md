@@ -155,9 +155,11 @@ a `uav`, confirmed and valid, above `min_engage_altitude_agl`, and the operator 
 have armed the mission. The gate lives in **two** places on purpose: the guidance
 node refuses to start an engagement that is not cleared, and `safety_filter_node`
 re-applies the check on every setpoint, so a bug in the planner cannot fly the
-drone at a person. The filter's version only checks the mode, the arming and the
-class of the selected target; the altitude, the geofence and the abort logic are
-P3.4's job (see [`SAFETY.md`](SAFETY.md)).
+drone at a person. The filter's version is the complete one: it adds the altitude
+band of the interceptor, the geofence and the abort (see [`SAFETY.md`](SAFETY.md)).
+While the gate waits for the interceptor to climb into the band, the filter lets
+only the vertical part of the guidance's command through, so the drone climbs
+without closing on the intruder.
 
 The capture is **flown**: the terminal capture law above brings the interceptor
 into the envelope with a relative speed of 1.5-3.3 m/s in the sweep, and the node

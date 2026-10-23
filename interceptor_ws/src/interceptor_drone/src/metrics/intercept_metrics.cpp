@@ -237,6 +237,22 @@ std::vector<ScenarioSummary> MetricsAggregator::summarize() const
   return summaries;
 }
 
+ExitCriteria criteriaFor(const std::string & scenario)
+{
+  ExitCriteria criteria;
+  if (scenario == "hover") {
+    criteria.min_envelope_rate = 0.9;
+  } else if (scenario == "straight") {
+    criteria.min_envelope_rate = 0.8;
+  } else if (scenario == "weave") {
+    criteria.min_envelope_rate = 0.6;
+  } else if (scenario == "bystander") {
+    criteria.min_abort_rate = 1.0;
+  }
+  criteria.max_non_uav_engagements = 0;
+  return criteria;
+}
+
 bool MetricsAggregator::meetsCriteria(
   const ScenarioSummary & summary, const ExitCriteria & criteria)
 {

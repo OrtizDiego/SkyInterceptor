@@ -99,6 +99,7 @@ struct TargetBehaviourParams
   double weave_amplitude = 2.0;      // m, the amplitude of the lateral offset
   double weave_frequency = 0.25;     // Hz
   double weave_direction_yaw = 0.0;  // rad, the heading the weave is centred on
+  double weave_ramp_time = 0.0;      // s, the smooth start from rest (0 = none)
 
   // --- CURVE ---------------------------------------------------------------
   double final_speed = 6.0;    // m/s, the cruise speed reached after accel_time

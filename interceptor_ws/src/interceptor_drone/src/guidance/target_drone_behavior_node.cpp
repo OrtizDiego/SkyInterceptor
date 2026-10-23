@@ -90,6 +90,7 @@ std::map<std::string, DoubleSetter> behaviourSetters(guidance::TargetBehaviourPa
     {"weave_amplitude", [&params](double v) {params.weave_amplitude = v;}},
     {"weave_frequency", [&params](double v) {params.weave_frequency = v;}},
     {"weave_direction_yaw", [&params](double v) {params.weave_direction_yaw = v;}},
+    {"weave_ramp_time", [&params](double v) {params.weave_ramp_time = v;}},
     {"final_speed", [&params](double v) {params.final_speed = v;}},
     {"accel_time", [&params](double v) {params.accel_time = v;}},
     {"turn_rate", [&params](double v) {params.turn_rate = v;}},
@@ -213,6 +214,7 @@ private:
     params.weave_amplitude = declare_parameter("weave_amplitude", 2.0);
     params.weave_frequency = declare_parameter("weave_frequency", 0.25);
     params.weave_direction_yaw = declare_parameter("weave_direction_yaw", 0.0);
+    params.weave_ramp_time = declare_parameter("weave_ramp_time", 0.0);
 
     // CURVE
     params.final_speed = declare_parameter("final_speed", 6.0);

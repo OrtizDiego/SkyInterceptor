@@ -179,6 +179,13 @@ struct ExitCriteria
   int max_non_uav_engagements = 0;
 };
 
+/// The plan's exit criteria of a scenario (section 5, phase 3).
+///
+/// hover: the envelope in 90 % of the runs; straight: 80 %; weave: 60 %;
+/// bystander: the abort in every run. Every scenario allows zero non-uav
+/// engagements. An unknown scenario gets only the class rule.
+ExitCriteria criteriaFor(const std::string & scenario);
+
 /// Scores an engagement from its samples.
 ///
 /// The scorer is fed the samples in the order they arrive and keeps the

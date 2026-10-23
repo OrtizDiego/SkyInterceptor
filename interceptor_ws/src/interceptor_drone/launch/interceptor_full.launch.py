@@ -15,6 +15,8 @@ def generate_launch_description():
     controller_params = os.path.join(pkg_interceptor, 'config', 'controller_params.yaml')
     safety_params = os.path.join(pkg_interceptor, 'config', 'safety_params.yaml')
     intercept_params = os.path.join(pkg_interceptor, 'config', 'intercept_params.yaml')
+    # RViz is off for the scripted runs: there is no display for it.
+    rviz_enabled = LaunchConfiguration('rviz')
 
     use_sim_time = LaunchConfiguration('use_sim_time')
     mission_mode = LaunchConfiguration('mission_mode')
@@ -93,6 +95,7 @@ def generate_launch_description():
             'mission_mode': mission_mode,
             'guidance_law': guidance_law,
             'target_behaviour': target_behaviour,
+            'target_drone_params_file': LaunchConfiguration('target_drone_params_file'),
         }.items()
     )
 
@@ -122,7 +125,8 @@ def generate_launch_description():
         name='rviz2',
         arguments=['-d', os.path.join(pkg_interceptor, 'rviz', 'interceptor_config.rviz')],
         parameters=[{'use_sim_time': use_sim_time}],
-        output='screen'
+        output='screen',
+        condition=IfCondition(rviz_enabled),
     )
 
     return LaunchDescription([
@@ -165,6 +169,16 @@ def generate_launch_description():
             choices=['hover', 'waypoints', 'straight', 'weave', 'curve'],
             description='The behaviour of the target drone: hover, waypoints, '
                         'straight, weave or curve',
+        ),
+        DeclareLaunchArgument(
+            'rviz',
+            default_value='true',
+            description='Start RViz (false for the scripted runs)',
+        ),
+        DeclareLaunchArgument(
+            'target_drone_params_file',
+            default_value=os.path.join(pkg_interceptor, 'config', 'target_drone_params.yaml'),
+            description='Parameter file of the target drone (the intruder)',
         ),
         DeclareLaunchArgument(
             'auto_arm',

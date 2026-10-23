@@ -52,16 +52,21 @@ public:
   explicit InterceptMetricsNode(const rclcpp::NodeOptions & options = rclcpp::NodeOptions())
   : Node("intercept_metrics_node", options)
   {
+    // The capture thresholds are the guidance's own (config/intercept_params.yaml),
+    // so the scorer and the guidance can never disagree on what a capture is.
     metrics::MetricsParams params;
-    params.capture_radius_m = declare_parameter("capture_radius", params.capture_radius_m);
+    params.capture_radius_m =
+      declare_parameter("intercept.capture_radius", params.capture_radius_m);
     params.capture_max_rel_speed_mps =
-      declare_parameter("capture_max_rel_speed", params.capture_max_rel_speed_mps);
+      declare_parameter("intercept.capture_max_rel_speed", params.capture_max_rel_speed_mps);
     scorer_ = std::make_unique<metrics::EngagementScorer>(params);
 
     scenario_ = declare_parameter("scenario", std::string("unknown"));
     seed_ = declare_parameter("seed", 0);
     output_path_ = declare_parameter("output_path", std::string("intercept_metrics.csv"));
-    // How long the engagement may take before the node gives up on it [s].
+    // How long the engagement may take before the node gives up on it [s]. It is
+    // counted from the first odometry: the simulator can take a minute of its
+    // own time to spawn the drone, and that is not part of the engagement.
     timeout_s_ = declare_parameter("timeout", 120.0);
 
     sub_target_ = create_subscription<TargetStateMsg>(
@@ -99,13 +104,16 @@ public:
 private:
   void onTimer()
   {
+    if (!have_odom_) {
+      return;  // the drone is not in the world yet
+    }
     const double now_s = now().seconds();
     if (start_time_ < 0.0) {
       start_time_ = now_s;
     }
     const double elapsed = now_s - start_time_;
 
-    if (have_target_ && have_odom_) {
+    if (have_target_) {
       sample(elapsed);
     }
 
