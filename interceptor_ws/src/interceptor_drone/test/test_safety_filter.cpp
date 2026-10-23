@@ -392,6 +392,106 @@ TEST(SafetyFilterTest, ABenchFarBelowDoesNotConstrainTheDrone)
   EXPECT_NEAR(result.velocity.x(), 3.0, 1e-9);
 }
 
+/// Dykstra's alternating projection, run long enough to be the exact projection.
+/// The reference the active-set projection is checked against.
+Eigen::Vector3d dykstra(const Eigen::Vector3d & request, const std::vector<HalfSpace> & sets)
+{
+  Eigen::Vector3d x = request;
+  std::vector<Eigen::Vector3d> increments(sets.size(), Eigen::Vector3d::Zero());
+  for (int sweep = 0; sweep < 20000; ++sweep) {
+    for (size_t i = 0; i < sets.size(); ++i) {
+      const Eigen::Vector3d y = x + increments[i];
+      const double value = sets[i].normal.dot(y);
+      Eigen::Vector3d projected = y;
+      if (value < sets[i].bound) {
+        projected += sets[i].normal * (sets[i].bound - value);
+      }
+      increments[i] = y - projected;
+      x = projected;
+    }
+  }
+  return x;
+}
+
+/// The projection is the exact one: random sets of half-spaces with a common
+/// feasible point, against Dykstra's algorithm run to convergence.
+TEST(SafetyFilterTest, TheProjectionIsExact)
+{
+  std::mt19937 rng(7);
+  std::uniform_real_distribution<double> uniform(-1.0, 1.0);
+  for (int trial = 0; trial < 200; ++trial) {
+    // A feasible point, and half-spaces that all contain it.
+    const Eigen::Vector3d inside(5.0 * uniform(rng), 5.0 * uniform(rng), 2.0 * uniform(rng));
+    std::vector<HalfSpace> sets;
+    const int count = 2 + trial % 6;
+    for (int i = 0; i < count; ++i) {
+      Eigen::Vector3d normal(uniform(rng), uniform(rng), 0.5 * uniform(rng));
+      normal.normalize();
+      sets.push_back({normal, normal.dot(inside) - 3.0 * (uniform(rng) + 1.0)});
+    }
+    const Eigen::Vector3d request(10.0 * uniform(rng), 10.0 * uniform(rng), 3.0 * uniform(rng));
+
+    Eigen::Vector3d projected;
+    ASSERT_TRUE(projectOntoHalfSpaces(request, sets, projected)) << "trial " << trial;
+    const Eigen::Vector3d reference = dykstra(request, sets);
+    EXPECT_LT((projected - reference).norm(), 1e-4) << "trial " << trial;
+  }
+}
+
+/// Two half-spaces at a narrow angle: the case the ten rounds of one-at-a-time
+/// projection gave up on, and called a box.
+TEST(SafetyFilterTest, TheProjectionSolvesANarrowWedge)
+{
+  const double angle = 0.1;  // rad between the two normals
+  const std::vector<HalfSpace> sets = {
+    {Eigen::Vector3d(std::cos(angle), std::sin(angle), 0.0), 5.0},
+    {Eigen::Vector3d(std::cos(angle), -std::sin(angle), 0.0), 5.0},
+  };
+  Eigen::Vector3d projected;
+  ASSERT_TRUE(projectOntoHalfSpaces(Eigen::Vector3d::Zero(), sets, projected));
+  EXPECT_NEAR(projected.x(), 5.0 / std::cos(angle), 1e-9);
+  EXPECT_NEAR(projected.y(), 0.0, 1e-9);
+}
+
+/// Opposite half-spaces that do not overlap: no velocity satisfies both.
+TEST(SafetyFilterTest, TheProjectionReportsAnEmptyIntersection)
+{
+  const std::vector<HalfSpace> sets = {
+    {Eigen::Vector3d::UnitX(), 2.0},
+    {-Eigen::Vector3d::UnitX(), 1.0},  // x <= -1
+  };
+  Eigen::Vector3d projected;
+  EXPECT_FALSE(projectOntoHalfSpaces(Eigen::Vector3d::Zero(), sets, projected));
+}
+
+/// A conflict logged in the P2.4 jogger runs: a jogger runs at the drone while a
+/// second person stands 16 m away. The old filter held the drone ("conflicting
+/// keep-out constraints"); there is a velocity that satisfies both keep-outs, and
+/// the filter has to find it rather than stop dead.
+TEST(SafetyFilterTest, AJoggerRunningAtTheDroneNextToABystanderIsNotABox)
+{
+  SafetyFilterParams params;
+  params.drone_radius = 0.3;
+  SafetyFilter filter(params);
+
+  FilterState state;
+  state.position = Eigen::Vector3d(9.76, 3.18, 7.57);
+  state.velocity = Eigen::Vector3d(-1.29, 0.40, -0.01);
+  KeepOutTarget jogger = person(1, 8.57, 0.22, 1.02);
+  jogger.velocity = Eigen::Vector3d(5.38, 1.51, 0.06);
+  jogger.position_sigma = 0.14;
+  KeepOutTarget bystander = person(3, -0.97, 15.0, 0.94);
+  bystander.velocity = Eigen::Vector3d(0.11, 0.04, -0.17);
+  bystander.position_sigma = 0.12;
+
+  const FilterResult result = run(
+    filter, velocitySetpoint(Eigen::Vector3d(-0.15, 3.55, -1.24)), state, {jogger, bystander});
+
+  EXPECT_EQ(result.reason.find("conflicting"), std::string::npos) << result.reason;
+  EXPECT_TRUE(result.feasible);
+  EXPECT_GT(result.velocity.norm(), 1.0) << "the drone stopped while the jogger ran at it";
+}
+
 /// A noisy track (large covariance) gets a larger margin than a precise one.
 ///
 /// The margin is inflated with the track's position uncertainty, so a poorly tracked
@@ -796,7 +896,10 @@ TEST(SafetyFilterTest, TheClimbOnlyCommandStillKeepsOutOfAPerson)
     setpoint, state, targets, {}, FilterMode::INTERCEPT, 10.0, 0.0, 0.0, false, false, "",
     true);
 
-  EXPECT_GE(result.velocity.z(), 0.0) << "the drone descended onto the person";
+  // Inside the safety distance the drone has to be moving away from the person:
+  // the 3D range grows. (It may still sink a little while it escapes sideways.)
+  const Eigen::Vector3d away = (state.position - targets[0].position).normalized();
+  EXPECT_GT(away.dot(result.velocity), 0.0) << "the drone closed on the person";
 }
 
 /// The vertical keep-out stops the drone from descending onto a person.

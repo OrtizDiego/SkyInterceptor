@@ -64,10 +64,16 @@
  * then the bound is positive and the constraint does not just brake the drone, it pushes
  * it back out. That is the whole point of a barrier.
  *
- * Several half-spaces are satisfied by projecting onto them one after the other
- * (projection onto convex sets), iterating until every one holds or the iteration
- * budget runs out. When the intersection is empty the iteration never converges, which
- * is how a boxed-in drone is detected.
+ * Several half-spaces are satisfied at once by the exact projection of the command onto
+ * their intersection: the closest velocity to the planner's that satisfies every one
+ * (projectOntoHalfSpaces). Only when the intersection is empty is the drone boxed in,
+ * and then it holds.
+ *
+ * The first version projected onto the half-spaces one after the other, ten times.
+ * That converges slowly when the half-spaces pull in different directions, and the
+ * filter took a budget that ran out for a box: in the P2.4 jogger runs 81 % of the
+ * "conflicting keep-out constraints" holds had a feasible velocity, and the drone
+ * stopped dead while a person ran at it.
  *
  * The keep-out of a person: 3D, with an altitude relief (P3.4)
  * ----------------------------------------------------------
@@ -150,6 +156,25 @@ struct ObstacleDistance
   Eigen::Vector3d normal = Eigen::Vector3d::UnitX();  // unit, away from the obstacle
 };
 
+/// A half-space in the drone's velocity: normal . v >= bound.
+struct HalfSpace
+{
+  Eigen::Vector3d normal = Eigen::Vector3d::UnitX();
+  double bound = 0.0;
+};
+
+/// The closest point to request that satisfies every half-space (the exact
+/// Euclidean projection onto their intersection). Returns false, and leaves out
+/// alone, when the intersection is empty.
+///
+/// In 3D the projection is fixed by at most three active half-spaces, so every set
+/// of one, two and three is tried, and the first whose solution is feasible with
+/// non-negative multipliers is the projection: those are the KKT conditions of a
+/// convex problem, so they are sufficient.
+bool projectOntoHalfSpaces(
+  const Eigen::Vector3d & request, const std::vector<HalfSpace> & half_spaces,
+  Eigen::Vector3d & out);
+
 /// The distance from a point to an obstacle (see ObstacleDistance).
 ObstacleDistance obstacleDistance(const Obstacle & obstacle, const Eigen::Vector3d & point);
 
@@ -193,7 +218,6 @@ struct SafetyFilterParams
 
   // --- Barrier ------------------------------------------------------------
   double cbf_alpha = 1.0;           // 1/s, the rate at which the barrier is enforced
-  int max_projection_iterations = 10;
   // The assumed time constant of the autopilot's velocity loop [s]. The measured
   // value on the X500 flight model is 0.34 s; the default is deliberately larger,
   // so the filter assumes a slower vehicle than it is.
