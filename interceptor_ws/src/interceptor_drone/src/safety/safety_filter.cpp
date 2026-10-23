@@ -158,6 +158,86 @@ Eigen::Vector3d SafetyFilter::requestedVelocity(
   return params_.kp_pos * (setpoint.position - state.position) + setpoint.velocity;
 }
 
+bool projectOntoHalfSpaces(
+  const Eigen::Vector3d & request, const std::vector<HalfSpace> & half_spaces,
+  Eigen::Vector3d & out)
+{
+  constexpr double kTolerance = 1e-7;
+  const auto feasible = [&half_spaces](const Eigen::Vector3d & v) {
+      for (const HalfSpace & half_space : half_spaces) {
+        if (half_space.normal.dot(v) < half_space.bound - kTolerance) {
+          return false;
+        }
+      }
+      return true;
+    };
+  if (feasible(request)) {
+    out = request;
+    return true;
+  }
+
+  // The projection onto the half-spaces of an active set, as equalities:
+  // v = request + N^T * lambda with N * v = b, so (N N^T) lambda = b - N * request.
+  // The set is the right one when every multiplier is non-negative and the point
+  // satisfies the other half-spaces too.
+  const int count = static_cast<int>(half_spaces.size());
+  const auto trySet = [&](const int * indices, int size) {
+      Eigen::Matrix3d n = Eigen::Matrix3d::Zero();
+      Eigen::Vector3d b = Eigen::Vector3d::Zero();
+      for (int k = 0; k < size; ++k) {
+        n.row(k) = half_spaces[indices[k]].normal.transpose();
+        b(k) = half_spaces[indices[k]].bound;
+      }
+      const Eigen::MatrixXd rows = n.topRows(size);
+      const Eigen::MatrixXd gram = rows * rows.transpose();
+      // Dependent normals: a smaller set gives the same point.
+      if (std::abs(gram.determinant()) < 1e-10) {
+        return false;
+      }
+      const Eigen::VectorXd lambda =
+        gram.ldlt().solve(b.head(size) - rows * request);
+      if ((lambda.array() < -kTolerance).any()) {
+        return false;
+      }
+      const Eigen::Vector3d candidate = request + rows.transpose() * lambda;
+      if (!feasible(candidate)) {
+        return false;
+      }
+      out = candidate;
+      return true;
+    };
+
+  int set[3];
+  for (int i = 0; i < count; ++i) {
+    set[0] = i;
+    if (trySet(set, 1)) {
+      return true;
+    }
+  }
+  for (int i = 0; i < count; ++i) {
+    for (int j = i + 1; j < count; ++j) {
+      set[0] = i;
+      set[1] = j;
+      if (trySet(set, 2)) {
+        return true;
+      }
+    }
+  }
+  for (int i = 0; i < count; ++i) {
+    for (int j = i + 1; j < count; ++j) {
+      for (int k = j + 1; k < count; ++k) {
+        set[0] = i;
+        set[1] = j;
+        set[2] = k;
+        if (trySet(set, 3)) {
+          return true;
+        }
+      }
+    }
+  }
+  return false;
+}
+
 ObstacleDistance obstacleDistance(const Obstacle & obstacle, const Eigen::Vector3d & point)
 {
   ObstacleDistance out;
@@ -377,53 +457,50 @@ FilterResult SafetyFilter::filter(
   }
 
   // --- Project onto the barriers -------------------------------------------
-  // Projection onto a convex set converges to a point in every set, so iterating
-  // satisfies one barrier after the other. When the barriers conflict the iteration
-  // does not converge, which is how a boxed-in drone is detected.
-  //
   // The constraint is c_cmd <= c_cmd_max, with c_cmd = n . (v_t - v_d), so
   //
   //     n . v_d >= n . v_t - c_cmd_max
   //
-  // which is a half-space in the drone's velocity. The closest point of it is on its
-  // boundary, along the normal.
-  const auto satisfied = [&barriers](const Eigen::Vector3d & v) {
-      for (const Barrier & barrier : barriers) {
-        if (barrier.normal.dot(v) < barrier.target_los - barrier.c_cmd_max - 1e-9) {
+  // which is a half-space in the drone's velocity. The command is the closest
+  // velocity to the planner's that satisfies all of them.
+  std::vector<HalfSpace> half_spaces;
+  half_spaces.reserve(barriers.size());
+  std::string first_violation;
+  for (const Barrier & barrier : barriers) {
+    const double bound = barrier.target_los - barrier.c_cmd_max;
+    half_spaces.push_back({barrier.normal, bound});
+    if (first_violation.empty() && barrier.normal.dot(velocity) < bound - 1e-9) {
+      first_violation = barrier.name;
+    }
+  }
+  const auto satisfied = [&half_spaces](const Eigen::Vector3d & v) {
+      for (const HalfSpace & half_space : half_spaces) {
+        if (half_space.normal.dot(v) < half_space.bound - 1e-6) {
           return false;
         }
       }
       return true;
     };
-
-  bool all_satisfied = true;
-  std::string conflicting;
-  std::string first_violation;
-  for (int iteration = 0; iteration < params_.max_projection_iterations; ++iteration) {
-    all_satisfied = true;
-    for (const Barrier & barrier : barriers) {
-      const double value = barrier.normal.dot(velocity);
-      const double bound = barrier.target_los - barrier.c_cmd_max;
-      if (value < bound - 1e-9) {
-        all_satisfied = false;
-        if (conflicting.empty()) {
-          conflicting = barrier.name;
-        }
-        if (first_violation.empty()) {
-          first_violation = barrier.name;
-        }
-        velocity += barrier.normal * (bound - value);
-      }
+  if (!first_violation.empty()) {
+    // The vertical limits go into the projection as well, so the velocity it finds
+    // is one the limits applied below leave alone: the vertical speed cap, and no
+    // descent at the altitude floor or climb at the ceiling.
+    std::vector<HalfSpace> limited = half_spaces;
+    limited.push_back({-Eigen::Vector3d::UnitZ(), -params_.max_vertical_speed});
+    limited.push_back({Eigen::Vector3d::UnitZ(), -params_.max_vertical_speed});
+    if (state.position.z() <= params_.altitude_floor) {
+      limited.push_back({Eigen::Vector3d::UnitZ(), 0.0});
     }
-    if (all_satisfied) {
-      break;
+    if (state.position.z() >= params_.altitude_ceiling) {
+      limited.push_back({-Eigen::Vector3d::UnitZ(), 0.0});
     }
-  }
-
-  if (!all_satisfied) {
-    // The barriers could not all be satisfied: the drone is boxed in. Hover and say
-    // so. A distance is never relaxed to make a command feasible.
-    return hold(state, "conflicting keep-out constraints (" + conflicting + ")");
+    Eigen::Vector3d projected;
+    if (!projectOntoHalfSpaces(velocity, limited, projected)) {
+      // No velocity satisfies every barrier: the drone is boxed in. Hover and say
+      // so. A distance is never relaxed to make a command feasible.
+      return hold(state, "conflicting keep-out constraints (" + first_violation + ")");
+    }
+    velocity = projected;
   }
 
   // The filter changed the command if it had to move it at all.

@@ -183,7 +183,6 @@ All in `config/safety_params.yaml`:
 | `cbf_alpha` | 1.0 /s | the rate at which the barrier is enforced |
 | `velocity_lag_tau` | 0.5 s | the assumed velocity-loop time constant (measured 0.34 s) |
 | `barrier_omega` | 3.0 /s | the natural frequency of the lag correction |
-| `max_projection_iterations` | 10 | how often the half-spaces are projected onto |
 | `coast_timeout` | 2.0 s | how long a disappeared track keeps its keep-out |
 | `speed_cap` | 15 / 30 m/s | FOLLOW / INTERCEPT |
 | `obstacles` | the trees and benches | flat `x, y, radius, height` quadruples |
@@ -219,8 +218,20 @@ reported in `MissionStatus.reason`. The speed cap is applied to the planner's re
 before the barriers, and again afterwards, but the cap is only applied when the capped
 velocity still satisfies every barrier: the keep-out is never traded away for speed.
 
-When the barriers conflict with each other — the drone is boxed in — the filter commands
-hover and says so, rather than relaxing one of the distances.
+The command is the **exact** projection of the planner's velocity onto the intersection
+of all the barriers' half-spaces, together with the vertical speed cap and the altitude
+floor and ceiling (`safety::projectOntoHalfSpaces`): the closest velocity that satisfies
+every one. In 3D that point is fixed by at most three active half-spaces, so every set of
+one, two and three is tried and the one that meets the KKT conditions is the answer.
+
+Only when the intersection is empty — the drone really is boxed in — does the filter
+command hover, and say so, rather than relax one of the distances.
+
+The first version projected onto the half-spaces one at a time, ten rounds, and called it
+a box when the rounds ran out. With several barriers pulling in different directions that
+converges slowly: in the P2.4 jogger runs, 276 of 341 "conflicting keep-out constraints"
+holds (81 %) had a velocity that satisfied every barrier, and the drone stopped dead while
+the jogger ran at it.
 
 ## Seeing it in RViz
 

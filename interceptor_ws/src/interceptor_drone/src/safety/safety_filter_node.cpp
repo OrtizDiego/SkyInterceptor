@@ -87,8 +87,6 @@ public:
       declare_parameter("safety.uncertainty_gain", defaults.uncertainty_gain);
     params.drone_radius = declare_parameter("safety.drone_radius", defaults.drone_radius);
     params.cbf_alpha = declare_parameter("safety.cbf_alpha", defaults.cbf_alpha);
-    params.max_projection_iterations = declare_parameter(
-      "safety.max_projection_iterations", defaults.max_projection_iterations);
     params.velocity_lag_tau =
       declare_parameter("safety.velocity_lag_tau", defaults.velocity_lag_tau);
     params.barrier_omega = declare_parameter("safety.barrier_omega", defaults.barrier_omega);

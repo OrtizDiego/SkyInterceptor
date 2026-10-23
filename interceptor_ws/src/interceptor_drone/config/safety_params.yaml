@@ -44,7 +44,6 @@ safety_filter_node:
 
       # --- The barrier ------------------------------------------------------
       cbf_alpha: 1.0                # 1/s, the rate at which the barrier is enforced
-      max_projection_iterations: 10 # how often the half-spaces are projected onto
       # The lag correction. The autopilot's velocity loop has a time constant of
       # 0.34 s (measured on the X500 flight model), and the drone's actual motion
       # lags the command, so the barrier has to be relative degree 2 on the
