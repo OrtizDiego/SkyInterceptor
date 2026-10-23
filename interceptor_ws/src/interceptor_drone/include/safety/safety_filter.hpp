@@ -278,12 +278,15 @@ public:
   /// @param engage_allowed  false to refuse an INTERCEPT engagement (the gate, §4.4)
   /// @param abort_reason    why the engagement was aborted (empty when there is no abort);
   ///                        a non-empty reason brakes the drone to a hover
+  /// @param climb_allowed   with the gate closed, let the vertical part of the command
+  ///                        through (the horizontal part is dropped) instead of holding
   /// @return the command to send to the trajectory controller
   FilterResult filter(
     const FilterSetpoint & setpoint, const FilterState & state,
     const std::vector<KeepOutTarget> & targets, const std::vector<Obstacle> & obstacles,
     FilterMode mode, double time_s, double setpoint_age_s, double odom_age_s,
-    bool estop_latched, bool engage_allowed = true, const std::string & abort_reason = "");
+    bool estop_latched, bool engage_allowed = true, const std::string & abort_reason = "",
+    bool climb_allowed = false);
 
   /// A hover command: everything the filter can do, undone.
   FilterResult hold(const FilterState & state, const std::string & reason);

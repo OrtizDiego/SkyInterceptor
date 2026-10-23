@@ -678,6 +678,39 @@ TEST(SafetyFilterTest, TheClosedEngagementGateHoldsTheDrone)
   EXPECT_EQ(result.reason, "engagement gate closed");
 }
 
+/// With the gate closed but the climb allowed, only the vertical part of the
+/// command gets through: the drone climbs and does not close on the intruder.
+TEST(SafetyFilterTest, TheClosedGateLetsAnArmedMissionClimbOnly)
+{
+  SafetyFilter filter(testParams());
+  const FilterState state = stateAt(0.0, 0.0, 3.0);
+  const FilterSetpoint setpoint = velocitySetpoint(Eigen::Vector3d(6.0, 2.0, 3.0));
+
+  const FilterResult result = filter.filter(
+    setpoint, state, {}, {}, FilterMode::INTERCEPT, 10.0, 0.0, 0.0, false, false, "", true);
+
+  EXPECT_TRUE(result.safety_active);
+  EXPECT_EQ(result.velocity.head<2>().norm(), 0.0) << "the drone closed on the intruder";
+  EXPECT_DOUBLE_EQ(result.velocity.z(), 3.0) << "the climb was not let through";
+  EXPECT_EQ(result.reason, "engagement gate closed: climb only");
+}
+
+/// The climb still obeys the keep-out: a person under the drone is not flown onto.
+TEST(SafetyFilterTest, TheClimbOnlyCommandStillKeepsOutOfAPerson)
+{
+  SafetyFilter filter(testParams());
+  // 4.1 m from the person: inside the 3D safety distance.
+  const FilterState state = stateAt(0.0, 0.0, 4.0);
+  const std::vector<KeepOutTarget> targets = {person(1, 1.0, 0.0)};
+  const FilterSetpoint setpoint = velocitySetpoint(Eigen::Vector3d(0.0, 0.0, -3.0));
+
+  const FilterResult result = filter.filter(
+    setpoint, state, targets, {}, FilterMode::INTERCEPT, 10.0, 0.0, 0.0, false, false, "",
+    true);
+
+  EXPECT_GE(result.velocity.z(), 0.0) << "the drone descended onto the person";
+}
+
 /// The vertical keep-out stops the drone from descending onto a person.
 TEST(SafetyFilterTest, TheVerticalKeepOutStopsTheDescent)
 {

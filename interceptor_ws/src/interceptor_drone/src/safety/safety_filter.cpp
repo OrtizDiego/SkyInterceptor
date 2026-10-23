@@ -175,7 +175,8 @@ FilterResult SafetyFilter::filter(
   const FilterSetpoint & setpoint, const FilterState & state,
   const std::vector<KeepOutTarget> & targets, const std::vector<Obstacle> & obstacles,
   FilterMode mode, double time_s, double setpoint_age_s, double odom_age_s,
-  bool estop_latched, bool engage_allowed, const std::string & abort_reason)
+  bool estop_latched, bool engage_allowed, const std::string & abort_reason,
+  bool climb_allowed)
 {
   FilterResult result;
   result.yaw = setpoint.yaw;
@@ -206,9 +207,15 @@ FilterResult SafetyFilter::filter(
   }
   // The INTERCEPT engagement gate (section 4.4): the planner is not allowed to fly at
   // a target the filter has not cleared. The gate is enforced here so a planner bug
-  // cannot bypass it.
+  // cannot bypass it. While the gate waits for a condition that may still clear,
+  // the drone may climb but not move horizontally: it can reach the altitude band
+  // the gate asks for without closing on the intruder (see EngagementDecision).
+  bool climb_only = false;
   if (mode == FilterMode::INTERCEPT && !engage_allowed) {
-    return hold(state, "engagement gate closed");
+    if (!climb_allowed) {
+      return hold(state, "engagement gate closed");
+    }
+    climb_only = true;
   }
   if (forgot) {
     // A keep-out was forgotten: the drone may be closer to that person than it thinks.
@@ -219,6 +226,11 @@ FilterResult SafetyFilter::filter(
 
   // --- The planner's command, as a velocity -------------------------------
   Eigen::Vector3d velocity = requestedVelocity(setpoint, state);
+  if (climb_only) {
+    velocity.head<2>().setZero();
+    result.safety_active = true;
+    result.reason = "engagement gate closed: climb only";
+  }
 
   // The speed cap is applied to the request, before the barriers: the planner cannot
   // ask for more than the mode allows.

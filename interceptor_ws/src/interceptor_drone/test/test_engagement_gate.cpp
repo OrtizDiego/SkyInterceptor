@@ -252,6 +252,30 @@ TEST(EngagementGateTest, TheGateIsClosedWhenTheInterceptorIsTooLow)
   EXPECT_TRUE(open.engage_allowed);
 }
 
+/// Once the engagement runs, the band has a hysteresis: the noise of the
+/// intruder's altitude does not abort an engagement that began at the edge, but
+/// a real drop below the band still does.
+TEST(EngagementGateTest, TheBandHasAHysteresisOnceEngaged)
+{
+  EngagementGate gate(testParams());
+  EngagementContext context = intercepting();
+  context.target_position.z() = 20.0;
+  context.tracks = {track(kTargetId, kUav, 20.0, 0.0, 20.0)};
+  context.interceptor_position.z() = 15.0;  // exactly at the edge of the band
+  ASSERT_TRUE(gate.update(context).engage_allowed);
+
+  // The intruder's estimate jumps up by the measurement noise.
+  context.target_position.z() = 20.5;
+  EXPECT_TRUE(gate.update(context).engage_allowed) << "the noise aborted the engagement";
+  EXPECT_FALSE(gate.aborted());
+
+  // A real drop: the interceptor is band + hysteresis + 1 m below.
+  context.interceptor_position.z() = 20.5 - 5.0 - 2.0 - 1.0;
+  const EngagementDecision decision = gate.update(context);
+  EXPECT_FALSE(decision.engage_allowed);
+  EXPECT_TRUE(decision.aborted) << "a real drop below the band must abort";
+}
+
 /// The gate is closed when the intruder leaves the geofence.
 TEST(EngagementGateTest, TheGateIsClosedWhenTheIntruderLeavesTheGeofence)
 {
@@ -455,6 +479,127 @@ TEST(EngagementGateTest, APersonInTheSceneIsNotEngagedButDoesNotBlockTheUav)
 
   EXPECT_TRUE(decision.engage_allowed);
   EXPECT_EQ(decision.reason, "");
+}
+
+// ---------------------------------------------------------------------------
+// Climbing is not engaging: the take-off
+// ---------------------------------------------------------------------------
+
+/// An armed mission whose gate is closed may climb, so the interceptor can
+/// reach the altitude band the gate asks for.
+TEST(EngagementGateTest, AnArmedMissionMayClimbWhileTheGateIsClosed)
+{
+  EngagementGate gate(testParams());
+  EngagementContext context = intercepting();
+  // The interceptor is on the ground, the intruder at 20 m.
+  context.target_position.z() = 20.0;
+  context.tracks = {track(kTargetId, kUav, 20.0, 0.0, 20.0)};
+  context.interceptor_position.z() = 0.0;
+
+  const EngagementDecision decision = gate.update(context);
+
+  EXPECT_FALSE(decision.engage_allowed);
+  EXPECT_TRUE(decision.climb_allowed) << "the interceptor could never reach the band";
+  EXPECT_FALSE(decision.latched);
+}
+
+/// The climb does not need a target: the interceptor takes off before it sees one.
+TEST(EngagementGateTest, AnArmedMissionMayClimbBeforeItHasATarget)
+{
+  EngagementGate gate(testParams());
+  EngagementContext context = intercepting();
+  context.target_track_id = -1;
+  context.tracks.clear();
+
+  const EngagementDecision decision = gate.update(context);
+
+  EXPECT_FALSE(decision.engage_allowed);
+  EXPECT_TRUE(decision.climb_allowed);
+}
+
+/// An unarmed mission does not climb: the operator has not authorised anything.
+TEST(EngagementGateTest, AnUnarmedMissionMayNotClimb)
+{
+  EngagementGate gate(testParams());
+  EngagementContext context = intercepting();
+  context.armed = false;
+
+  const EngagementDecision decision = gate.update(context);
+
+  EXPECT_FALSE(decision.engage_allowed);
+  EXPECT_FALSE(decision.climb_allowed);
+}
+
+/// A latched gate and an abort hold the drone: neither may climb.
+TEST(EngagementGateTest, ALatchedGateOrAnAbortMayNotClimb)
+{
+  EngagementGate latched(testParams());
+  EngagementContext context = intercepting();
+  context.target_class_id = kPerson;
+  latched.update(context);
+  context.target_class_id = kUav;
+  EXPECT_FALSE(latched.update(context).climb_allowed) << "a latched gate let the drone climb";
+
+  EngagementGate aborted(testParams());
+  EngagementContext scene = intercepting();
+  aborted.update(scene);
+  scene.tracks.push_back(track(9, kPerson, 5.0, 0.0, 0.0));
+  const EngagementDecision decision = aborted.update(scene);
+  EXPECT_TRUE(decision.aborted);
+  EXPECT_FALSE(decision.climb_allowed) << "an aborted engagement let the drone climb";
+}
+
+/// The deadlock this rule removes: an interceptor on the ground, an intruder
+/// hovering 20 m up and 30 m away, and a planner that flies straight at it.
+///
+/// The gate and the filter are run together on a first-order vehicle. The
+/// interceptor has to take off, climb into the band without moving
+/// horizontally, and then the gate has to open.
+TEST(EngagementGateTest, TheInterceptorTakesOffIntoTheBandAndTheGateOpens)
+{
+  EngagementGate gate(testParams());
+  SafetyFilterParams filter_params;
+  filter_params.drone_radius = 0.0;
+  SafetyFilter filter(filter_params);
+
+  const Eigen::Vector3d intruder(30.0, 0.0, 20.0);
+  FilterState state;
+  state.position = Eigen::Vector3d(0.0, 0.0, 0.0);
+
+  const double dt = 0.02;
+  double opened_at = -1.0;
+  for (int step = 0; step < 2000; ++step) {
+    const double t = step * dt;
+    EngagementContext context = intercepting();
+    context.target_position = intruder;
+    context.tracks = {track(kTargetId, kUav, intruder.x(), intruder.y(), intruder.z())};
+    context.interceptor_position = state.position;
+    const EngagementDecision decision = gate.update(context);
+    if (decision.engage_allowed) {
+      opened_at = t;
+      break;
+    }
+
+    // The planner flies straight at the intruder at up to 8 m/s.
+    Eigen::Vector3d command = intruder - state.position;
+    if (command.norm() > 8.0) {
+      command *= 8.0 / command.norm();
+    }
+    FilterSetpoint setpoint;
+    setpoint.velocity = command;
+    const FilterResult result = filter.filter(
+      setpoint, state, {}, {}, FilterMode::INTERCEPT, t, 0.0, 0.0, false,
+      decision.engage_allowed, "", decision.climb_allowed);
+
+    ASSERT_EQ(result.velocity.head<2>().norm(), 0.0)
+      << "the interceptor moved horizontally before the gate opened, at t = " << t;
+    state.velocity = result.velocity;
+    state.position += result.velocity * dt;
+  }
+
+  ASSERT_GE(opened_at, 0.0) << "the gate never opened: the take-off is deadlocked";
+  EXPECT_GE(state.position.z(), intruder.z() - testParams().engage_altitude_band - 0.5);
+  EXPECT_EQ(state.position.head<2>().norm(), 0.0);
 }
 
 }  // namespace

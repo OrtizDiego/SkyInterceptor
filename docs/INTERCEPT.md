@@ -155,9 +155,11 @@ a `uav`, confirmed and valid, above `min_engage_altitude_agl`, and the operator 
 have armed the mission. The gate lives in **two** places on purpose: the guidance
 node refuses to start an engagement that is not cleared, and `safety_filter_node`
 re-applies the check on every setpoint, so a bug in the planner cannot fly the
-drone at a person. The filter's version only checks the mode, the arming and the
-class of the selected target; the altitude, the geofence and the abort logic are
-P3.4's job (see [`SAFETY.md`](SAFETY.md)).
+drone at a person. The filter's version is the complete one: it adds the altitude
+band of the interceptor, the geofence and the abort (see [`SAFETY.md`](SAFETY.md)).
+While the gate waits for the interceptor to climb into the band, the filter lets
+only the vertical part of the guidance's command through, so the drone climbs
+without closing on the intruder.
 
 The capture is **flown**: the terminal capture law above brings the interceptor
 into the envelope with a relative speed of 1.5-3.3 m/s in the sweep, and the node
@@ -373,6 +375,69 @@ the way, and both are open work rather than guidance bugs:
   engagement slows down. The altitude and geofence conditions of the engagement
   gate, and the abort logic, are P3.4's job.
 - The interceptor flies at 8 m/s and the intruder at 6 m/s, so the closing speed
-  available is small. The capture rates of the plan's exit criteria (hover, 10 m/s
-  straight, weave) are measured by the scenario runner of P3.5.
+  available is small. The capture rates of the plan's exit criteria are measured
+  by the scenario batch below.
+
+## The scenarios and the exit criteria
+
+`run_intercept_batch.py` flies the plan's four scenarios in Gazebo, one full
+simulation per run (`launch/intercept_scenario.launch.py`), and
+`intercept_metrics_node` writes one row of CSV per run. The rows are scored by
+`intercept_metrics_report`, which uses the same aggregator and the same criteria
+(`metrics::criteriaFor`) as the unit tests.
+
+```bash
+ros2 run interceptor_drone run_intercept_batch.py --runs-per-scenario 25 --output-dir /tmp/batch
+```
+
+The layout:
+
+| Scenario | The intruder | The interceptor starts at |
+|---|---|---|
+| `hover` | hovers at (60, 50) ± (5, 10) m, 12-15 m up | (40, 50) |
+| `straight` | flies at the interceptor at 10 m/s from (85, 50 ± 8), heading error ± 0.15 rad | (45, 50) |
+| `weave` | the same, at 6 m/s with a ± 2 m weave at 0.25 Hz | (45, 50) |
+| `bystander` | hovers 11 m above the centre of the pedestrian's patrol square | (7.5, -12) |
+
+The capture scenarios are flown 40 m and more from the pedestrian, so the abort
+(a person within 15 m of the interceptor or of the capture point) is not in play;
+the bystander scenario puts the capture point right above the pedestrian, so it
+must be. The abort radius is the configured 15 m in every scenario.
+
+The intruder hovers at the start of its path until the interceptor has climbed
+into the engagement band, and then starts its manoeuvre with a smooth ramp (5 s to
+10 m/s, 3 s into the weave). The interceptor flies at 8 m/s, so it cannot catch a
+10 m/s intruder from behind: the straight and weave intruders fly at it, and the
+capture law backs away along the intruder's path and lets it close at the speed of
+its braking curve. That is how the head-on runs end at 1-4 m/s relative speed.
+
+### The results
+
+125 runs in Gazebo, ground-truth perception, augmented PN, 2026-10-23. Every run
+that produced a result is counted; the 26 attempts in which `gzserver` crashed
+(a segfault early in the run, so no samples) were retried and are not counted.
+
+| Scenario | Runs | Plan's criterion | Result | Capture range (median) | Worst relative speed at capture |
+|---|---|---|---|---|---|
+| `hover` | 25 | envelope >= 90 % | **25/25 (100 %)** | 1.46 m | 2.27 m/s |
+| `straight` (10 m/s) | 25 | envelope >= 80 % | **24/25 (96 %)** | 1.39 m | 3.81 m/s |
+| `weave` | 25 | envelope >= 60 % | **25/25 (100 %)** | 1.40 m | 3.66 m/s |
+| `bystander` | 25 | abort in 100 % | **25/25 (100 %)** | — | — |
+| all | 100 | zero non-uav engagements | **0** | | |
+
+Every capture is a *confirmed* one (inside 1.5 m and under 5 m/s at the same
+instant), not just the envelope. The one straight run scored as a miss (seed 11)
+was confirmed by the guidance itself, but the scorer samples at 20 Hz and saw
+1.52 m at its closest: it is counted as a miss.
+
+The bystander scenario was first flown with the intruder up to 2 m off the centre
+of the square at 12 m: 24 of 25 runs aborted, and the 25th captured. That run was
+not an abort failure: from where its intruder hovered, a quarter of the
+pedestrian's patrol is outside the 15 m abort radius, and the pedestrian was on
+that stretch for the whole 7 s engagement. A bystander run in which the person is
+not in the way is not a bystander run, so the layout was fixed (the centre, at
+11 m, keeps the whole patrol inside the radius) rather than the abort, and the 25
+bystander runs above are the re-run. Every abort fired for the right reason ("a
+person is 13-15 m from the capture point").
+
 

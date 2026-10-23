@@ -205,9 +205,11 @@ EngagementDecision EngagementGate::update(const EngagementContext & context)
   bool allowed = false;
   bool fatal = false;  // a violation that no mission can repair
   // The altitude the interceptor has to keep to: it may be at most
-  // engage_altitude_band below the intruder.
+  // engage_altitude_band below the intruder to start the engagement, and the
+  // hysteresis further below once the engagement is running.
   const double interceptor_floor =
-    context.target_position.z() - params_.engage_altitude_band;
+    context.target_position.z() - params_.engage_altitude_band -
+    (engaging_ ? params_.engage_altitude_hysteresis : 0.0);
 
   if (params_.require_armed && !context.armed) {
     reason = "the mission is not armed";
@@ -268,8 +270,10 @@ EngagementDecision EngagementGate::update(const EngagementContext & context)
       return decision;
     }
     // The mission has not started yet: this is not a latch, the condition may
-    // be met a moment later.
+    // be met a moment later. An armed mission may climb meanwhile, so the
+    // interceptor can reach the altitude band the gate asks for.
     decision.reason = reason;
+    decision.climb_allowed = !params_.require_armed || context.armed;
     return decision;
   }
 

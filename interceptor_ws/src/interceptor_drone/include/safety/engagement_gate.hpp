@@ -47,6 +47,16 @@
  *   track is not confirmed yet, the intruder has not taken off) do not latch:
  *   they are the normal state of a mission that has not started.
  *
+ * Climbing is not engaging
+ * ------------------------
+ * The altitude band is a condition on the *engagement*: the interceptor may
+ * not close on the intruder from far below it. It is not a condition on the
+ * take-off. While an armed mission waits for its gate, the interceptor may
+ * climb (the decision's climb_allowed) but not move horizontally, so it can
+ * reach the band without ever closing on the intruder from below. Without
+ * that, a drone on the ground could never enter the band, and the gate could
+ * never open.
+ *
  * The abort
  * ---------
  * The abort is latched as well. It fires when
@@ -95,6 +105,12 @@ struct EngagementParams
   /// that band the interceptor would have to close on the intruder through the
   /// ground clutter around it.
   double engage_altitude_band = 5.0;
+  /// Once the engagement is running, the interceptor may drop this much further
+  /// below the band before the engagement is aborted [m]. The gate opens at the
+  /// edge of the band, and the intruder's altitude is a noisy estimate: without
+  /// a margin, the measurement noise alone would abort an engagement that began
+  /// at the edge.
+  double engage_altitude_hysteresis = 2.0;
   /// The number of consecutive cycles the target has to be confirmed before the
   /// gate opens. At the filter's rate (50 Hz) that is 0.2 s.
   int min_confirmed_frames = 10;
@@ -148,6 +164,19 @@ struct EngagementDecision
 {
   /// True when the interceptor may engage the selected target.
   bool engage_allowed = false;
+  /// True when the gate is closed but the interceptor may still climb.
+  ///
+  /// The authorisation to *engage* (close on the intruder) and the
+  /// authorisation to *climb* are separate. The altitude band demands that the
+  /// interceptor is near the intruder's altitude before it may close, and the
+  /// interceptor starts on the ground: if the closed gate held the drone
+  /// completely, it could never climb into the band and the gate could never
+  /// open. So an armed mission whose gate is closed for a reason that may still
+  /// clear (no target yet, not confirmed yet, too low) may move vertically, and
+  /// only vertically: the filter drops the horizontal part of the command, so
+  /// the interceptor is never closing on the intruder while it is low and slow.
+  /// A latched gate, an abort or an unarmed mission holds the drone.
+  bool climb_allowed = false;
   /// True when the engagement has been aborted. The abort is latched.
   bool aborted = false;
   /// True when the gate is latched closed for the rest of the mission.

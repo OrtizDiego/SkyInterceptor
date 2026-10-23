@@ -103,6 +103,18 @@ add_library(${PROJECT_NAME}_safety SHARED
 )
 target_link_libraries(${PROJECT_NAME}_safety Eigen3::Eigen)
 
+# Intercept engagement metrics: the scoring of one engagement and the aggregate
+# over a batch of runs (plan 5, phase 3 exit criteria). Plain C++ and no ROS, so
+# the scoring can be unit tested on synthetic engagement records.
+#
+# The library is named _intercept_metrics rather than _metrics because the FOLLOW
+# mode has its own metrics library (P2.4); the two are separate and may be
+# merged into one later.
+add_library(${PROJECT_NAME}_intercept_metrics SHARED
+  src/metrics/intercept_metrics.cpp
+)
+target_link_libraries(${PROJECT_NAME}_intercept_metrics Eigen3::Eigen)
+
 # Follow planner library: the framing presets in the target's heading frame, the
 # filtered heading and the lost-track state machine. Plain C++ and Eigen, no ROS, so
 # the geometry can be unit tested on synthetic poses.
@@ -218,6 +230,22 @@ ament_target_dependencies(safety_filter_node
   interceptor_interfaces
 )
 
+# Intercept engagement metrics node: the live topics -> the samples the scorer
+# judges, and the summary of the run.
+add_executable(intercept_metrics_node src/metrics/intercept_metrics_node.cpp)
+target_link_libraries(intercept_metrics_node ${PROJECT_NAME}_lib ${PROJECT_NAME}_intercept_metrics)
+ament_target_dependencies(intercept_metrics_node
+  rclcpp
+  geometry_msgs
+  nav_msgs
+  std_msgs
+  interceptor_interfaces
+)
+
+# Scores the CSV of a batch of INTERCEPT runs against the plan's exit criteria.
+add_executable(intercept_metrics_report src/metrics/intercept_metrics_report.cpp)
+target_link_libraries(intercept_metrics_report ${PROJECT_NAME}_intercept_metrics)
+
 # Evasion node
 add_executable(evasion_controller_node src/evasion/evasion_controller_node.cpp)
 target_link_libraries(evasion_controller_node ${PROJECT_NAME}_lib)
@@ -236,6 +264,8 @@ install(TARGETS
   follow_planner_node
   mission_manager_node
   safety_filter_node
+  intercept_metrics_node
+  intercept_metrics_report
   evasion_controller_node
   DESTINATION lib/${PROJECT_NAME}
 )
@@ -247,6 +277,7 @@ install(TARGETS
   ${PROJECT_NAME}_guidance
   ${PROJECT_NAME}_safety
   ${PROJECT_NAME}_follow
+  ${PROJECT_NAME}_intercept_metrics
   quadrotor_dynamics_plugin
   LIBRARY DESTINATION lib
 )
@@ -255,6 +286,7 @@ install(PROGRAMS
   src/perception/target_detector.py
   src/teleop/drone_teleop_keyboard.py
   src/tools/record_intercept.py
+  src/tools/run_intercept_batch.py
   DESTINATION lib/${PROJECT_NAME}
 )
 
@@ -338,6 +370,9 @@ if(BUILD_TESTING)
 
   ament_add_gtest(test_trajectory_controller test/test_trajectory_controller.cpp)
   target_link_libraries(test_trajectory_controller ${PROJECT_NAME}_lib ${PROJECT_NAME}_flight)
+
+  ament_add_gtest(test_intercept_metrics test/test_intercept_metrics.cpp)
+  target_link_libraries(test_intercept_metrics ${PROJECT_NAME}_intercept_metrics)
 
   ament_add_gtest(test_safety_filter test/test_safety_filter.cpp)
   target_link_libraries(test_safety_filter ${PROJECT_NAME}_safety)
