@@ -83,7 +83,7 @@ Unmodelled: blade-element and momentum inflow effects (thrust loss with axial cl
 A PX4-style cascade runs every physics step (1 kHz):
 
 1. **Velocity PI** (world frame) → desired acceleration. The horizontal command is limited to 8 m/s, the vertical to 3 m/s and the yaw rate to 1.5 rad/s. The integrators have anti-windup.
-2. **Thrust vector** **F** = m(**a** + g**e**z), with a tilt limit of 35°. The desired attitude puts body z along **F** and body x towards the yaw setpoint, which integrates the yaw-rate command.
+2. **Thrust vector** **F** = m(**a** + g**e**z), with a tilt limit of 35°. The desired attitude puts body z along **F** and body x towards the yaw setpoint, which integrates the yaw-rate command. The setpoint may run up to `max_yaw_error` (1.6 rad in the URDF) ahead of a vehicle that turns slower than the command, but a lead *against* the command is dropped: it is stale once the command reverses, and keeping it made an outer heading loop ring (in the P2.4 follow runs the nose swung ±80° around its target with a 2.5 s period, and the drone yawed at 2.8 rad/s against a 1.5 rad/s limit).
 3. **Attitude P** on SO(3) (geometric error ½(R_dᵀR − RᵀR_d)^∨) → body-rate setpoint.
 4. **Body-rate PI** → torque **τ** = J·α + **ω** × J**ω**.
 5. **Mixer**: inverts the 4×4 allocation matrix [T, τx, τy, τz] = A·[T₁…T₄], then ωᵢ = √(Tᵢ / k_f). When the motors saturate, roll and pitch win over collective thrust, and yaw gets what's left.
