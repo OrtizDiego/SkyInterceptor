@@ -24,11 +24,42 @@ The Dockerfile starts from `nvidia/cuda:11.8.0-devel-ubuntu22.04` and installs:
 
 ## Docker Compose
 
-The `docker-compose.yml` defines the `interceptor` service with:
-- `privileged: true` and `runtime: nvidia` for hardware/GPU access.
-- `network_mode: host` for seamless ROS 2 communication.
-- Automatic volume mounting of your source code and SSH/Git configs.
-- WSL2 GPU rendering passthrough (see below).
+The compose setup is a **shared base plus one overlay per kind of host**:
+
+| File | What |
+|---|---|
+| `docker-compose.yml` | the base: the `interceptor` service, `privileged: true` and `runtime: nvidia`, `network_mode: host`, the source, build, SSH/Git and data mounts |
+| `docker-compose.wsl.yml` | WSL2 (Windows): GPU rendering through Mesa's D3D12 driver (`/dev/dxg`, `/usr/lib/wsl`, `/mnt/wslg`, the WSLg variables) |
+| `docker-compose.native.yml` | native Linux: GPU rendering through the NVIDIA GLX driver the container toolkit injects, with PRIME offload for hybrid laptops |
+
+**Use `make`, not `docker compose` directly.** The Makefile picks the overlay from
+`/proc/version` (`PLATFORM=wsl` or `native`; override it with e.g.
+`make up PLATFORM=native`) and uses the `docker compose` plugin when it is installed,
+else the old `docker-compose`. `make platform` prints what it picked. By hand:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.native.yml up -d
+```
+
+### Persistent data: `/workspace/data`
+
+`${HOME}/skyinterceptor-data` on the host is mounted at `/workspace/data` in the
+container. It is an absolute path, so it is the same whichever checkout or worktree
+started the container, and it survives a container recreate; `make up` creates it.
+**Rule: datasets, weights and batch results go in `/workspace/data`, never in the
+container's `/tmp`** — the container's `/tmp` is lost when it is recreated (that is
+how the P3.2 dataset and weights were lost). Scratch build workspaces may stay in
+`/tmp`.
+
+### Start it from the main checkout
+
+The source mount (`./interceptor_ws/src`) is relative to the directory compose is
+started from. Start the container from the main checkout, not from a worktree, or it
+builds the worktree's code. `make doctor` shows where `src` is mounted from.
+
+### Moving to a native Ubuntu machine
+
+Step by step, with a check after each step: [`docs/MOVE_TO_UBUNTU.md`](docs/MOVE_TO_UBUNTU.md).
 
 ## GPU Rendering on WSL2
 
@@ -40,7 +71,7 @@ which reaches the GPU through the WSL driver libraries in `/usr/lib/wsl/lib` and
 the `/dev/dxg` device. Without those, Gazebo silently falls back to CPU software
 rendering (`llvmpipe`), which is very slow.
 
-To enable GPU rendering, the compose service:
+To enable GPU rendering, the WSL overlay (`docker-compose.wsl.yml`):
 - mounts `/usr/lib/wsl:ro` (provides `libd3d12.so`, `libdxcore.so`, …) and adds
   it to `LD_LIBRARY_PATH`;
 - mounts `/mnt/wslg` for the WSLg X11/Wayland display sockets;
@@ -65,6 +96,21 @@ says `llvmpipe` or `softpipe`, rendering is still on the CPU.
 > and Mesa packages take effect. WSL2 GPU support also requires an up-to-date
 > NVIDIA Windows driver and WSLg (default on recent Windows 10/11).
 
+## GPU Rendering on native Linux
+
+On a native Linux host none of the WSL2 machinery exists. With the NVIDIA driver on the
+host and the NVIDIA container toolkit configured for Docker, `runtime: nvidia` and
+`NVIDIA_DRIVER_CAPABILITIES=all` make the toolkit inject the driver's GLX/EGL libraries
+into the container, and OpenGL renders on the GPU directly. The native overlay
+(`docker-compose.native.yml`) only adds `__NV_PRIME_RENDER_OFFLOAD=1` and
+`__GLX_VENDOR_LIBRARY_NAME=nvidia`, so a hybrid-graphics laptop renders on the NVIDIA
+GPU rather than the integrated one (harmless on a desktop). The entrypoint's WSL
+tweaks only apply when `/usr/lib/wsl/lib` exists, so they stay out of the way.
+
+`make doctor` should then show an `OpenGL renderer` naming the NVIDIA GPU (not
+`llvmpipe`, not `D3D12`). The full setup, step by step:
+[`docs/MOVE_TO_UBUNTU.md`](docs/MOVE_TO_UBUNTU.md).
+
 ## Makefile Commands
 
 The `Makefile` simplifies interaction with the Docker container:
@@ -84,7 +130,7 @@ The `Makefile` simplifies interaction with the Docker container:
 
 ## Development Workflow
 
-All `make` targets are run **from the host**; they call `docker-compose exec` internally.
+All `make` targets are run **from the host**; they call `docker compose exec` internally (with the overlay for the host, see above). `make doctor` checks the host and the container in one go: the GPU, the OpenGL renderer, PyTorch's CUDA, and the source and data mounts.
 
 1.  **Start the environment**: `make up`
 2.  **Build the code**: `make build-ws`

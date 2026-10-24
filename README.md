@@ -216,7 +216,7 @@ Everything runs inside a Docker container, so the host only needs Docker.
 ### Prerequisites
 
 - Linux, or Windows with WSL2
-- [Docker](https://docs.docker.com/engine/install/) with the `docker-compose` command
+- [Docker](https://docs.docker.com/engine/install/) with `docker compose` (or the old `docker-compose`); on native Linux also the NVIDIA container toolkit. Moving to native Ubuntu: [`docs/MOVE_TO_UBUNTU.md`](docs/MOVE_TO_UBUNTU.md)
 - An NVIDIA GPU with the [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html) (the compose file uses `runtime: nvidia`)
 - An X server for Gazebo and RViz (WSLg on Windows)
 

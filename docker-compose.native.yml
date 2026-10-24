@@ -1,0 +1,19 @@
+version: '3.8'
+
+# Overlay for native Linux (e.g. Ubuntu with an NVIDIA GPU), layered on
+# docker-compose.yml. The Makefile uses it when /proc/version does not say
+# Microsoft. See DOCKER.md, "Native Linux".
+#
+# Needs on the host: the NVIDIA driver (nvidia-smi works) and the NVIDIA
+# container toolkit configured for docker (`nvidia-ctk runtime configure`).
+# NVIDIA_DRIVER_CAPABILITIES=all in the base file makes the toolkit inject the
+# driver's GLX/EGL libraries, so OpenGL renders on the GPU directly; none of the
+# WSL2 D3D12 machinery (/dev/dxg, /usr/lib/wsl, /mnt/wslg) exists or is needed.
+
+services:
+  interceptor:
+    environment:
+      # Hybrid-graphics laptops (Intel/AMD + NVIDIA): render OpenGL on the NVIDIA
+      # GPU instead of the integrated one. Harmless on a desktop with one GPU.
+      - __NV_PRIME_RENDER_OFFLOAD=1
+      - __GLX_VENDOR_LIBRARY_NAME=nvidia
