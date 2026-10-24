@@ -57,13 +57,19 @@ It helps, for four reasons seen in this project:
 
 **When:** now, before task 1 — the data mount task recreates the container anyway,
 and the Gazebo crash A/B (task 2) and the GPU training (task 4) should be measured on
-the machine that will keep running them. Things to carry over: the repo (push all
-branches first), `~/skyinterceptor-data` (empty for now — nothing big survived the
-last recreate), the Claude memory directory, and the GitHub/`gh` login. On the new
-host: NVIDIA driver + `nvidia-container-toolkit`, `docker compose`, then `make build`
-and recreate the container from the main checkout. The WSL-specific mounts in
-`docker-compose.yml` (`/usr/lib/wsl`, `/mnt/wslg`) have to be made conditional or
-removed there.
+the machine that will keep running them.
+
+**How: [`docs/MOVE_TO_UBUNTU.md`](docs/MOVE_TO_UBUNTU.md)**, step by step with a check
+after each step. Already prepared (2026-10-24):
+
+- the transfer archive `~/skyinterceptor-transfer.tgz` on the old machine: the batch
+  results, a git bundle of every local branch, the untracked notes, the agent's memory
+  and the guide itself;
+- the compose files are split into a base and a host overlay
+  (`docker-compose.wsl.yml`, `docker-compose.native.yml`), and the Makefile picks the
+  overlay and the compose command by itself (`make platform`, `make doctor`);
+- the persistent data mount (`~/skyinterceptor-data` → `/workspace/data`) is in the
+  base compose file.
 
 ---
 

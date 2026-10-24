@@ -12,9 +12,17 @@ result (`/tmp/p24final`, `/tmp/p35batch`, ...) and the scratch workspaces. When 
 container was recreated, the P3.2 dataset and weights were lost and have to be
 regenerated. **Rule from now on: big artefacts never go in `/tmp`.**
 
+## What is already done (2026-10-24, the compose split PR)
+
+Step 1 below is done: `docker-compose.yml` mounts `${HOME}/skyinterceptor-data` at
+`/workspace/data`, and `make up` creates the host directory. `DOCKER.md` documents
+the mount and the rule. What is left: steps 2-4 (the scripts' defaults, the handoff
+notes, recreating the container from the main checkout — on the new Ubuntu machine,
+`docs/MOVE_TO_UBUNTU.md` does that).
+
 ## What to do
 
-1. In `docker-compose.yml`, add an **absolute** host mount:
+1. *(done)* In `docker-compose.yml`, add an **absolute** host mount:
    `${HOME}/skyinterceptor-data:/workspace/data:rw`.
    It must not be relative to the compose directory: the compose file is often
    started from a worktree (see the memory note "container src mount follows the

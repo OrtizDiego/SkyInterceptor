@@ -1,0 +1,30 @@
+version: '3.8'
+
+# Overlay for WSL2 (Windows), layered on docker-compose.yml. The Makefile uses it
+# when /proc/version says Microsoft. See DOCKER.md, "GPU rendering on WSL2".
+
+services:
+  interceptor:
+    environment:
+      # On WSL2, hardware OpenGL for Gazebo/RViz is provided by Mesa's D3D12
+      # (Gallium) driver, which reaches the GPU via the WSL driver libraries
+      # in /usr/lib/wsl/lib and the /dev/dxg device (mounted below). These
+      # vars point the loader/driver at that path and select the NVIDIA GPU
+      # instead of falling back to CPU software rendering (llvmpipe).
+      - LD_LIBRARY_PATH=/usr/lib/wsl/lib
+      - MESA_D3D12_DEFAULT_ADAPTER_NAME=NVIDIA
+      - LIBGL_ALWAYS_SOFTWARE=0
+      # WSLg display integration (X11 + Wayland provided by the host)
+      - WAYLAND_DISPLAY=${WAYLAND_DISPLAY:-wayland-0}
+      - XDG_RUNTIME_DIR=/mnt/wslg/runtime-dir
+      - PULSE_SERVER=/mnt/wslg/PulseServer
+
+    # WSL GPU compute device (DirectX kernel interface used by the D3D12 driver)
+    devices:
+      - /dev/dxg:/dev/dxg
+
+    volumes:
+      # WSL driver libraries (libd3d12.so, libdxcore.so, libnvwgf2umx.so, ...)
+      # and the WSLg X11/Wayland sockets.
+      - /usr/lib/wsl:/usr/lib/wsl:ro
+      - /mnt/wslg:/mnt/wslg:rw

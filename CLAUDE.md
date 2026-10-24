@@ -19,7 +19,7 @@ All development runs inside a Docker container with CUDA 11.8 + ROS2 Humble.
 
 ## Commands
 
-All make targets call `docker-compose exec interceptor` internally — the container must be running (`make up`) first.
+All make targets call `docker compose exec interceptor` internally (with the compose overlay for the host: `docker-compose.wsl.yml` on WSL2, `docker-compose.native.yml` on native Linux, picked from `/proc/version`) — the container must be running (`make up`) first. Persistent data (datasets, weights, batch results) goes in `/workspace/data` (host `~/skyinterceptor-data`), never in the container's `/tmp`.
 
 ```bash
 make build      # Build Docker image (first time setup)
@@ -33,7 +33,9 @@ make sim        # ros2 launch interceptor_drone simulation.launch.py
 make teleop     # ros2 run interceptor_drone drone_teleop_keyboard.py (fly with the keyboard)
 make full       # ros2 launch interceptor_drone interceptor_full.launch.py
 make clean      # Remove build/, install/, log/ inside container
-make status     # docker-compose ps
+make status     # docker compose ps
+make platform   # the detected host (wsl/native) and the compose command
+make doctor     # check the GPU, the OpenGL renderer, torch CUDA and the mounts
 ```
 
 **Building a single package inside the container:**
