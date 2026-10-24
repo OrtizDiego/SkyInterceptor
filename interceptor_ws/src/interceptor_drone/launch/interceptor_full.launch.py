@@ -45,6 +45,10 @@ def generate_launch_description():
     groundtruth_seed = LaunchConfiguration('groundtruth_seed', default='0')
     use_vision = PythonExpression(["'", perception_source, "' == 'vision'"])
     use_groundtruth = PythonExpression(["'", perception_source, "' == 'groundtruth'"])
+    # The detector of the INTERCEPT mode is the model with the uav class
+    # (plan 3.2); the FOLLOW mode uses the COCO model.
+    detector = PythonExpression(
+        ["'uav' if '", mission_mode, "' == 'intercept' else 'coco'"])
     # Gazebo GUI: headless runs (CI, scripted perception checks) need it off
     gui = LaunchConfiguration('gui')
 
@@ -68,7 +72,10 @@ def generate_launch_description():
     # Vision pipeline: stereo + YOLO + 3D localizer -> /target/detection_3d
     perception = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(os.path.join(launch_dir, 'perception.launch.py')),
-        launch_arguments={'use_sim_time': use_sim_time}.items(),
+        launch_arguments={
+            'use_sim_time': use_sim_time,
+            'detector': detector,
+        }.items(),
         condition=IfCondition(use_vision),
     )
 
