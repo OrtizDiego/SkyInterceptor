@@ -257,13 +257,22 @@ The stereo camera hangs off the front of the airframe, so the nose has to follow
 the target for the cameras to see it. The guidance commands that heading: the
 yaw setpoint is the bearing of the target in the world frame.
 
-Getting the nose onto the target takes two things beyond the yaw setpoint:
+Getting the nose onto the target takes more than the yaw setpoint:
 
-- the trajectory controller's yaw gain (`kp_yaw`) and rate limit, and
+- the **yaw-rate feed-forward**: the guidance (and the follow planner) also sends
+  the rate the bearing to the target turns (`bearingRate`, `FlightSetpoint.yaw_rate`),
+  so the nose keeps up with a target that crosses the line of sight;
+- the trajectory controller's yaw gain (`kp_yaw` 1.5) and rate limit (1.5 rad/s,
+  the flight controller's own). The gain only closes what the feed-forward leaves,
+  and it has to stay low: the X500 brakes its yaw at only ~3.5 rad/s² (the rotors'
+  reaction torque), and with the loop's delay a gain of 3 made the nose overshoot by
+  50° and more and ring (found in the P2.4 follow runs);
 - the flight controller's `max_yaw_error`, the window its internal heading
-  setpoint may run ahead of the airframe. The mixer allocates the yaw torque
-  last, so a tight limit starves the yaw exactly when the drone accelerates
-  hardest and the nose lags the line of sight.
+  setpoint may run ahead of the airframe, with an anti-windup that drops a lead
+  against the command. The mixer allocates the yaw torque last, so a tight window
+  starves the yaw exactly when the drone accelerates hardest. Capping the yaw body
+  rate instead makes the attitude loop saturate and overshoot more (an offline sweep
+  in the heading-loop test of `test_flight_dynamics.cpp`).
 
 ## Running it
 

@@ -24,6 +24,9 @@ namespace
 constexpr double kMaxTimeStep = 0.1;  // s
 // Below this length the vector between two points has no meaningful direction.
 constexpr double kMinBearingLength = 1e-6;  // m
+// Closer than this the bearing rate is not used as a feed-forward: it is unbounded
+// as the range goes to zero.
+constexpr double kMinYawFeedforwardRange = 1.0;  // m
 constexpr double kPi = 3.14159265358979323846;
 }  // namespace
 
@@ -266,6 +269,12 @@ FollowCommand FollowPlanner::update(const FollowState & state, double time_s)
         // The camera looks at the target, always: the bearing does not depend on the
         // filtered heading, so a target that turns does not whip the camera around.
         command.yaw = bearing(state.position, target_.position, state.yaw);
+        // The rate the bearing turns, as a feed-forward: the heading loop only has to
+        // close what is left, so the nose keeps up with a target that turns a corner
+        // without a heading gain high enough to make the yaw ring.
+        command.yaw_rate = bearingRate(
+          state.position, state.velocity, target_.position, target_.velocity,
+          kMinYawFeedforwardRange);
         command.source = kSourceFollow;
         command.desired_position = p_des;
         last_velocity_ = command.velocity;

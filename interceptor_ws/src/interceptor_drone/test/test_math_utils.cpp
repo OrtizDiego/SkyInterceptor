@@ -99,6 +99,44 @@ TEST(SaturateVector, ZeroVectorStaysZero)
   EXPECT_TRUE(saturateVector(Eigen::Vector3d::Zero(), 0.0).isZero());
 }
 
+TEST(BearingRate, IsTheRateTheLineOfSightTurns)
+{
+  // A target 10 m ahead crossing at 2 m/s: the bearing turns at 2 / 10 rad/s, to the left.
+  const Eigen::Vector3d origin = Eigen::Vector3d::Zero();
+  EXPECT_NEAR(
+    bearingRate(
+      origin, Eigen::Vector3d::Zero(), Eigen::Vector3d(10, 0, 0), Eigen::Vector3d(0, 2, 0), 1.0),
+    0.2, kTol);
+  // Crossing the other way, it turns to the right.
+  EXPECT_NEAR(
+    bearingRate(
+      origin, Eigen::Vector3d::Zero(), Eigen::Vector3d(10, 0, 0), Eigen::Vector3d(0, -2, 0), 1.0),
+    -0.2, kTol);
+  // The observer moving with the target sees no turn; closing along the line, neither.
+  EXPECT_NEAR(
+    bearingRate(
+      origin, Eigen::Vector3d(0, 2, 0), Eigen::Vector3d(10, 0, 0), Eigen::Vector3d(0, 2, 0), 1.0),
+    0.0, kTol);
+  EXPECT_NEAR(
+    bearingRate(
+      origin, Eigen::Vector3d::Zero(), Eigen::Vector3d(10, 0, 0), Eigen::Vector3d(-3, 0, 0), 1.0),
+    0.0, kTol);
+  // Height does not matter: it is the horizontal bearing.
+  EXPECT_NEAR(
+    bearingRate(
+      origin, Eigen::Vector3d::Zero(), Eigen::Vector3d(10, 0, 7), Eigen::Vector3d(0, 2, 1), 1.0),
+    0.2, kTol);
+}
+
+TEST(BearingRate, IsZeroInsideTheMinimumRange)
+{
+  EXPECT_EQ(
+    bearingRate(
+      Eigen::Vector3d::Zero(), Eigen::Vector3d::Zero(), Eigen::Vector3d(0.5, 0, 0),
+      Eigen::Vector3d(0, 5, 0), 1.0),
+    0.0);
+}
+
 TEST(WrapAngle, KeepsAnglesInsideTheRange)
 {
   EXPECT_NEAR(wrapAngle(0.0), 0.0, kTol);

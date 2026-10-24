@@ -109,6 +109,23 @@ TEST(FramingPreset, BehindSitsAlongTheHeading)
   EXPECT_EQ(command.source, kSourceFollow);
 }
 
+/// The yaw-rate feed-forward is the rate the bearing to the target turns, so the
+/// heading loop does not have to chase a target that crosses the line of sight.
+TEST(FramingPreset, TheYawRateIsTheBearingRate)
+{
+  FollowPlannerParams params = testParams();
+  // The target is 10 m ahead of the drone and walks across the line of sight.
+  const FollowTarget target = targetAt(1, Eigen::Vector3d(10, 0, 0), Eigen::Vector3d(0, 2, 0), 0.5);
+  FollowPlanner planner = plannerInFollow(params, target);
+
+  FollowState state = droneAt(0, 0);
+  state.velocity = Eigen::Vector3d(0.0, 0.5, 0.0);
+  const FollowCommand command = planner.update(state, 0.0);
+
+  ASSERT_EQ(command.phase, FollowPhase::TRACKING);
+  EXPECT_NEAR(command.yaw_rate, (2.0 - 0.5) / 10.0, 1e-9);
+}
+
 TEST(FramingPreset, SideIsLateral)
 {
   FollowPlannerParams params = testParams();

@@ -281,7 +281,7 @@ private:
     msg.acceleration_ff.y = 0.0;
     msg.acceleration_ff.z = 0.0;
     msg.yaw = command.yaw;
-    msg.yaw_rate = 0.0;
+    msg.yaw_rate = command.yaw_rate;
     msg.source = command.source;
 
     pub_setpoint_raw_->publish(msg);
