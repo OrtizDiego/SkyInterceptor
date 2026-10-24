@@ -144,6 +144,12 @@ metrics_recorder_node:
       # The half-width of the frame [deg] and the score the phase asks for.
       framing_tolerance_deg: 15.0
       min_framing_score: 0.95
+      # The scenarios whose framing verdict is taken over the time the target is
+      # tracked, not over the whole scored time. The occlusion scenario hides the
+      # target behind a tree by design (5-11 s of a 50 s run), so the strict score
+      # cannot reach 95 % there; decided 2026-10-24, see ROADMAP.md P2.4. The
+      # strict score is still reported for every scenario.
+      framing_over_tracked_time_scenarios: ["occlusion"]
       # A loss of the target of at least this long has to be followed by the target
       # coming back [s].
       reacquire_loss_time_s: 2.0

@@ -448,8 +448,16 @@ Summary MetricsRecorder::summarize() const
   summary.distance_ok = std::isfinite(min_person_distance_3d) &&
     summary.min_person_margin_3d >= 0.0 && summary.min_person_margin_horizontal >= 0.0 &&
     summary.min_obstacle_margin >= 0.0;
-  summary.framing_ok = !framing_errors.empty() &&
-    summary.framing_score >= params_.min_framing_score;
+  // The framing verdict: over the whole scored time, or - for the scenarios that
+  // hide the target by design - over the time the target is tracked. Both scores
+  // are in the summary either way.
+  const auto & tracked_only = params_.framing_over_tracked_time_scenarios;
+  summary.framing_over_tracked_time =
+    std::find(tracked_only.begin(), tracked_only.end(), params_.scenario) != tracked_only.end();
+  summary.framing_ok = summary.framing_over_tracked_time ?
+    (!framing_errors_present.empty() &&
+    summary.framing_score_conditional >= params_.min_framing_score) :
+    (!framing_errors.empty() && summary.framing_score >= params_.min_framing_score);
   summary.reacquire_ok = summary.long_loss_count == 0 ||
     summary.reacquired_count == summary.long_loss_count;
   summary.all_ok = summary.distance_ok && summary.framing_ok && summary.reacquire_ok;
@@ -504,6 +512,8 @@ std::string MetricsRecorder::toJson(const Summary & summary, const RecorderParam
   out << "  \"reacquire_delay_mean\": " << jsonNumber(summary.reacquire_delay_mean) << ",\n";
   out << "  \"distance_ok\": " << (summary.distance_ok ? "true" : "false") << ",\n";
   out << "  \"framing_ok\": " << (summary.framing_ok ? "true" : "false") << ",\n";
+  out << "  \"framing_basis\": \"" <<
+    (summary.framing_over_tracked_time ? "tracked" : "all") << "\",\n";
   out << "  \"reacquire_ok\": " << (summary.reacquire_ok ? "true" : "false") << ",\n";
   out << "  \"all_ok\": " << (summary.all_ok ? "true" : "false") << "\n";
   out << "}\n";

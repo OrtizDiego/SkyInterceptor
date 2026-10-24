@@ -133,6 +133,12 @@ struct RecorderParams
   double uncertainty_gain = 2.0;  // k in d_min + k * sigma, the filter's inflation
   double framing_tolerance_deg = 15.0;  // deg, the half-width of the frame
   double min_framing_score = 0.95;     // the criterion: 95 % of the time
+  /// The scenarios whose framing verdict is taken over the time the target is
+  /// tracked (framing_score_conditional) rather than over the whole scored time.
+  /// The occlusion scenario hides the target behind a tree by design, so the
+  /// strict score counts that time as unframed and cannot reach 95 %. The strict
+  /// score is still reported for every scenario.
+  std::vector<std::string> framing_over_tracked_time_scenarios;
   double reacquire_loss_time_s = 2.0;   // s, a loss at least this long is a long one
 
   // --- The run -------------------------------------------------------------
@@ -231,6 +237,9 @@ struct Summary
   // --- The verdicts ---------------------------------------------------------
   bool distance_ok = false;
   bool framing_ok = false;
+  /// True when framing_ok was judged on framing_score_conditional (the scenario is
+  /// one of framing_over_tracked_time_scenarios), false when on framing_score.
+  bool framing_over_tracked_time = false;
   bool reacquire_ok = false;
   bool all_ok = false;
 };

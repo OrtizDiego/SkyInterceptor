@@ -78,6 +78,8 @@ public:
       declare_parameter("metrics.framing_tolerance_deg", params.framing_tolerance_deg);
     params.min_framing_score =
       declare_parameter("metrics.min_framing_score", params.min_framing_score);
+    params.framing_over_tracked_time_scenarios = declare_parameter(
+      "metrics.framing_over_tracked_time_scenarios", std::vector<std::string>{});
     params.reacquire_loss_time_s =
       declare_parameter("metrics.reacquire_loss_time_s", params.reacquire_loss_time_s);
     params.scenario = declare_parameter("metrics.scenario", params.scenario);

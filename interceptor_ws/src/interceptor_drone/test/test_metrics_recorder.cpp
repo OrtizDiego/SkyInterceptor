@@ -318,6 +318,32 @@ TEST(MetricsRecorder, TheTimeTheTargetIsLostCountsAgainstTheFraming)
   EXPECT_GT(summary.target_lost_time, 0.0);
 }
 
+// The occlusion scenario hides the target by design: its framing verdict is taken
+// over the time the target is tracked. Any other scenario keeps the strict verdict.
+TEST(MetricsRecorder, AListedScenarioIsJudgedOnTheTrackedTime)
+{
+  for (const std::string scenario : {"occlusion", "walker"}) {
+    RecorderParams params = testParams();
+    params.scenario = scenario;
+    params.framing_over_tracked_time_scenarios = {"occlusion"};
+    MetricsRecorder recorder(params);
+    // The target is hidden for a quarter of the run, framed perfectly otherwise.
+    for (int k = 0; k < 40; ++k) {
+      recorder.addSample(sampleAt(0.5 * k, k % 4 != 2));
+    }
+    const Summary summary = recorder.summarize();
+    EXPECT_NEAR(summary.framing_score, 0.75, 1e-9) << scenario;
+    EXPECT_NEAR(summary.framing_score_conditional, 1.0, 1e-9) << scenario;
+    if (scenario == "occlusion") {
+      EXPECT_TRUE(summary.framing_over_tracked_time);
+      EXPECT_TRUE(summary.framing_ok) << "the hidden time should not count against it";
+    } else {
+      EXPECT_FALSE(summary.framing_over_tracked_time);
+      EXPECT_FALSE(summary.framing_ok) << "the strict verdict should still apply";
+    }
+  }
+}
+
 TEST(MetricsRecorder, TheMeanAndThePercentileOfTheFramingError)
 {
   MetricsRecorder recorder(testParams());
