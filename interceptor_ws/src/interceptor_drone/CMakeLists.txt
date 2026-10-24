@@ -348,7 +348,7 @@ if(BUILD_TESTING)
   target_link_libraries(test_groundtruth_sensor ${PROJECT_NAME}_lib)
 
   ament_add_gtest(test_flight_dynamics test/test_flight_dynamics.cpp)
-  target_link_libraries(test_flight_dynamics ${PROJECT_NAME}_flight)
+  target_link_libraries(test_flight_dynamics ${PROJECT_NAME}_flight ${PROJECT_NAME}_lib)
 
   ament_add_gtest(test_imm_filter test/test_imm_filter.cpp)
   target_link_libraries(test_imm_filter ${PROJECT_NAME}_estimation)

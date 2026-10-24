@@ -4,6 +4,8 @@
 #include <cmath>
 #include <vector>
 
+#include "common/math_utils.hpp"
+#include "control/trajectory_controller.hpp"
 #include "flight/flight_controller.hpp"
 #include "flight/quadrotor_model.hpp"
 #include "flight/wind_model.hpp"
@@ -347,6 +349,114 @@ TEST(FlightController, ALeadAgainstTheCommandIsDropped)
     controller.update(state, command, kDt);
   }
   EXPECT_NEAR(controller.yawSetpoint(), -0.5 * 101 * kDt, 1e-9);
+}
+
+// The whole heading loop: the trajectory controller (its yaw law, 50 Hz) on top of
+// the onboard flight controller and the X500, with the delay of the ROS loop on the
+// heading it sees and a drone that manoeuvres at the same time (the yaw only gets
+// the torque the roll and pitch leave). Returns the overshoot of a 120 deg step and
+// the mean lag on a target bearing that then turns at 0.5 rad/s.
+struct HeadingLoopResult
+{
+  double overshoot_deg = 0.0;
+  double ramp_lag_deg = 0.0;
+};
+
+HeadingLoopResult flyHeadingLoop(double kp_yaw, double max_yaw_rate, bool feedforward)
+{
+  QuadrotorParams vehicle = makeX500Params();
+  // The URDF's airframe and flight controller.
+  vehicle.mass = 1.6;
+  vehicle.inertia = Eigen::Vector3d(0.0343, 0.0343, 0.0667).asDiagonal();
+  FlightControllerParams fc;
+  fc.max_yaw_rate = 1.5;
+  fc.max_yaw_error = 1.6;
+  fc.max_body_rate = Eigen::Vector3d::Constant(3.5);
+
+  control::TrajectoryControllerParams tc_params;
+  tc_params.kp_yaw = kp_yaw;
+  tc_params.max_yaw_rate = max_yaw_rate;
+  tc_params.setpoint_timeout = 1e9;
+  control::TrajectoryController tc(tc_params);
+
+  QuadrotorModel model(vehicle);
+  FlightController controller(vehicle, fc);
+  RigidBodyState state = stateAt(6.0);
+  const double w = hoverSpeed(vehicle);
+  model.setRotorSpeeds(RotorArray{w, w, w, w});
+  controller.reset(state);
+
+  constexpr double kDelay = 0.15;  // s, what the heading the controller sees is late
+  constexpr double kStep = 2.1;    // rad, 120 deg
+  constexpr double kRampRate = 0.5;  // rad/s
+  std::vector<double> history;
+  VelocityCommand command;
+  command.velocity.z() = 0.2;
+  controller.update(state, command, kDt);
+
+  HeadingLoopResult result;
+  double lag_sum = 0.0;
+  int lag_count = 0;
+  const int steps = static_cast<int>(20.0 / kDt);
+  for (int k = 0; k < steps; ++k) {
+    const double t = k * kDt;
+    history.push_back(yawFromQuaternion(state.orientation));
+    const size_t delay_steps = static_cast<size_t>(kDelay / kDt);
+    const double seen_yaw = history[history.size() > delay_steps ? history.size() - 1 -
+        delay_steps : 0];
+    const bool ramping = t >= 10.0;
+    const double target = ramping ? wrapAngle(kStep + kRampRate * (t - 10.0)) : kStep;
+
+    if (k % 20 == 0) {  // the trajectory controller runs at 50 Hz
+      control::ControllerSetpoint setpoint;
+      setpoint.yaw = target;
+      setpoint.yaw_rate = (feedforward && ramping) ? kRampRate : 0.0;
+      // The follow drone keeps manoeuvring while it turns.
+      setpoint.velocity = Eigen::Vector3d(3.0 * std::sin(0.8 * t), 3.0 * std::cos(0.6 * t), 0.0);
+      tc.setSetpoint(setpoint, t);
+      control::ControllerState seen;
+      seen.position = state.position;
+      seen.velocity = state.velocity;
+      seen.yaw = seen_yaw;
+      const control::ControllerCommand out = tc.update(seen, t);
+      command.velocity = out.velocity;
+      command.yaw_rate = out.yaw_rate;
+    }
+    model.setRotorSpeedCommands(controller.update(state, command, kDt));
+    model.updateMotors(kDt);
+    integrateRigidBody(
+      state, model.computeWrench(state, Eigen::Vector3d::Zero()), vehicle.mass, vehicle.inertia,
+      kDt);
+
+    const double error = wrapAngle(target - yawFromQuaternion(state.orientation));
+    if (!ramping) {
+      result.overshoot_deg = std::max(result.overshoot_deg, -error * 180.0 / M_PI);
+    } else if (t > 13.0) {
+      lag_sum += std::abs(error);
+      ++lag_count;
+    }
+  }
+  result.ramp_lag_deg = lag_sum / lag_count * 180.0 / M_PI;
+  return result;
+}
+
+// The heading gains of config/controller_params.yaml (kp_yaw 1.5, rate limit 1.5)
+// settle a 120 deg step without overshoot even with 0.15 s of delay, and with the
+// bearing-rate feed-forward the nose keeps up with a turning bearing. The old gains
+// (3.0, 2.5) overshot: in Gazebo, where the loop lags more than in this model, the
+// nose rang +-50-80 deg around the target (P2.4).
+TEST(HeadingLoop, TheTunedGainsSettleWithoutRingingAndKeepUp)
+{
+  const HeadingLoopResult tuned = flyHeadingLoop(1.5, 1.5, true);
+  EXPECT_LT(tuned.overshoot_deg, 3.0);
+  EXPECT_LT(tuned.ramp_lag_deg, 5.0) << "the feed-forward should keep the nose on the bearing";
+
+  const HeadingLoopResult no_feedforward = flyHeadingLoop(1.5, 1.5, false);
+  EXPECT_GT(no_feedforward.ramp_lag_deg, 10.0) << "without it the low gain lags";
+
+  const HeadingLoopResult old = flyHeadingLoop(3.0, 2.5, false);
+  EXPECT_GT(old.overshoot_deg, 3.0 * tuned.overshoot_deg + 2.0)
+    << "the old gains should overshoot clearly more";
 }
 
 TEST(FlightControllerClosedLoop, RejectsWindAndGusts)

@@ -76,6 +76,25 @@ inline double wrapAngle(double angle)
   return angle - kPi;
 }
 
+// The rate at which the horizontal bearing from `from` to `to` turns [rad/s], from
+// both positions and velocities: d/dt atan2(r_y, r_x) = (r x v_rel)_z / |r|^2, with
+// r = to - from and v_rel = to_velocity - from_velocity. It is the yaw-rate
+// feed-forward of a heading that follows a target: the heading loop then only has
+// to close what is left, so its gain can stay low. Zero closer than min_range,
+// where the bearing is ill-defined and its rate unbounded.
+inline double bearingRate(
+  const Eigen::Vector3d & from, const Eigen::Vector3d & from_velocity,
+  const Eigen::Vector3d & to, const Eigen::Vector3d & to_velocity, double min_range)
+{
+  const Eigen::Vector2d r = (to - from).head<2>();
+  const double r2 = r.squaredNorm();
+  if (r2 < min_range * min_range) {
+    return 0.0;
+  }
+  const Eigen::Vector2d v = (to_velocity - from_velocity).head<2>();
+  return (r.x() * v.y() - r.y() * v.x()) / r2;
+}
+
 // Saturate vector magnitude
 inline Eigen::Vector3d saturateVector(const Eigen::Vector3d & v, double max_norm)
 {
