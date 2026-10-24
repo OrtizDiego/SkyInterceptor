@@ -44,6 +44,7 @@
 #include <std_msgs/msg/bool.hpp>
 #include <visualization_msgs/msg/marker_array.hpp>
 
+#include "common/math_utils.hpp"
 #include "common/mission.hpp"
 #include "guidance/pn_guidance.hpp"
 
@@ -56,6 +57,10 @@ using MissionModeMsg = interceptor_interfaces::msg::MissionMode;
 using MissionStatusMsg = interceptor_interfaces::msg::MissionStatus;
 using TargetStateMsg = interceptor_interfaces::msg::TargetState;
 using BoolMsg = std_msgs::msg::Bool;
+
+// Closer than this the bearing rate is not used as a yaw feed-forward: at the
+// capture the bearing swings wildly and its rate is unbounded.
+constexpr double kMinYawFeedforwardRange = 3.0;  // m
 
 class InterceptGuidanceNode : public rclcpp::Node
 {
@@ -428,7 +433,7 @@ private:
     msg.acceleration_ff.y = last_result_.acceleration.y();
     msg.acceleration_ff.z = last_result_.acceleration.z();
     msg.yaw = targetYaw();
-    msg.yaw_rate = 0.0;
+    msg.yaw_rate = targetYawRate();
     msg.source = FlightSetpointMsg::SOURCE_INTERCEPT;
 
     // Only the raw setpoint: safety_filter_node owns /setpoint/safe.
@@ -455,6 +460,20 @@ private:
       return currentYaw();
     }
     return std::atan2(offset.y(), offset.x());
+  }
+
+  /// The rate the bearing to the target turns: the yaw-rate feed-forward of the
+  /// heading in targetYaw(), so the nose keeps up with a target that crosses the
+  /// line of sight without a heading gain high enough to make the yaw ring. Zero
+  /// within kMinYawFeedforwardRange, where the bearing swings wildly at the capture.
+  double targetYawRate() const
+  {
+    if (!has_target_ || !target_valid_ || !has_odom_) {
+      return 0.0;
+    }
+    return bearingRate(
+      interceptor_position_, interceptor_velocity_, target_position_, target_velocity_,
+      kMinYawFeedforwardRange);
   }
 
   /// The interceptor's current heading, from its odometry.

@@ -182,6 +182,9 @@ struct FollowCommand
 {
   Eigen::Vector3d velocity = Eigen::Vector3d::Zero();  // m/s, the velocity setpoint
   double yaw = 0.0;                                    // rad, the world heading
+  /// rad/s, the rate the bearing to the target turns: a feed-forward for the
+  /// trajectory controller's heading loop (zero when not tracking).
+  double yaw_rate = 0.0;
   uint8_t source = kSourceHold;      // the FlightSetpoint source of this command
   FollowPhase phase = FollowPhase::IDLE;
   /// False when the planner has nothing to say: the mode is not FOLLOW. The node
