@@ -3,6 +3,7 @@ import os
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
+from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import Command, LaunchConfiguration
 from launch_ros.actions import Node
@@ -86,7 +87,8 @@ def generate_launch_description():
             '-Y', LaunchConfiguration('target_yaw'),
             '-timeout', LaunchConfiguration('spawn_timeout'),
         ],
-        output='screen'
+        output='screen',
+        condition=IfCondition(LaunchConfiguration('spawn_target_drone')),
     )
 
     # Static TF: map to odom
@@ -173,6 +175,12 @@ def generate_launch_description():
             'command_frame', default_value='heading', choices=['heading', 'world'],
             description='Frame of /cmd_vel: heading (keyboard teleop) or world '
                         '(trajectory_controller_node)'),
+        DeclareLaunchArgument(
+            'spawn_target_drone',
+            default_value='true',
+            description='Spawn the target drone of the INTERCEPT scenarios (the follow '
+                        'scenarios have no intruder)',
+        ),
         DeclareLaunchArgument(
             'spawn_timeout', default_value='180.0',
             description='Seconds to wait for /spawn_entity. gzserver fetches the '

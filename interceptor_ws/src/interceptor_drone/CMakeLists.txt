@@ -116,12 +116,24 @@ add_library(${PROJECT_NAME}_intercept_metrics SHARED
 target_link_libraries(${PROJECT_NAME}_intercept_metrics Eigen3::Eigen)
 
 # Follow planner library: the framing presets in the target's heading frame, the
-# filtered heading and the lost-track state machine. Plain C++ and Eigen, no ROS, so
-# the geometry can be unit tested on synthetic poses.
+# filtered heading and the lost-track state machine, and the paths of the FOLLOW
+# scenarios. Plain C++ and Eigen, no ROS, so the geometry can be unit tested on
+# synthetic poses.
 add_library(${PROJECT_NAME}_follow SHARED
   src/follow/follow_planner.cpp
+  src/follow/follow_scenario.cpp
 )
 target_link_libraries(${PROJECT_NAME}_follow Eigen3::Eigen)
+
+# Metrics library: the minimum distances, the framing error and the retention of
+# the target track of a FOLLOW run, with the verdict against the exit criteria of
+# the phase. Plain C++ and Eigen, no ROS, so the scoring can be unit tested on
+# synthetic trajectories.
+add_library(${PROJECT_NAME}_metrics SHARED
+  src/metrics/metrics_recorder.cpp
+)
+# It measures the obstacles with the safety filter's own distance, so it links it.
+target_link_libraries(${PROJECT_NAME}_metrics ${PROJECT_NAME}_safety Eigen3::Eigen)
 
 # Gazebo plugin that flies the drone with the flight dynamics library
 add_library(quadrotor_dynamics_plugin SHARED src/simulation/quadrotor_dynamics_plugin.cpp)
@@ -212,6 +224,26 @@ ament_target_dependencies(follow_planner_node
   interceptor_interfaces
 )
 
+# Metrics node: watches a FOLLOW run and reports the numbers of the exit criteria
+add_executable(metrics_recorder_node src/metrics/metrics_recorder_node.cpp)
+target_link_libraries(metrics_recorder_node ${PROJECT_NAME}_lib ${PROJECT_NAME}_metrics)
+ament_target_dependencies(metrics_recorder_node
+  rclcpp
+  geometry_msgs
+  nav_msgs
+  interceptor_interfaces
+)
+
+# Follow scenario node: moves the target and the second person of the scenario
+add_executable(follow_scenario_node src/follow/follow_scenario_node.cpp)
+target_link_libraries(follow_scenario_node ${PROJECT_NAME}_lib ${PROJECT_NAME}_follow)
+ament_target_dependencies(follow_scenario_node
+  rclcpp
+  geometry_msgs
+  gazebo_msgs
+  interceptor_interfaces
+)
+
 # Mission node
 add_executable(mission_manager_node src/mission/mission_manager_node.cpp)
 target_link_libraries(mission_manager_node ${PROJECT_NAME}_lib)
@@ -262,6 +294,8 @@ install(TARGETS
   target_drone_behavior_node
   trajectory_controller_node
   follow_planner_node
+  follow_scenario_node
+  metrics_recorder_node
   mission_manager_node
   safety_filter_node
   intercept_metrics_node
@@ -277,6 +311,7 @@ install(TARGETS
   ${PROJECT_NAME}_guidance
   ${PROJECT_NAME}_safety
   ${PROJECT_NAME}_follow
+  ${PROJECT_NAME}_metrics
   ${PROJECT_NAME}_intercept_metrics
   quadrotor_dynamics_plugin
   LIBRARY DESTINATION lib
@@ -288,6 +323,14 @@ install(PROGRAMS
   src/tools/record_intercept.py
   src/tools/run_intercept_batch.py
   DESTINATION lib/${PROJECT_NAME}
+)
+
+# The batch runner of the FOLLOW scenarios. It is installed without the .py
+# suffix, so it is called "ros2 run interceptor_drone run_follow_batch".
+install(PROGRAMS
+  src/tools/run_follow_batch.py
+  DESTINATION lib/${PROJECT_NAME}
+  RENAME run_follow_batch
 )
 
 # Install headers
@@ -382,8 +425,19 @@ if(BUILD_TESTING)
 
   ament_add_gtest(test_follow_planner test/test_follow_planner.cpp)
   target_link_libraries(test_follow_planner ${PROJECT_NAME}_follow)
+
+  ament_add_gtest(test_follow_scenario test/test_follow_scenario.cpp)
+  target_link_libraries(test_follow_scenario ${PROJECT_NAME}_follow)
+
+  ament_add_gtest(test_metrics_recorder test/test_metrics_recorder.cpp)
+  target_link_libraries(test_metrics_recorder ${PROJECT_NAME}_metrics)
 endif()
 
 ament_export_include_directories(include)
-ament_export_libraries(${PROJECT_NAME}_lib ${PROJECT_NAME}_safety ${PROJECT_NAME}_follow)
+ament_export_libraries(
+  ${PROJECT_NAME}_lib
+  ${PROJECT_NAME}_safety
+  ${PROJECT_NAME}_follow
+  ${PROJECT_NAME}_metrics
+)
 ament_package()

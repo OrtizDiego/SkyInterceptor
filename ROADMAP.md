@@ -124,12 +124,29 @@ Any agent or person can read and edit this file: Claude Code, Codex, Cursor, a s
 
 ### P2.4 – Follow scenarios and metrics
 
-- **Status:** todo
+- **Status:** in_progress
 - **Depends on:** P2.3, P0.4
-- **PR:** —
-- **Branch:** —
+- **PR:** 31
+- **Branch:** feat/p2-4-follow-scenarios
 - **Scope:** World scenarios (walker, jogger with turns, occlusion behind trees, bystander) and a metrics_recorder for min distance, framing error and track retention.
-- **Notes:** —
+- **Notes:** The harness (scenarios, recorder, runner) is merged; **the exit criteria are met for walker, bystander and occlusion, not for the jogger**, so the task stays in progress. The jogger is the follow-up task docs/TASKS/p2-4-jogger-corners.md.
+  **Measured, 2026-10-24, on main with #37-#41:** 100 runs, 25 per scenario, in two batches (walker+bystander, jogger+occlusion). 40 further attempts (21 + 19) produced no result and were retried; they ended 16-19 s in, which is the runner's fail-fast on a gzserver death, but the follow runner overwrote their logs, so the cause is inferred, not confirmed. Nothing below is extrapolated.
+
+  | Scenario | Runs | Framing range (verdict basis) | Strict framing range | distance_ok | reacquire_ok | Passed |
+  |---|---|---|---|---|---|---|
+  | walker | 25 | 96-100 % (all) | 96-100 % | 25/25 | 25/25 | 25/25 |
+  | bystander | 25 | 72-100 % (all) | 72-100 % | 25/25 | 25/25 | 24/25 |
+  | jogger | 25 | 65-88 % (all) | 65-88 % | 0/25 | 25/25 | 0/25 |
+  | occlusion | 25 | 83-99 % (tracked) | 73-89 % | 25/25 | 25/25 | 24/25 |
+
+  **Where the framing is lost** (scored samples at 20 Hz; "holding" = the safety filter's reason was a hold: conflicting keep-outs, stale setpoint/odometry, inside an obstacle, flight limits conflict, keep-out forgotten): walker 0 of 42 lost samples while holding; bystander 1 of 284; jogger 12 of 5308 (21 % of its scored time is lost, almost all with the target tracked); occlusion 23 of 4029 (16 % lost, 3376 of them with the target hidden behind the tree). Since #38 and #40 the filter's holds cost almost no framing: what is left is lost during normal following.
+  **What fails and why:**
+  - **jogger, all 25 runs, on distance and framing.** The 3D distance to the jogger held in every run (worst margin +0.56 m), but the plan's horizontal standoff broke in every run by 1.5-2.3 m, and the obstacle margin went to -0.34 m in one run. The follow planner flies a 'behind' point that cuts inside the corners of the jogger's loop, so the 4 m/s jogger comes round the corner straight at the drone; the barrier only reacts once that happens and the drone's velocity loop lags. The framing (median 81 %) is lost in the same turns.
+  - **bystander, 1 run (seed 50):** the target was lost for 13 s after a track handover, and the planner flew its lost-track RTL meanwhile.
+  - **occlusion, 1 run (seed 30):** framed 82.6 % even while tracked.
+  **Decision (2026-10-24, the user):** in the occlusion scenario the framing criterion is scored over the time the target is tracked (the scenario hides it behind a tree for 5-11 s of a 50 s run by design, so the strict reading could not be met). The strict score is still reported for every scenario; the rule is `metrics.framing_over_tracked_time_scenarios: ["occlusion"]` in config/follow_scenario_params.yaml, and each summary records its `framing_basis`. The occlusion verdicts were re-scored from the saved summaries, not re-flown. The horizontal standoff is scored against its nominal value, like the 3D distance; the filter's uncertainty-inflated margin is reported on its own.
+  **System bugs the batches found, fixed in their own PRs:** #37 obstacles above their height, #38 the projection giving up on feasible commands, #39 heading-setpoint windup, #40 conflicting barrier rates holding the drone, #41 a heading gain too high for the X500's yaw braking. In this PR: the four scenarios, the ROS-free recorder, the runner (resume, retry at once when gzserver dies), obstacle distances from the filter's own cylinder, the unused bystander parked at (-90, -90).
+  **Still open:** the jogger (follow-up task); track handovers that lose the target for seconds; distant persons' barriers bind on velocity noise (the yield rule); the exactly-aligned jogger/drone/tree case (4.7 m against 5.0). Verified: -Werror build, 633 tests, 0 failures.
 
 ### P2.5 – Vision in the loop for FOLLOW
 

@@ -8,10 +8,11 @@
 # command feasible: when the constraints conflict, the filter holds position and
 # says so in /mission/status.
 
-safety_filter_node:
+# The safety distances are shared by the safety filter and the metrics recorder:
+# the recorder has to measure the distances the filter promises, not a copy of
+# them, and the obstacles are the ones the filter keeps the drone out of.
+/**:
   ros__parameters:
-    rate_hz: 50.0
-
     safety:
       # --- Keep-out distances ---------------------------------------------
       # The safety distance to ANY person or vehicle, in 3D: the drone is
@@ -98,3 +99,7 @@ safety_filter_node:
         6.0, 3.0, 0.75, 0.5,   # bench_1 (1.5 x 0.4 m box, half-diagonal)
         3.0, 12.0, 0.75, 0.5,  # bench_2 (rotated 90 degrees)
       ]
+
+safety_filter_node:
+  ros__parameters:
+    rate_hz: 50.0
