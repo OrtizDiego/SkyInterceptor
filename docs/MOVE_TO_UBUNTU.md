@@ -21,7 +21,9 @@ This was done on 2026-10-24 by the agent; you only need to **copy one file**.
   - `skyinterceptor-data/batches/` — every batch result of the last session (README inside);
   - `skyinterceptor-data/local-git/` — a git bundle of every local branch (some had
     commits that were never pushed) and two untracked notes from the main checkout;
-  - `.claude/projects/-home-diego-code-SkyInterceptor/memory/` — the agent's memory.
+  - `.claude/projects/-home-diego-code-SkyInterceptor/memory/` — the agent's memory;
+  - `skyinterceptor-data/claude-session/` — the old session's transcript (optional,
+    see `docs/TASKS/PROMPTS.md`, last section).
   - `skyinterceptor-data/MOVE_TO_UBUNTU.md` — this guide.
 
 **Copy `~/skyinterceptor-transfer.tgz` to the new machine**, into your home directory,
@@ -330,28 +332,29 @@ Close it with `Ctrl+C` in the terminal.
 
 ---
 
-## Step 8 — Start the agent
+## Step 8 — Start the tasks
+
+The old machine's task chips do not exist here: each task is a prompt to paste
+instead. They are all in **[`docs/TASKS/PROMPTS.md`](TASKS/PROMPTS.md)**, in order, with
+the worktree name to use for each.
+
+For the first one, the persistent data mount:
 
 ```bash
-cd ~/code/SkyInterceptor && claude
+cd ~/code/SkyInterceptor && git pull
 ```
 
-Paste this as the first message:
-
-```text
-We are now on native Ubuntu (not WSL). Read HANDOFF.md first.
-The container was started with `make up`, which uses docker-compose.yml +
-docker-compose.native.yml, and mounts persistent data at /workspace/data
-(host: ~/skyinterceptor-data). The earlier batch results are in
-/workspace/data/batches (README inside). `make doctor` passed.
-Next tasks are in HANDOFF.md section 2, in order. Start with the data mount
-task (docs/TASKS/data-mount.md): the mount itself is already in the compose
-files, what is left is making /workspace/data the default output of the
-scripts and documenting it. Then the Gazebo crash task
-(docs/TASKS/gazebo-crashes.md): before changing anything, measure the gzserver
-crash rate here with the cameras on (about 20 headless runs) — it may already
-be gone without WSL's D3D12 rendering.
+```bash
+claude -w data-mount
 ```
+
+Then open `docs/TASKS/PROMPTS.md`, copy the prompt under **"1. Persistent data mount"**
+and paste it as the first message. When that task's PR is merged, `git pull` in
+`~/code/SkyInterceptor` and start the next one the same way (`claude -w gazebo-crashes`,
+prompt 2, ...).
+
+**Check:** the agent's first replies show it read `HANDOFF.md` and
+`docs/TASKS/data-mount.md`.
 
 ---
 
