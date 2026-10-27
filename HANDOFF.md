@@ -29,6 +29,9 @@ The details, numbers and decisions are in each PR and in the roadmap sections.
 
 ## 2. What to do next, in this order
 
+**Ready-to-paste prompts for every task, and how to launch each in its own worktree
+(`claude -w <name>`): [`docs/TASKS/PROMPTS.md`](docs/TASKS/PROMPTS.md).**
+
 | # | Task | Spec | Notes |
 |---|---|---|---|
 | 0 | *(optional)* Move to the native Ubuntu machine | §3 below | Before 1: the container is recreated there anyway. |
