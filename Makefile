@@ -15,7 +15,7 @@ PLATFORM ?= $(shell grep -qi microsoft /proc/version 2>/dev/null && echo wsl || 
 COMPOSE_CMD ?= $(shell docker compose version >/dev/null 2>&1 && echo "docker compose" || echo docker-compose)
 COMPOSE := $(COMPOSE_CMD) -f docker-compose.yml -f docker-compose.$(PLATFORM).yml
 
-.PHONY: help build up down shell test check clean logs status build-ws sim full teleop platform doctor
+.PHONY: help x11 build up down shell test check clean logs status build-ws sim full teleop platform doctor
 
 help:
 	@echo "Interceptor Drone - Commands"
@@ -24,6 +24,7 @@ help:
 	@echo "  make up             - Start container"
 	@echo "  make down           - Stop container"
 	@echo "  make shell          - Enter container shell"
+	@echo "  make x11            - Let the container open windows on this display (run by shell/sim/full)"
 	@echo "  make build-ws       - Build ROS2 workspace"
 	@echo "  make sim            - Launch simulation"
 	@echo "  make teleop         - Fly the drone with the keyboard (run next to make sim)"
@@ -40,16 +41,40 @@ build:
 	@mkdir -p $(LOG_DIR)
 	$(COMPOSE) build $(SERVICE_NAME) 2>&1 | tee $(LOG_DIR)/docker-build.log
 
+# Lets the container (root) open windows on the host's X display. The grant
+# lives as long as the host's desktop session, but the container outlives it
+# (restart: unless-stopped brings it back after a reboot), so every target that
+# can open a window re-applies it. It only warns: the container works without
+# a display, but Gazebo's GUI and RViz die with "Authorization required".
+# WSLg needs no grant.
+x11:
+ifeq ($(PLATFORM),native)
+	@if [ -z "$$DISPLAY" ]; then \
+		echo "WARN: DISPLAY is not set here (an SSH session?): Gazebo and RViz cannot open windows."; \
+		echo "      Run make from a terminal on the desktop, or pass gui:=false rviz:=false."; \
+	elif ! command -v xhost >/dev/null 2>&1; then \
+		echo "WARN: xhost is not installed, so the container cannot open windows: sudo apt install x11-xserver-utils"; \
+	elif ! xhost +si:localuser:root >/dev/null 2>&1; then \
+		echo "WARN: xhost could not grant the container access to display $$DISPLAY."; \
+	fi
+	@cdisp=$$(docker exec $(SERVICE_NAME) printenv DISPLAY 2>/dev/null); \
+	if [ -n "$$cdisp" ] && [ -n "$$DISPLAY" ] && [ "$$cdisp" != "$$DISPLAY" ]; then \
+		echo "WARN: the container uses DISPLAY=$$cdisp but this desktop is $$DISPLAY. Recreate it: make down && make up"; \
+	fi
+endif
+
 up:
 	@mkdir -p $(DATA_DIR)
-	@xhost +local:docker 2>/dev/null || true
 	$(COMPOSE) up -d $(SERVICE_NAME)
+	@$(MAKE) --no-print-directory x11
 
 down:
 	$(COMPOSE) down
-	@xhost -local:docker 2>/dev/null || true
+ifeq ($(PLATFORM),native)
+	@xhost -si:localuser:root >/dev/null 2>&1 || true
+endif
 
-shell:
+shell: x11
 	$(COMPOSE) exec $(SERVICE_NAME) bash
 
 build-ws:
@@ -73,21 +98,21 @@ test:
 check:
 	./scripts/check.sh
 
-sim:
+sim: x11
 	$(COMPOSE) exec $(SERVICE_NAME) bash -c " \
 		source /opt/ros/humble/setup.bash && \
 		source install/setup.bash && \
 		ros2 launch interceptor_drone simulation.launch.py \
 	"
 
-teleop:
+teleop: x11
 	$(COMPOSE) exec $(SERVICE_NAME) bash -c " \
 		source /opt/ros/humble/setup.bash && \
 		source install/setup.bash && \
 		ros2 run interceptor_drone drone_teleop_keyboard.py \
 	"
 
-full:
+full: x11
 	$(COMPOSE) exec $(SERVICE_NAME) bash -c " \
 		source /opt/ros/humble/setup.bash && \
 		source install/setup.bash && \
