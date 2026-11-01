@@ -104,6 +104,15 @@ after each step. Already prepared (2026-10-24):
 
 ---
 
+## 4b. Persistent data
+
+`~/skyinterceptor-data` (host) is `/workspace/data` (container); it survives a container
+recreate. Datasets, weights and batch results go there, never in `/tmp`. The batch
+runners default to `/workspace/data/batches/{follow,intercept}/<timestamp>`; the P3.2
+scripts use `/workspace/data/uas/`. Details: `DOCKER.md`.
+
+---
+
 ## 5. Quick commands
 
 ```bash

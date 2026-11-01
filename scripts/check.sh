@@ -107,6 +107,8 @@ fi
 # id so two checks never share a directory, and the guard below makes sure
 # the cleanup can only ever touch a path this script created.
 RUN_ID="$$-$(date +%s)"
+# Build scratch, deleted after the run: it may stay in /tmp (datasets, weights and
+# batch results go in /workspace/data).
 WS="/tmp/skyintercept-check-${RUN_ID}"
 WS_PREFIX="/tmp/skyintercept-check-"
 

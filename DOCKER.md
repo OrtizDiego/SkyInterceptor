@@ -51,6 +51,17 @@ container's `/tmp`** — the container's `/tmp` is lost when it is recreated (th
 how the P3.2 dataset and weights were lost). Scratch build workspaces may stay in
 `/tmp`.
 
+What goes where:
+
+| Path | Content |
+|---|---|
+| `/workspace/data/batches/follow/<timestamp>` | default output of `run_follow_batch` |
+| `/workspace/data/batches/intercept/<timestamp>` | default output of `run_intercept_batch.py` |
+| `/workspace/data/uas/` | the P3.2 dataset, training runs and weights |
+
+The batch runners print their output directory. To resume a stopped batch pass the
+same `--output-dir` (a new default is a new timestamp).
+
 ### Start it from the main checkout
 
 The source mount (`./interceptor_ws/src`) is relative to the directory compose is
