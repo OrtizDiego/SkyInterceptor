@@ -89,6 +89,10 @@ RUN pip3 install --no-cache-dir \
 ENV GAZEBO_MODEL_PATH=/usr/share/gazebo-11/models:${GAZEBO_MODEL_PATH}
 ENV GAZEBO_RESOURCE_PATH=/usr/share/gazebo-11:${GAZEBO_RESOURCE_PATH}
 RUN echo "source /opt/ros/humble/setup.bash" >> /root/.bashrc
+# Source the workspace too, so `ros2 launch interceptor_drone ...` works in every
+# `make shell` (docker exec skips the entrypoint, which only sources it once).
+# Guarded: the workspace may not be built yet.
+RUN echo 'if [ -f /workspace/interceptor_ws/install/setup.bash ]; then source /workspace/interceptor_ws/install/setup.bash; fi' >> /root/.bashrc
 
 # 7. Workspace and Entrypoint
 RUN mkdir -p /workspace/interceptor_ws/src

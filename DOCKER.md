@@ -165,7 +165,20 @@ This means OpenGL is rendering on the CPU (`llvmpipe`). See the
 - Update your NVIDIA Windows driver if the GPU still isn't picked up.
 
 ### GUI Applications Not Displaying
-The `make up` command automatically runs `xhost +local:docker`. If displays still don't work, ensure your `DISPLAY` environment variable is set correctly on the host.
+On native Linux, `make up`, `make shell`, `make sim`, `make full` and `make teleop`
+run `make x11`, which grants the container's root user access to the display
+(`xhost +si:localuser:root`). The grant ends with the desktop session, but the
+container keeps running (and restarts on its own after a reboot), so a shell
+opened from an old `make up` can lose it: Gazebo's GUI and RViz then die with
+`Authorization required, but no authorization protocol specified`. `make x11`
+re-applies it and says why when it can't:
+
+- `DISPLAY is not set`: make was run outside the desktop (an SSH session).
+- `xhost is not installed`: `sudo apt install x11-xserver-utils`.
+- `the container uses DISPLAY=:1 but this desktop is :0`: the container captured
+  the display of an earlier session. Recreate it with `make down && make up`.
+
+Already inside an old shell? Run `make x11` on the host, then relaunch.
 
 ### Network Issues
 Since we use `network_mode: host`, ensure there are no port conflicts with other ROS 2 instances or local services.
