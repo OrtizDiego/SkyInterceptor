@@ -60,9 +60,12 @@ The demo arms the mission on its own, so it runs unattended. It starts in the
 middle of the park, with the interceptor behind the intruder, so the whole
 engagement is in view of the Gazebo GUI and of the stereo cameras.
 
-RViz shows the two drones as robot models, the tracks, the keep-out circles around
-every person and obstacle and the guidance vectors in the world, and the left
-camera, the right camera, the depth map and the detection overlay as image panels.
+RViz shows what happens behind the Gazebo scene, layer by layer: the camera's field
+of view and the raw 3D detections, the IMM-EKF tracks with their covariance
+ellipsoids and predicted paths, the estimated trail against the true one, the
+planner's command next to the safety filter's, the keep-out circles, the guidance
+vectors and a mission HUD above the drone, plus the camera, YOLO and depth images
+([`docs/RVIZ.md`](docs/RVIZ.md)).
 The guidance telemetry is on `/guidance/command` (the acceleration command, closing
 speed, time to go, the zero-effort miss and the phase) and the line of sight and
 commanded acceleration are drawn in RViz on `/guidance/vectors`. See
@@ -176,6 +179,7 @@ SkyInterceptor/
 ├── docs/FOLLOW.md                   # The framing presets, the lost-track machine
 ├── docs/SAFETY.md                   # The keep-out barrier, the flight limits, the gate
 ├── docs/FLIGHT_DYNAMICS.md          # Flight physics, flight controller, wind, teleop
+├── docs/RVIZ.md                     # The RViz view: displays, layers, views
 ├── .github/workflows/ci.yml         # CI: static checks + build & test
 └── interceptor_ws/                  # ROS 2 (colcon) workspace
     └── src/
@@ -420,4 +424,5 @@ Custom messages are defined in `interceptor_ws/src/interceptor_interfaces/`: `Ta
 | [`docs/FOLLOW.md`](docs/FOLLOW.md) | The framing presets, the heading smoothing, the lost-track machine and the safety filter in series |
 | [`docs/SAFETY.md`](docs/SAFETY.md) | The keep-out barrier, the lag correction, the flight limits and the engagement gate |
 | [`docs/FLIGHT_DYNAMICS.md`](docs/FLIGHT_DYNAMICS.md) | The flight model, the onboard flight controller, the wind and the teleop |
+| [`docs/RVIZ.md`](docs/RVIZ.md) | The RViz view: the displays per pipeline layer, `mission_viz_node` and the saved views |
 | [`docs/AGENT_PROMPTS.md`](docs/AGENT_PROMPTS.md) | The task prompts for coding agents |

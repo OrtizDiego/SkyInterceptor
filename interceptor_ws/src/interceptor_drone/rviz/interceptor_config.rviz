@@ -1,329 +1,602 @@
-# The operator's view of the system.
+# SkyInterceptor - the operator's view of the whole pipeline (docs/RVIZ.md).
 #
-#   Interceptor, Target Drone  the two robot models (the descriptions come from
-#                               /robot_description and /target_description)
-#   Tracks                     /tracks/markers: a sphere, a velocity arrow and a
-#                               label per track, coloured by its state
-#   Safety Keep-outs           /safety/keepouts: the keep-out circles of the
-#                               safety filter, around every person, vehicle and
-#                               static obstacle
-#   Guidance Vectors           /guidance/vectors: the line of sight and the
-#                               commanded acceleration (INTERCEPT only)
-#   Left/Right Camera,         the vision pipeline's image topics
-#   Detection Overlay, Depth Map
+# The displays follow the pipeline, one group per layer, so each layer can be
+# switched on and off on its own:
 #
-# The setpoints are not drawn: /setpoint/raw and /setpoint/safe are
-# interceptor_interfaces/FlightSetpoint messages, which RViz cannot display, and
-# the safety filter publishes no marker for them. The guidance's own
-# /guidance/vectors is the closest thing to a setpoint on the screen.
+#   World                 ground grid, geofence
+#   Platform              the two drone models, the interceptor's body axes and trail
+#   Perception            what the sensors see: the stereo camera's field of view,
+#                         the raw 3D detections (a fading cloud), and the camera,
+#                         YOLO and depth images (the last two in perception_source:=vision)
+#   Estimation (fusion)   the IMM-EKF tracks, their covariance ellipsoids, the
+#                         predicted path of the selected target, and the estimated
+#                         trail against the simulator's true one
+#   Guidance & Safety     range line, PN vectors, the planner's raw command next to
+#                         the safety filter's output, keep-out circles, capture envelope
+#   Mission HUD           mode, phase, target, guidance numbers and the safety
+#                         filter's state, floating above the interceptor
+#
+# Most /viz/* topics come from mission_viz_node.py, which turns the pipeline's
+# custom messages into markers; the launch file starts it with RViz.
+#
+# The default view orbits the interceptor (Target Frame base_link). The saved views
+# (Views panel, double-click) are a heading-locked chase camera, the arena overview
+# and a top-down map.
 
 Panels:
   - Class: rviz_common/Displays
+    Help Height: 0
     Name: Displays
-    Displays:
-      - Class: rviz_default_plugins/Grid
-        Name: Ground Grid
-        Enabled: true
-        Alpha: 0.35
-        Cell Size: 5
-        Color: 120; 120; 120
-        Plane: XY
-        Plane Cell Count: 20
-        Reference Frame: <Fixed Frame>
-        Value: true
-
-      - Class: rviz_default_plugins/TF
-        Name: TF
-        Enabled: true
-        Frame Timeout: 15
-        Frames:
-          All Enabled: false
-        Marker Scale: 0.6
-        Show Arrows: true
-        Show Axes: true
-        Show Names: true
-        Tree:
-          {}
-        Update Interval: 0
-        Value: true
-
-      - Class: rviz_default_plugins/RobotModel
-        Name: Interceptor
-        Enabled: true
-        Description Source: Topic
-        Description Topic:
-          Value: /robot_description
-          Depth: 5
-          Durability Policy: Transient Local
-          History Policy: Keep Last
-          Reliability Policy: Reliable
-        Visual Enabled: true
-        Collision Enabled: false
-        Alpha: 1
-        Value: true
-
-      - Class: rviz_default_plugins/RobotModel
-        Name: Target Drone
-        Enabled: true
-        Description Source: Topic
-        Description Topic:
-          Value: /target_description
-          Depth: 5
-          Durability Policy: Transient Local
-          History Policy: Keep Last
-          Reliability Policy: Reliable
-        Visual Enabled: true
-        Collision Enabled: false
-        Alpha: 1
-        Value: true
-
-      - Class: rviz_default_plugins/MarkerArray
-        Name: Tracks
-        Enabled: true
-        Topic:
-          Value: /tracks/markers
-          Depth: 5
-          Durability Policy: Transient Local
-          History Policy: Keep Last
-          Reliability Policy: Reliable
-        Value: true
-
-      # The safety filter's markers. Three namespaces are on this topic:
-      #   keepout_track    one circle per person or vehicle track (the radius is
-      #                    d_min + k * sigma, so a badly tracked target gets a
-      #                    visibly bigger circle)
-      #   keepout_obstacle one circle per static obstacle
-      #                    (radius + d_obstacle_min)
-      #   setpoint_velocity / setpoint_target
-      #                    the command the controller is actually flying: an arrow
-      #                    in the direction of the filtered velocity and the point
-      #                    it reaches in a second. Green is the planner's command
-      #                    unchanged, orange is the filter's own.
-      - Class: rviz_default_plugins/MarkerArray
-        Name: Safety and Setpoint
-        Enabled: true
-        Topic:
-          Value: /safety/keepouts
-          Depth: 5
-          Durability Policy: Transient Local
-          History Policy: Keep Last
-          Reliability Policy: Reliable
-        Value: true
-
-      - Class: rviz_default_plugins/MarkerArray
-        Name: Guidance Vectors
-        Enabled: true
-        Topic:
-          Value: /guidance/vectors
-          Depth: 5
-          Durability Policy: Transient Local
-          History Policy: Keep Last
-          Reliability Policy: Reliable
-        Value: true
-
-      - Class: rviz_default_plugins/Image
-        Name: Left Camera
-        Enabled: true
-        Image Topic:
-          Value: /stereo/left/image_raw
-          Depth: 2
-          Durability Policy: Volatile
-          History Policy: Keep Last
-          Reliability Policy: Reliable
-        Max Value: 1
-        Median window: 5
-        Min Value: 0
-        Normalize Range: true
-        Queue Size: 2
-        Transport hint: raw
-        Unreliable: false
-        Value: true
-
-      - Class: rviz_default_plugins/Image
-        Name: Right Camera
-        Enabled: true
-        Image Topic:
-          Value: /stereo/right/image_raw
-          Depth: 2
-          Durability Policy: Volatile
-          History Policy: Keep Last
-          Reliability Policy: Reliable
-        Max Value: 1
-        Median window: 5
-        Min Value: 0
-        Normalize Range: true
-        Queue Size: 2
-        Transport hint: raw
-        Unreliable: false
-        Value: true
-
-      - Class: rviz_default_plugins/Image
-        Name: Detection Overlay
-        Enabled: true
-        Image Topic:
-          Value: /target/detection_viz
-          Depth: 2
-          Durability Policy: Volatile
-          History Policy: Keep Last
-          Reliability Policy: Reliable
-        Max Value: 1
-        Median window: 5
-        Min Value: 0
-        Normalize Range: true
-        Queue Size: 2
-        Transport hint: raw
-        Unreliable: false
-        Value: true
-
-      - Class: rviz_default_plugins/Map
-        Name: Depth Map
-        Enabled: true
-        Topic:
-          Value: /stereo/depth
-          Depth: 2
-          Durability Policy: Volatile
-          History Policy: Keep Last
-          Reliability Policy: Reliable
-        Alpha: 0.7
-        Color Scheme: map
-        Draw Behind: false
-        Unreliable: false
-        Use Timestamp: false
-        Value: true
-
-    Enabled: true
-    Global Options:
-      Background Color: 30; 30; 38
-      Default Light: true
-      Fixed Frame: map
-      Frame Rate: 30
-    Name: Displays
-    Tree:
-      Displays:
-        Items:
-          - Class: rviz_default_plugins/Grid
-            Name: Ground Grid
-          - Class: rviz_default_plugins/TF
-            Name: TF
-          - Class: rviz_default_plugins/RobotModel
-            Name: Interceptor
-          - Class: rviz_default_plugins/RobotModel
-            Name: Target Drone
-          - Class: rviz_default_plugins/MarkerArray
-            Name: Tracks
-          - Class: rviz_default_plugins/MarkerArray
-            Name: Safety Keep-outs
-          - Class: rviz_default_plugins/MarkerArray
-            Name: Guidance Vectors
-          - Class: rviz_default_plugins/Image
-            Name: Left Camera
-          - Class: rviz_default_plugins/Image
-            Name: Right Camera
-          - Class: rviz_default_plugins/Image
-            Name: Detection Overlay
-          - Class: rviz_default_plugins/Map
-            Name: Depth Map
-        Name: Displays
-        Splitter Ratio: 0.5
-      Toolbars:
-        ToolButtonStyle: 2
-        toolbarNames:
-          - Interact
-          - Move Camera
-          - Select
-          - Focus Camera
-          - Measure
-          - 2D Pose Estimate
-          - 2D Goal Pose
-          - Publish Point
-        toolbarActions:
-          - Interact
-          - Move Camera
-          - Select
-          - Focus Camera
-          - Measure
-          - 2D Pose Estimate
-          - 2D Goal Pose
-          - Publish Point
-        toolbarVisible:
-          - true
-          - true
-          - true
-          - true
-          - true
-          - true
-          - true
-    Value: true
-
+    Property Tree Widget:
+      Expanded:
+        - /Perception1
+        - /Estimation (fusion)1
+        - /Guidance & Safety1
+      Splitter Ratio: 0.62
+    Tree Height: 520
+  - Class: rviz_common/Views
+    Expanded:
+      - /Current View1
+    Name: Views
+    Splitter Ratio: 0.5
   - Class: rviz_common/Time
     Experimental: false
     Name: Time
     SyncMode: 0
     SyncSource: ""
 
-  - Class: rviz_common/Views
-    Name: Views
-    Value: true
-    Views:
-      Current:
-        Class: rviz_default_plugins/Orbit
-        Distance: 26
+Visualization Manager:
+  Class: ""
+  Displays:
+    # ------------------------------------------------------------------ World
+    - Class: rviz_common/Group
+      Name: World
+      Enabled: true
+      Value: true
+      Displays:
+        - Class: rviz_default_plugins/Grid
+          Name: Ground Grid
+          Enabled: true
+          Value: true
+          Alpha: 0.25
+          Cell Size: 5
+          Color: 110; 120; 140
+          Line Style:
+            Line Width: 0.03
+            Value: Lines
+          Normal Cell Count: 0
+          Offset:
+            X: 0
+            Y: 0
+            Z: 0
+          Plane: XY
+          Plane Cell Count: 40
+          Reference Frame: map
+        - Class: rviz_default_plugins/Axes
+          Name: World Origin
+          Enabled: true
+          Value: true
+          Length: 1.5
+          Radius: 0.05
+          Reference Frame: map
+        - Class: rviz_default_plugins/MarkerArray
+          Name: Geofence
+          Enabled: true
+          Value: true
+          Namespaces:
+            {}
+          Topic:
+            Value: /viz/world
+            Depth: 1
+            Durability Policy: Transient Local
+            History Policy: Keep Last
+            Reliability Policy: Reliable
+
+    # --------------------------------------------------------------- Platform
+    - Class: rviz_common/Group
+      Name: Platform
+      Enabled: true
+      Value: true
+      Displays:
+        - Class: rviz_default_plugins/RobotModel
+          Name: Interceptor
+          Enabled: true
+          Value: true
+          Alpha: 1
+          Collision Enabled: false
+          Description File: ""
+          Description Source: Topic
+          Description Topic:
+            Value: /robot_description
+            Depth: 1
+            Durability Policy: Transient Local
+            History Policy: Keep Last
+            Reliability Policy: Reliable
+          Links:
+            All Links Enabled: true
+            Expand Joint Details: false
+            Expand Link Details: false
+            Expand Tree: false
+            Link Tree Style: Links in Alphabetic Order
+          Mass Properties:
+            Inertia: false
+            Mass: false
+          TF Prefix: ""
+          Update Interval: 0
+          Visual Enabled: true
+        - Class: rviz_default_plugins/Axes
+          Name: Interceptor Body Axes (FLU)
+          Enabled: true
+          Value: true
+          Length: 1.2
+          Radius: 0.04
+          Reference Frame: base_link
+        - Class: rviz_default_plugins/RobotModel
+          Name: Target Drone
+          Enabled: true
+          Value: true
+          Alpha: 1
+          Collision Enabled: false
+          Description File: ""
+          Description Source: Topic
+          Description Topic:
+            Value: /target_description
+            Depth: 1
+            Durability Policy: Transient Local
+            History Policy: Keep Last
+            Reliability Policy: Reliable
+          Links:
+            All Links Enabled: true
+            Expand Joint Details: false
+            Expand Link Details: false
+            Expand Tree: false
+            Link Tree Style: Links in Alphabetic Order
+          Mass Properties:
+            Inertia: false
+            Mass: false
+          TF Prefix: ""
+          Update Interval: 0
+          Visual Enabled: true
+        - Class: rviz_default_plugins/Path
+          Name: Interceptor Trail
+          Enabled: true
+          Value: true
+          Alpha: 0.9
+          Buffer Length: 1
+          Color: 80; 200; 255
+          Head Diameter: 0.3
+          Head Length: 0.2
+          Length: 0.3
+          Line Style: Billboards
+          Line Width: 0.08
+          Offset:
+            X: 0
+            Y: 0
+            Z: 0
+          Pose Color: 255; 85; 255
+          Pose Style: None
+          Radius: 0.03
+          Shaft Diameter: 0.1
+          Shaft Length: 0.1
+          Topic:
+            Value: /viz/interceptor_path
+            Depth: 1
+            Durability Policy: Volatile
+            Filter size: 10
+            History Policy: Keep Last
+            Reliability Policy: Reliable
+        # Every frame of both trees. Off by default: with the propellers and the
+        # camera frames it is a lot of axes. Switch it on to inspect the TF tree.
+        - Class: rviz_default_plugins/TF
+          Name: TF Tree
+          Enabled: false
+          Value: false
+          Frame Timeout: 15
+          Frames:
+            All Enabled: true
+          Marker Scale: 1
+          Show Arrows: true
+          Show Axes: true
+          Show Names: true
+          Tree:
+            {}
+          Update Interval: 0
+
+    # ------------------------------------------------------------- Perception
+    - Class: rviz_common/Group
+      Name: Perception
+      Enabled: true
+      Value: true
+      Displays:
+        # ns camera_fov: the left camera's frustum (60 deg HFOV, 25 m deep).
+        # ns detections: every /target/detection_3d of the last 2 s, coloured
+        #   by class (person blue, car yellow, truck orange, bicycle purple,
+        #   uav pink) and fading with age. These are the noisy measurements the
+        #   tracker fuses.
+        - Class: rviz_default_plugins/MarkerArray
+          Name: Camera FOV + Raw Detections
+          Enabled: true
+          Value: true
+          Namespaces:
+            {}
+          Topic:
+            Value: /viz/perception
+            Depth: 5
+            Durability Policy: Volatile
+            History Policy: Keep Last
+            Reliability Policy: Reliable
+        - Class: rviz_default_plugins/Image
+          Name: Left Camera
+          Enabled: true
+          Value: true
+          Max Value: 1
+          Median window: 5
+          Min Value: 0
+          Normalize Range: true
+          Topic:
+            Value: /stereo/left/image_raw
+            Depth: 1
+            Durability Policy: Volatile
+            History Policy: Keep Last
+            Reliability Policy: Best Effort
+        - Class: rviz_default_plugins/Image
+          Name: Right Camera
+          Enabled: false
+          Value: false
+          Max Value: 1
+          Median window: 5
+          Min Value: 0
+          Normalize Range: true
+          Topic:
+            Value: /stereo/right/image_raw
+            Depth: 1
+            Durability Policy: Volatile
+            History Policy: Keep Last
+            Reliability Policy: Best Effort
+        # perception_source:=vision only: YOLO boxes drawn on the left image.
+        - Class: rviz_default_plugins/Image
+          Name: YOLO Detections
+          Enabled: true
+          Value: true
+          Max Value: 1
+          Median window: 5
+          Min Value: 0
+          Normalize Range: true
+          Topic:
+            Value: /target/detection_viz
+            Depth: 1
+            Durability Policy: Volatile
+            History Policy: Keep Last
+            Reliability Policy: Best Effort
+        # perception_source:=vision only: the SGBM depth, 32FC1 in metres,
+        # shown from 0 (black) to 40 m (white).
+        - Class: rviz_default_plugins/Image
+          Name: Stereo Depth
+          Enabled: true
+          Value: true
+          Max Value: 40
+          Median window: 5
+          Min Value: 0
+          Normalize Range: false
+          Topic:
+            Value: /stereo/depth
+            Depth: 1
+            Durability Policy: Volatile
+            History Policy: Keep Last
+            Reliability Policy: Best Effort
+        - Class: rviz_default_plugins/Image
+          Name: Stereo Disparity
+          Enabled: false
+          Value: false
+          Max Value: 64
+          Median window: 5
+          Min Value: 0
+          Normalize Range: true
+          Topic:
+            Value: /stereo/disparity
+            Depth: 1
+            Durability Policy: Volatile
+            History Policy: Keep Last
+            Reliability Policy: Best Effort
+
+    # ---------------------------------------------------- Estimation (fusion)
+    - Class: rviz_common/Group
+      Name: Estimation (fusion)
+      Enabled: true
+      Value: true
+      Displays:
+        # The tracker's own markers: a sphere, a velocity arrow and a label per
+        # track. Orange = selected target, green = confirmed, grey = tentative
+        # or coasting.
+        - Class: rviz_default_plugins/MarkerArray
+          Name: IMM-EKF Tracks
+          Enabled: true
+          Value: true
+          Namespaces:
+            {}
+          Topic:
+            Value: /tracks/markers
+            Depth: 5
+            Durability Policy: Volatile
+            History Policy: Keep Last
+            Reliability Policy: Reliable
+        # ns covariance: the 2-sigma position ellipsoid of every track (it
+        #   shrinks as the filter converges and grows while a track coasts).
+        # ns prediction: the selected target's constant-acceleration path over
+        #   the next 2 s, dashed.
+        - Class: rviz_default_plugins/MarkerArray
+          Name: Covariance + Prediction
+          Enabled: true
+          Value: true
+          Namespaces:
+            {}
+          Topic:
+            Value: /viz/estimation
+            Depth: 5
+            Durability Policy: Volatile
+            History Policy: Keep Last
+            Reliability Policy: Reliable
+        - Class: rviz_default_plugins/Path
+          Name: Target Trail (estimate)
+          Enabled: true
+          Value: true
+          Alpha: 1
+          Buffer Length: 1
+          Color: 255; 140; 0
+          Head Diameter: 0.3
+          Head Length: 0.2
+          Length: 0.3
+          Line Style: Billboards
+          Line Width: 0.07
+          Offset:
+            X: 0
+            Y: 0
+            Z: 0
+          Pose Color: 255; 85; 255
+          Pose Style: None
+          Radius: 0.03
+          Shaft Diameter: 0.1
+          Shaft Length: 0.1
+          Topic:
+            Value: /viz/target_estimate_path
+            Depth: 1
+            Durability Policy: Volatile
+            Filter size: 10
+            History Policy: Keep Last
+            Reliability Policy: Reliable
+        # The simulator's ground truth of the intruder (INTERCEPT). The gap
+        # between this line and the orange one is the tracking error.
+        - Class: rviz_default_plugins/Path
+          Name: Target Trail (ground truth)
+          Enabled: true
+          Value: true
+          Alpha: 0.6
+          Buffer Length: 1
+          Color: 235; 235; 235
+          Head Diameter: 0.3
+          Head Length: 0.2
+          Length: 0.3
+          Line Style: Lines
+          Line Width: 0.03
+          Offset:
+            X: 0
+            Y: 0
+            Z: 0
+          Pose Color: 255; 85; 255
+          Pose Style: None
+          Radius: 0.03
+          Shaft Diameter: 0.1
+          Shaft Length: 0.1
+          Topic:
+            Value: /viz/target_truth_path
+            Depth: 1
+            Durability Policy: Volatile
+            Filter size: 10
+            History Policy: Keep Last
+            Reliability Policy: Reliable
+
+    # ------------------------------------------------------ Guidance & Safety
+    - Class: rviz_common/Group
+      Name: Guidance & Safety
+      Enabled: true
+      Value: true
+      Displays:
+        # ns range: the line to the selected target with its length.
+        # ns planner_command: the planner's raw velocity (/setpoint/raw, 1 s
+        #   of travel), translucent blue. Compare it with the safety filter's
+        #   arrow below: where they differ, the filter changed the command.
+        # ns capture_envelope: the net-capture sphere (INTERCEPT).
+        # ns altitude: drop lines to the ground under both drones.
+        - Class: rviz_default_plugins/MarkerArray
+          Name: Range + Planner Command
+          Enabled: true
+          Value: true
+          Namespaces:
+            {}
+          Topic:
+            Value: /viz/guidance
+            Depth: 5
+            Durability Policy: Volatile
+            History Policy: Keep Last
+            Reliability Policy: Reliable
+        # INTERCEPT: the line of sight and the commanded PN acceleration.
+        - Class: rviz_default_plugins/MarkerArray
+          Name: PN Guidance Vectors
+          Enabled: true
+          Value: true
+          Namespaces:
+            {}
+          Topic:
+            Value: /guidance/vectors
+            Depth: 5
+            Durability Policy: Volatile
+            History Policy: Keep Last
+            Reliability Policy: Reliable
+        # keepout_track / keepout_obstacle: the keep-out circles (the track
+        # circles grow with the track's uncertainty). setpoint_velocity /
+        # setpoint_target: the command the controller actually flies, green
+        # when it is the planner's, orange when the filter changed it.
+        - Class: rviz_default_plugins/MarkerArray
+          Name: Safety Keep-outs + Safe Setpoint
+          Enabled: true
+          Value: true
+          Namespaces:
+            {}
+          Topic:
+            Value: /safety/keepouts
+            Depth: 5
+            Durability Policy: Volatile
+            History Policy: Keep Last
+            Reliability Policy: Reliable
+
+    # ------------------------------------------------------------ Mission HUD
+    - Class: rviz_default_plugins/MarkerArray
+      Name: Mission HUD
+      Enabled: true
+      Value: true
+      Namespaces:
+        {}
+      Topic:
+        Value: /viz/hud
+        Depth: 5
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+
+  Enabled: true
+  Global Options:
+    Background Color: 22; 26; 34
+    Fixed Frame: map
+    Frame Rate: 30
+  Name: root
+  Tools:
+    - Class: rviz_default_plugins/Interact
+      Hide Inactive Objects: true
+    - Class: rviz_default_plugins/MoveCamera
+    - Class: rviz_default_plugins/Select
+    - Class: rviz_default_plugins/FocusCamera
+    - Class: rviz_default_plugins/Measure
+      Line color: 128; 128; 0
+  Transformation:
+    Current:
+      Class: rviz_default_plugins/TF
+  Value: true
+  Views:
+    Current:
+      Class: rviz_default_plugins/Orbit
+      Name: Current View
+      Target Frame: base_link
+      Value: Orbit (rviz)
+      Distance: 24
+      Enable Stereo Rendering:
+        Stereo Eye Separation: 0.06
+        Stereo Focal Distance: 1
+        Swap Stereo Eyes: false
+        Value: false
+      Focal Point:
+        X: 4
+        Y: 0
+        Z: 0
+      Focal Shape Fixed Size: true
+      Focal Shape Size: 0.05
+      Invert Z Axis: false
+      Near Clip Distance: 0.01
+      Pitch: 0.38
+      Yaw: 3.75
+    Saved:
+      # Behind the interceptor, turning with its heading: the cameras' point of view.
+      - Class: rviz_default_plugins/ThirdPersonFollower
+        Name: Chase Cam
+        Target Frame: base_link
+        Value: ThirdPersonFollower (rviz_default_plugins)
+        Distance: 12
         Enable Stereo Rendering:
           Stereo Eye Separation: 0.06
           Stereo Focal Distance: 1
           Swap Stereo Eyes: false
           Value: false
         Focal Point:
-          X: 8
-          Y: 7
-          Z: 6
+          X: 6
+          Y: 0
+          Z: 0
         Focal Shape Fixed Size: true
         Focal Shape Size: 0.05
         Invert Z Axis: false
-        Name: Current View
-        Near Clip Distance: 0.05
-        Pitch: 0.42
-        Target Frame: <Fixed Frame>
+        Near Clip Distance: 0.01
+        Pitch: 0.3
+        Yaw: 3.14159
+      - Class: rviz_default_plugins/Orbit
+        Name: Orbit Interceptor
+        Target Frame: base_link
         Value: Orbit (rviz)
-        Yaw: 0.6
-      Saved:
-        - Class: rviz_default_plugins/Orbit
-          Distance: 26
-          Focal Point:
-            X: 8
-            Y: 7
-            Z: 6
-          Name: Overview
-          Pitch: 0.42
-          Target Frame: <Fixed Frame>
-          Value: Orbit (rviz)
-          Yaw: 0.6
-        - Class: rviz_default_plugins/Orbit
-          Distance: 12
-          Focal Point:
-            X: 8
-            Y: 7
-            Z: 8
-          Name: Close
-          Pitch: 0.35
-          Target Frame: <Fixed Frame>
-          Value: Orbit (rviz)
-          Yaw: 0.6
-        - Class: rviz_default_plugins/TopDownOrtho
-          Angle: 0
-          Name: Top Down
-          Near Clip Distance: 0.01
-          Scale: 42
-          Target Frame: <Fixed Frame>
-          Value: TopDownOrtho (rviz)
-          X: 8
-          Y: 7
+        Distance: 24
+        Enable Stereo Rendering:
+          Stereo Eye Separation: 0.06
+          Stereo Focal Distance: 1
+          Swap Stereo Eyes: false
+          Value: false
+        Focal Point:
+          X: 4
+          Y: 0
+          Z: 0
+        Focal Shape Fixed Size: true
+        Focal Shape Size: 0.05
+        Invert Z Axis: false
+        Near Clip Distance: 0.01
+        Pitch: 0.38
+        Yaw: 3.75
+      - Class: rviz_default_plugins/Orbit
+        Name: Arena Overview
+        Target Frame: map
+        Value: Orbit (rviz)
+        Distance: 60
+        Enable Stereo Rendering:
+          Stereo Eye Separation: 0.06
+          Stereo Focal Distance: 1
+          Swap Stereo Eyes: false
+          Value: false
+        Focal Point:
+          X: 12
+          Y: 10
+          Z: 4
+        Focal Shape Fixed Size: true
+        Focal Shape Size: 0.05
+        Invert Z Axis: false
+        Near Clip Distance: 0.01
+        Pitch: 0.6
+        Yaw: 3.9
+      - Class: rviz_default_plugins/TopDownOrtho
+        Name: Top Down
+        Target Frame: map
+        Value: TopDownOrtho (rviz)
+        Angle: 0
+        Near Clip Distance: 0.01
+        Scale: 14
+        X: 12
+        Y: 10
+        Enable Stereo Rendering:
+          Stereo Eye Separation: 0.06
+          Stereo Focal Distance: 1
+          Swap Stereo Eyes: false
+          Value: false
+        Invert Z Axis: false
+
 Window Geometry:
-  Height: 1000
-  Hide Left Dock: false
-  Hide Right Dock: false
+  Displays:
+    collapsed: false
   Views:
     collapsed: false
+  Time:
+    collapsed: true
+  Left Camera:
+    collapsed: false
+  YOLO Detections:
+    collapsed: false
+  Stereo Depth:
+    collapsed: false
+  Hide Left Dock: false
+  Hide Right Dock: false
   Width: 1900
-  X: 40
-  Y: 30
+  Height: 1050
+  X: 0
+  Y: 0

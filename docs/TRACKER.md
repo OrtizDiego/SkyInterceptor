@@ -110,7 +110,7 @@ With no selection the node still publishes `/target/state`, with `track_id = -1`
 | `/odom` | `nav_msgs/Odometry` | in | Drone position for the closest-track selection |
 | `/tracks` | `TargetStateArray` | out, 50 Hz | Every track, tentative (`confirmed = false`) or confirmed, extrapolated to the publish time |
 | `/target/state` | `TargetState` | out, 50 Hz | The selected track, or `track_id = -1` |
-| `/tracks/markers` | `visualization_msgs/MarkerArray` | out, 50 Hz | Sphere, velocity arrow (1 m per m/s) and label (`#id class`, speed) per track. Selected orange, confirmed green, tentative or lost grey. "Tracks" display in `rviz/interceptor_config.rviz` |
+| `/tracks/markers` | `visualization_msgs/MarkerArray` | out, 50 Hz | Sphere, velocity arrow (1 m per m/s) and label (`#id class`, speed) per track. Selected orange, confirmed green, tentative or lost grey. "IMM-EKF Tracks" display in `rviz/interceptor_config.rviz`; `mission_viz_node` adds the 2σ covariance ellipsoids and the predicted path ([`RVIZ.md`](RVIZ.md)) |
 
 Each tick runs on the node clock (simulation time with `use_sim_time`): close complete frames, `prune()`, extrapolate all tracks to now, select, publish. If the clock jumps back (Gazebo reset), the node clears its tracks and starts over.
 

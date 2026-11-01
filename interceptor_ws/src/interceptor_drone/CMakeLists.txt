@@ -321,6 +321,7 @@ install(PROGRAMS
   src/perception/target_detector.py
   src/teleop/drone_teleop_keyboard.py
   src/tools/record_intercept.py
+  src/tools/mission_viz_node.py
   src/tools/run_intercept_batch.py
   DESTINATION lib/${PROJECT_NAME}
 )
