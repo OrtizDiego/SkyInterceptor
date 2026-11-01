@@ -258,8 +258,11 @@ The filter publishes two things an operator can watch:
 | `/safety/keepouts` | A `MarkerArray` with one translucent cylinder per person or vehicle track and one per static obstacle. The radius of a track's circle is its *effective* standoff (`d_min + k·σ_pos`), so a badly tracked person gets a visibly bigger circle. The obstacle circles are the obstacle's own radius plus `d_obstacle_min`. |
 | `/mission/status` | A `MissionStatus`: the mode, the phase, the selected track, the distance to it, whether the filter is active and — in `reason` — why it intervened ("keep-out from track 3", "engagement gate closed", "stale setpoint", "conflicting keep-out constraints"). |
 
-The "Safety Keep-outs" display of `rviz/interceptor_config.rviz` shows the circles,
-and the "Tracks" display next to them shows the tracks the circles come from.
+The "Safety Keep-outs + Safe Setpoint" display of `rviz/interceptor_config.rviz`
+shows the circles, and the "IMM-EKF Tracks" display shows the tracks the circles
+come from. The "Range + Planner Command" display draws `/setpoint/raw` next to the
+filter's arrow, so an intervention is visible as the two arrows splitting
+([`RVIZ.md`](RVIZ.md)).
 
 ## What is not here yet
 

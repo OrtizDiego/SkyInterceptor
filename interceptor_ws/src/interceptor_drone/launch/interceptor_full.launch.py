@@ -138,6 +138,19 @@ def generate_launch_description():
         condition=IfCondition(rviz_enabled),
     )
 
+    # Turns the pipeline's custom messages (detections, tracks, setpoints, mission
+    # status, guidance telemetry) into the markers and paths of the RViz config
+    # (/viz/*). It only watches, so it runs with RViz and not in the scripted runs.
+    # It reads the geofence and the capture radius from the shared parameter files.
+    mission_viz = Node(
+        package='interceptor_drone',
+        executable='mission_viz_node.py',
+        name='mission_viz_node',
+        output='screen',
+        parameters=[safety_params, intercept_params, {'use_sim_time': use_sim_time}],
+        condition=IfCondition(rviz_enabled),
+    )
+
     return LaunchDescription([
         DeclareLaunchArgument(
             'use_sim_time',
@@ -243,4 +256,5 @@ def generate_launch_description():
         safety_filter,
         trajectory_controller,
         rviz,
+        mission_viz,
     ])
