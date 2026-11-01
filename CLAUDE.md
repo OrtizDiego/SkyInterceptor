@@ -196,7 +196,7 @@ Everything lives under the `interceptor` namespace.
 - `GuidanceCommand.msg` — Acceleration commands, navigation constants, intercept params
 - `TargetTrajectory.msg` — Predicted trajectory
 - `StereoImagePair.msg` — Synchronized stereo pair with calibration
-- `SetMissionMode.srv` — Mode switching service (HOLD / FOLLOW / INTERCEPT, armed, track id)
+- `SetMissionMode.srv` — Mode switching service (HOLD / FOLLOW / INTERCEPT, armed, track id; `track_id` defaults to -1 = automatic, 0 is rejected because tracks start at 1)
 
 ### Configuration (`config/` directory)
 
@@ -217,13 +217,13 @@ Every file uses `<node_name>: ros__parameters:` and is loaded by the launch file
 
 ### Launch files (`launch/` directory)
 
-- `interceptor_full.launch.py` — Full system (simulation + perception + mission manager + tracker + planner + safety filter + control + RViz with `mission_viz_node`). Args: `mission_mode:=follow|intercept` (default follow), `perception_source:=vision|groundtruth` (default groundtruth; vision launches the perception pipeline), `guidance_law:=pn|apn`, `target_behaviour:=hover|waypoints|straight|weave|curve`, `auto_arm:=true|false`, `groundtruth_seed:=0`, `interceptor_x`, `interceptor_y`, `target_x`, `target_y`
+- `interceptor_full.launch.py` — Full system (simulation + perception + mission manager + tracker + planner + safety filter + control + RViz with `mission_viz_node`). Args: `mission_mode:=follow|intercept` (default follow), `perception_source:=vision|groundtruth` (default groundtruth; vision launches the perception pipeline), `guidance_law:=pn|apn`, `target_behaviour:=hover|waypoints|straight|weave|curve`, `auto_arm:=true|false`, `with_person:=auto|true|false` (default auto: the walking person is in the world in FOLLOW, left out in INTERCEPT), `groundtruth_seed:=0`, `interceptor_x`, `interceptor_y`, `target_x`, `target_y`
 - `follow.launch.py` / `intercept.launch.py` — `interceptor_full` with the mode set
-- `intercept_demo.launch.py` — The INTERCEPT demo: the Crazyflie intruder flies while the interceptor engages it with PN or augmented PN. Arms the mission automatically. Args: `guidance_law`, `target_behaviour`, `auto_arm` (default true), `groundtruth_seed`, `perception_source`
+- `intercept_demo.launch.py` — The INTERCEPT demo: the Crazyflie intruder flies while the interceptor engages it with PN or augmented PN. Arms the mission automatically. Args: `guidance_law`, `target_behaviour`, `auto_arm` (default true), `with_person` (default false), `groundtruth_seed`, `perception_source`
 - `intercept_scenario.launch.py` — One scripted, headless INTERCEPT run plus `intercept_metrics_node`; driven by `run_intercept_batch.py`, which writes the intruder's parameter file per run (`target_drone_params_file`). Args: `scenario`, `seed`, `output_path`, `timeout`, `guidance_law`, spawn positions, `gui`, `rviz`
-- `simulation.launch.py` — Gazebo + drone + target drone (args: `gui`, `x`, `y`, `z`, `yaw`, `target_x`, `target_y`, `target_z`, `target_yaw`, `wind_x`, `wind_y`, `wind_z`, `wind_gust_stddev`, `spawn_timeout` (default 180 s: `gzserver` fetches the Gazebo model database on the first start, so `/spawn_entity` is not available for over a minute), `command_frame`: `heading` for the keyboard teleop (default), `world` for `trajectory_controller_node`; `interceptor_full` sets `world`)
+- `simulation.launch.py` — Gazebo + drone + target drone (args: `gui`, `x`, `y`, `z`, `yaw`, `target_x`, `target_y`, `target_z`, `target_yaw`, `wind_x`, `wind_y`, `wind_z`, `wind_gust_stddev`, `with_person` (default true; false loads a copy of the world without the `target_person` actor), `spawn_timeout` (default 180 s: `gzserver` fetches the Gazebo model database on the first start, so `/spawn_entity` is not available for over a minute), `command_frame`: `heading` for the keyboard teleop (default), `world` for `trajectory_controller_node`; `interceptor_full` sets `world`)
 - `perception.launch.py` — Perception pipeline only (`perception_source:=vision`)
-- `groundtruth.launch.py` — `groundtruth_target_node` only (`perception_source:=groundtruth`, arg `seed`)
+- `groundtruth.launch.py` — `groundtruth_target_node` only (`perception_source:=groundtruth`, args `seed`, `with_person`: false layers `groundtruth_no_person_params.yaml` on top)
 - `guidance.launch.py` — Tracker, plus the mode's planner: the follow planner in FOLLOW, the intercept guidance and the target drone in INTERCEPT
 
 ## ROS2 Workspace Layout

@@ -40,7 +40,7 @@ Any agent or person can read and edit this file: Claude Code, Codex, Cursor, a s
 - **PR:** 14
 - **Branch:** feat/p0.2-interfaces-params-mission-mode
 - **Scope:** Message/service changes from plan §3, YAML-driven launch files, mission_mode and perception_source args, mission_manager_node.
-- **Notes:** mission_manager_node serves /mission/set_mode and latches /mission/mode (transient local). Starts disarmed; only INTERCEPT can be armed.
+- **Notes:** mission_manager_node serves /mission/set_mode and latches /mission/mode (transient local). Starts disarmed; only INTERCEPT can be armed. Follow-up (PR 46, branch feat/modest-lovelace-ps9ypt): SetMissionMode.track_id defaults to -1 (automatic), so "{mode: 2, armed: true}" no longer pins the selector to a track 0 that never exists (the drone hovered with no target); track_id 0 is rejected. Launch arg with_person (auto/true/false) leaves the walking person out of the INTERCEPT world by default.
 
 ### P0.3 – Flyable simulated drone
 

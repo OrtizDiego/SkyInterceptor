@@ -43,6 +43,13 @@ def generate_launch_description():
     # The seed of the ground-truth measurement noise (0 = random). Fixing it makes
     # a run reproducible.
     groundtruth_seed = LaunchConfiguration('groundtruth_seed', default='0')
+    # The walking person: 'auto' keeps it in FOLLOW (it is the target there) and
+    # leaves it out in INTERCEPT, where it is only a bystander for the keep-out.
+    with_person = PythonExpression([
+        "'true' if '", LaunchConfiguration('with_person'), "' == 'true' or ('",
+        LaunchConfiguration('with_person'), "' == 'auto' and '", mission_mode,
+        "' == 'follow') else 'false'",
+    ])
     use_vision = PythonExpression(["'", perception_source, "' == 'vision'"])
     use_groundtruth = PythonExpression(["'", perception_source, "' == 'groundtruth'"])
     # Gazebo GUI: headless runs (CI, scripted perception checks) need it off
@@ -60,6 +67,7 @@ def generate_launch_description():
             'target_x': target_x,
             'target_y': target_y,
             'world_file': world_file,
+            'with_person': with_person,
             'spawn_target_drone': LaunchConfiguration('spawn_target_drone'),
             'spawn_timeout': LaunchConfiguration('spawn_timeout'),
         }.items()
@@ -79,6 +87,7 @@ def generate_launch_description():
             'use_sim_time': use_sim_time,
             'seed': groundtruth_seed,
             'params_file': groundtruth_params_file,
+            'with_person': with_person,
         }.items(),
         condition=IfCondition(use_groundtruth),
     )
@@ -162,6 +171,13 @@ def generate_launch_description():
             default_value='follow',
             choices=['follow', 'intercept'],
             description='Mission mode: follow (aerial filming) or intercept (counter-UAS)'
+        ),
+        DeclareLaunchArgument(
+            'with_person',
+            default_value='auto',
+            choices=['auto', 'true', 'false'],
+            description='The walking person of the world: auto keeps it in follow '
+                        '(it is the target) and leaves it out in intercept',
         ),
         DeclareLaunchArgument(
             'perception_source',

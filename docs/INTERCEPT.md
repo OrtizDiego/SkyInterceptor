@@ -300,11 +300,24 @@ source /workspace/interceptor_ws/install/setup.bash
 `intercept_demo.launch.py` arms the mission automatically (`auto_arm:=true`), so the
 engagement starts on its own. In `interceptor_full.launch.py` the same argument
 exists but defaults to `false`: the mission manager always starts disarmed, and
-arming is an operator decision.
+arming is an operator decision. Arm it from another terminal:
+
+```bash
+ros2 service call /mission/set_mode interceptor_interfaces/srv/SetMissionMode "{mode: 2, armed: true}"
+```
+
+`track_id` defaults to `-1` (automatic selection). A track id names one track and the
+tracker follows it with no fallback, so naming a track that does not exist leaves
+the drone hovering with no target; tracks are numbered from 1, so the mission
+manager rejects `track_id: 0`.
+
+The walking person is left out of the world in INTERCEPT (`with_person:=auto`, the
+default); pass `with_person:=true` to keep it as a bystander for the keep-out
+barrier. The scenario batch always keeps it.
 
 The Gazebo GUI starts on a raised three-quarter view of the middle of the park
-(the world file's `<gui><camera>` block), so both drones, the pedestrian and the
-camera feeds are in frame from the first second.
+(the world file's `<gui><camera>` block), so both drones, the pedestrian (when it is
+in the world) and the camera feeds are in frame from the first second.
 
 Telemetry:
 

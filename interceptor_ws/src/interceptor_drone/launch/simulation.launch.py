@@ -1,13 +1,49 @@
 import os
+import re
+import tempfile
 
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
+from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, OpaqueFunction
 from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import Command, LaunchConfiguration
 from launch_ros.actions import Node
 from launch_ros.parameter_descriptions import ParameterValue
+
+# The walking person of the INTERCEPT world. It is an <actor>, part of the world
+# file rather than a spawned model, so leaving it out means loading a copy of the
+# world without its block.
+PERSON_ACTOR = re.compile(r'[ \t]*<actor name="target_person">.*?</actor>[ \t]*\n?', re.DOTALL)
+
+
+def world_without_person(world_file):
+    """Return the path of a copy of world_file without the walking person."""
+    with open(world_file) as f:
+        world = f.read()
+    stripped, count = PERSON_ACTOR.subn('', world)
+    if count == 0:
+        return world_file  # No person in this world: nothing to strip
+    fd, path = tempfile.mkstemp(prefix='skyinterceptor_', suffix='.world')
+    with os.fdopen(fd, 'w') as f:
+        f.write(stripped)
+    return path
+
+
+def gazebo_for(context, gazebo_launch, gazebo_params):
+    """Include Gazebo with the world, minus the person when with_person is false."""
+    world_file = LaunchConfiguration('world_file').perform(context)
+    if LaunchConfiguration('with_person').perform(context).lower() != 'true':
+        world_file = world_without_person(world_file)
+    return [IncludeLaunchDescription(
+        PythonLaunchDescriptionSource([gazebo_launch]),
+        launch_arguments={
+            'world': world_file,
+            'verbose': 'true',
+            'gui': LaunchConfiguration('gui'),
+            'params_file': gazebo_params,
+        }.items()
+    )]
 
 
 def generate_launch_description():
@@ -17,8 +53,6 @@ def generate_launch_description():
 
     # Launch arguments
     use_sim_time = LaunchConfiguration('use_sim_time', default='true')
-    world_file = LaunchConfiguration('world_file', default=os.path.join(
-        pkg_interceptor, 'worlds', 'intercept_scenario.world'))
 
     # Process the xacro file at launch time so the wind can be set from the command line
     xacro_file = os.path.join(pkg_interceptor, 'urdf', 'interceptor_quadrotor.urdf.xacro')
@@ -38,18 +72,12 @@ def generate_launch_description():
         'xacro ', os.path.join(pkg_interceptor, 'urdf', 'target_drone.urdf.xacro'),
     ]), value_type=str)
 
-    # Gazebo launch
-    gazebo = IncludeLaunchDescription(
-        PythonLaunchDescriptionSource([
-            os.path.join(pkg_gazebo_ros, 'launch', 'gazebo.launch.py')
-        ]),
-        launch_arguments={
-            'world': world_file,
-            'verbose': 'true',
-            'gui': LaunchConfiguration('gui'),
-            'params_file': os.path.join(pkg_interceptor, 'config', 'gazebo_params.yaml'),
-        }.items()
-    )
+    # Gazebo launch. The world is resolved at launch time, because the walking
+    # person is stripped from it when with_person is false.
+    gazebo = OpaqueFunction(function=gazebo_for, args=[
+        os.path.join(pkg_gazebo_ros, 'launch', 'gazebo.launch.py'),
+        os.path.join(pkg_interceptor, 'config', 'gazebo_params.yaml'),
+    ])
 
     # Spawn interceptor drone on its skids, next to the person's patrol square and
     # facing it (the person walks the 15 x 15 m square with corners (0, 0) and (15, 15))
@@ -149,6 +177,10 @@ def generate_launch_description():
             default_value=os.path.join(pkg_interceptor, 'worlds', 'intercept_scenario.world'),
             description='Full path to world file'
         ),
+        DeclareLaunchArgument(
+            'with_person', default_value='true', choices=['true', 'false'],
+            description='Keep the walking person (target_person) of the world; false '
+                        'loads a copy of the world without it'),
         DeclareLaunchArgument('gui', default_value='true', description='Start the Gazebo GUI'),
         DeclareLaunchArgument('x', default_value='2.0', description='Spawn x [m]'),
         DeclareLaunchArgument('y', default_value='5.0', description='Spawn y [m]'),
