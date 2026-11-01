@@ -57,3 +57,19 @@
   mass): check that the flight model's parameters still come out the same, or that
   the difference is negligible, and re-run the flight dynamics gtests.
 - Vision runs (P2.5, P3.2) need the cameras: the default must stay `true`.
+
+## Result on native Ubuntu (2026-11-01)
+
+Measured with the stereo cameras on, `--retries 0`, headless, in a scratch workspace
+built from this branch. No gzserver crash in either batch:
+
+| Runner | Runs | Completed | gzserver crashes | Wall clock per run |
+|---|---|---|---|---|
+| `run_intercept_batch.py`, hover, seeds 1-20 | 20 | 20 | 0 | ~16 s |
+| `run_follow_batch`, all four scenarios, seeds 1-20 | 20 | 20 | 0 | ~64 s |
+
+40 runs, 0 crashes, so the 15-20 % rate seen on WSL2 did not reproduce here (a rate
+of 15 % would give 0 of 40 with probability about 0.1 %). No backtrace could be
+obtained because there was no crash. The `enable_cameras` argument and the
+wait-for-entity change were therefore not made: nothing measured justifies changing
+the URDF. Results: `~/skyinterceptor-data/batches/gz_ab/`.
