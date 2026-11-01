@@ -1,0 +1,11 @@
+# Ground-truth target source without the walking person (with_person:=false).
+#
+# Loaded on top of groundtruth_params.yaml when the person is stripped from the
+# world, so the node does not poll an entity that is not there. Everything it
+# does not mention (the noise, the dropout, the occlusion) comes from that file.
+
+groundtruth_target_node:
+  ros__parameters:
+    entity_names: ["target_drone"]
+    entity_classes: ["uav"]
+    entity_z_offsets: [0.0]

@@ -66,6 +66,13 @@ def generate_launch_description():
                         'in RViz, but the intruder is not detected: COCO has no '
                         'drone class (plan 3.2).',
         ),
+        DeclareLaunchArgument(
+            'with_person',
+            default_value='false',
+            choices=['true', 'false'],
+            description='Keep the walking person in the world (a bystander the '
+                        'safety filter keeps away from)',
+        ),
         IncludeLaunchDescription(
             PythonLaunchDescriptionSource(
                 os.path.join(pkg_interceptor, 'launch', 'interceptor_full.launch.py')),
@@ -82,6 +89,8 @@ def generate_launch_description():
                 'auto_arm': LaunchConfiguration('auto_arm'),
                 # The seed of the measurement noise: fix it for a reproducible run.
                 'groundtruth_seed': LaunchConfiguration('groundtruth_seed'),
+                # The walking person: left out unless asked for.
+                'with_person': LaunchConfiguration('with_person'),
             }.items()
         ),
     ])

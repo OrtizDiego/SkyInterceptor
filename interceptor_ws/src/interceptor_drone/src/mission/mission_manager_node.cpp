@@ -87,9 +87,12 @@ private:
     } else if (request->armed && *mode != MissionMode::INTERCEPT) {
       response->success = false;
       response->message = "only INTERCEPT can be armed";
-    } else if (request->track_id < -1) {
+    } else if (request->track_id < -1 || request->track_id == 0) {
+      // The tracker numbers its tracks from 1, so 0 never names a track. Accepting
+      // it would make the selector wait for that track forever (it has no fallback):
+      // the drone takes off and hovers with no target.
       response->success = false;
-      response->message = "track_id must be -1 (auto) or a track id";
+      response->message = "track_id must be -1 (auto) or a track id (tracks start at 1)";
     } else {
       current_.mode = request->mode;
       current_.armed = request->armed;

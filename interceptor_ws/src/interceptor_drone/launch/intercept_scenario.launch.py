@@ -34,6 +34,9 @@ def generate_launch_description():
             'use_sim_time': use_sim_time,
             'mission_mode': 'intercept',
             'perception_source': 'groundtruth',
+            # The batch keeps the walking person: a run scores the engagements of
+            # non-uav tracks, so a bystander has to be there to be ignored.
+            'with_person': 'true',
             'guidance_law': LaunchConfiguration('guidance_law'),
             'target_behaviour': LaunchConfiguration('target_behaviour'),
             'target_drone_params_file': LaunchConfiguration('target_drone_params_file'),

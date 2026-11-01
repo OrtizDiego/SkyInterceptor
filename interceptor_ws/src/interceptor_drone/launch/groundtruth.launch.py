@@ -3,6 +3,7 @@ import os
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
+from launch.conditions import IfCondition, UnlessCondition
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 from launch_ros.parameter_descriptions import ParameterValue
@@ -22,21 +23,32 @@ def generate_launch_description():
     # every run; a fixed value makes the run reproducible.
     seed = LaunchConfiguration('seed', default='0')
 
+    # Without the walking person (with_person:=false) the node only tracks the
+    # target drone: the person's entity is not in the world, so it is dropped from
+    # the entity list by a parameter layer on top of the others.
+    no_person_params = os.path.join(
+        pkg_interceptor, 'config', 'groundtruth_no_person_params.yaml')
+    with_person = LaunchConfiguration('with_person', default='true')
+    overrides = {
+        'use_sim_time': use_sim_time,
+        'seed': ParameterValue(seed, value_type=int),
+    }
+
     # Gazebo ground truth -> /target/detection_3d, in place of the vision pipeline
-    groundtruth_target_node = Node(
-        package='interceptor_drone',
-        executable='groundtruth_target_node',
-        name='groundtruth_target_node',
-        output='screen',
-        parameters=[
-            default_params,
-            groundtruth_params,
-            {
-                'use_sim_time': use_sim_time,
-                'seed': ParameterValue(seed, value_type=int),
-            },
-        ],
-    )
+    def groundtruth_node(layers, condition):
+        return Node(
+            package='interceptor_drone',
+            executable='groundtruth_target_node',
+            name='groundtruth_target_node',
+            output='screen',
+            parameters=layers + [overrides],
+            condition=condition,
+        )
+
+    groundtruth_with_person = groundtruth_node(
+        [default_params, groundtruth_params], IfCondition(with_person))
+    groundtruth_without_person = groundtruth_node(
+        [default_params, groundtruth_params, no_person_params], UnlessCondition(with_person))
 
     return LaunchDescription([
         DeclareLaunchArgument(
@@ -54,5 +66,13 @@ def generate_launch_description():
             default_value=os.path.join(pkg_interceptor, 'config', 'groundtruth_params.yaml'),
             description='Parameter file of the ground-truth source',
         ),
-        groundtruth_target_node,
+        DeclareLaunchArgument(
+            'with_person',
+            default_value='true',
+            choices=['true', 'false'],
+            description='Whether the walking person is in the world (false drops it '
+                        'from the entities the node publishes)',
+        ),
+        groundtruth_with_person,
+        groundtruth_without_person,
     ])

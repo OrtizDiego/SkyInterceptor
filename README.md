@@ -308,6 +308,7 @@ The arguments of the full system (`interceptor_full.launch.py`):
 | `guidance_law` | `pn`, `apn` | `apn` | Pure proportional navigation or augmented PN (INTERCEPT only) |
 | `target_behaviour` | `hover`, `waypoints`, `straight`, `weave`, `curve` | `curve` | The behaviour of the intruder (INTERCEPT only) |
 | `auto_arm` | `true`, `false` | `false` | Arm the INTERCEPT mission automatically after a delay |
+| `with_person` | `auto`, `true`, `false` | `auto` | The walking person of the world: `auto` keeps it in FOLLOW (it is the target) and leaves it out in INTERCEPT |
 | `groundtruth_seed` | any integer | `0` | Seed of the ground-truth noise and dropout (0 = random) |
 | `interceptor_x`, `interceptor_y` | metres | `2.0`, `5.0` | Where the interceptor spawns |
 | `target_x`, `target_y` | metres | `10.0`, `5.0` | Where the intruder spawns |
