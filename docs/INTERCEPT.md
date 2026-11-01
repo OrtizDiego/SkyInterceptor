@@ -396,7 +396,7 @@ simulation per run (`launch/intercept_scenario.launch.py`), and
 (`metrics::criteriaFor`) as the unit tests.
 
 ```bash
-ros2 run interceptor_drone run_intercept_batch.py --runs-per-scenario 25 --output-dir /tmp/batch
+ros2 run interceptor_drone run_intercept_batch.py --runs-per-scenario 25 --output-dir /workspace/data/batches/intercept/my_run
 ```
 
 The layout:

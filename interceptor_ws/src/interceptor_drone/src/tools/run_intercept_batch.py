@@ -66,6 +66,13 @@ SCENARIOS = ['hover', 'straight', 'weave', 'bystander']
 ENGAGE_ALTITUDE_BAND = 5.0
 
 
+def default_output_dir(kind):
+    """Return a timestamped directory on the persistent data mount."""
+    # /workspace/data is the host's ~/skyinterceptor-data: batch results are
+    # kept there and never in the container's /tmp, which a recreate wipes.
+    return f'/workspace/data/batches/{kind}/{time.strftime("%Y%m%d-%H%M%S")}'
+
+
 def parse_args(argv):
     """Parse the command line."""
     parser = argparse.ArgumentParser(
@@ -79,8 +86,9 @@ def parse_args(argv):
     parser.add_argument('--domain-id', type=int, default=78, help='the ROS domain of the runs')
     parser.add_argument('--gazebo-port', type=int, default=11478,
                         help='the port of the Gazebo master of the first run')
-    parser.add_argument('--output-dir', default='/tmp/intercept_batch',
-                        help='where the runs, the CSV and the report are written')
+    parser.add_argument('--output-dir', default=default_output_dir('intercept'),
+                        help=('where the runs, the CSV and the report are written '
+                        '(default: /workspace/data/batches/intercept/<timestamp>)'))
     parser.add_argument('--sim-timeout', type=float, default=75.0,
                         help='the simulation time a run may take [s]')
     parser.add_argument('--timeout', type=float, default=400.0,

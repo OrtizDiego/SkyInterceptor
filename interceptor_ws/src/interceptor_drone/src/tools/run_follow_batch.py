@@ -21,7 +21,8 @@ along its path. The same seed gives the same run.
 
 Usage:
   ros2 run interceptor_drone run_follow_batch --runs 4 --scenarios walker
-  python3 scripts/run_follow_batch.py --runs 20 --scenarios all --output-dir /tmp/batch
+  python3 scripts/run_follow_batch.py --runs 20 --scenarios all \
+      --output-dir /workspace/data/batches/follow/my_run
 
 Options:
   --runs N            the number of runs (default 4)
@@ -34,7 +35,8 @@ Options:
   --gazebo-port N     the port of the Gazebo master of the runs (default 11377).
                       Every run gets a port of its own, so a batch never collides
                       with another Gazebo in the same container.
-  --output-dir PATH   where the summaries and the report are written
+  --output-dir PATH   where the summaries and the report are written (default
+                      /workspace/data/batches/follow/<timestamp>, the persistent mount)
   --timeout S         the wall clock time a run may take (default 400)
   --keep-going        keep going when a run fails (the default)
   --dry-run           print the commands without running them
@@ -56,6 +58,13 @@ MIN_FRAMING_SCORE = 0.95
 REACQUIRE_LOSS_TIME_S = 2.0
 
 
+def default_output_dir(kind):
+    """Return a timestamped directory on the persistent data mount."""
+    # /workspace/data is the host's ~/skyinterceptor-data: batch results are
+    # kept there and never in the container's /tmp, which a recreate wipes.
+    return f'/workspace/data/batches/{kind}/{time.strftime("%Y%m%d-%H%M%S")}'
+
+
 def parse_args(argv):
     """Parse the command line."""
     parser = argparse.ArgumentParser(description=__doc__)
@@ -69,8 +78,9 @@ def parse_args(argv):
     parser.add_argument('--domain-id', type=int, default=77, help='the ROS domain of the runs')
     parser.add_argument('--gazebo-port', type=int, default=11377,
                         help='the port of the Gazebo master of the runs')
-    parser.add_argument('--output-dir', default='/tmp/follow_batch',
-                        help='where the summaries and the report are written')
+    parser.add_argument('--output-dir', default=default_output_dir('follow'),
+                        help=('where the summaries and the report are written '
+                        '(default: /workspace/data/batches/follow/<timestamp>)'))
     parser.add_argument('--timeout', type=float, default=400.0,
                         help='the wall clock time a run may take [s]')
     parser.add_argument('--retries', type=int, default=2,
@@ -121,7 +131,8 @@ def run_one(scenario, seed, args, run_dir, gazebo_port, attempt=0):
     started = time.time()
     # The output goes to a file and not to a pipe: the pipe fills up after a few
     # kilobytes and the launch blocks on it.
-    log_path = run_dir / 'launch.log'
+    # One log per attempt: a retry must not overwrite the log of the crash.
+    log_path = run_dir / f'launch_attempt{attempt}.log'
     with log_path.open('w') as log_file:
         process = subprocess.Popen(
             command, env=environment, stdout=log_file, stderr=subprocess.STDOUT,
