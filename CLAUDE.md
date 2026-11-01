@@ -80,6 +80,7 @@ Perception → Estimation → Guidance → Safety → Control → Platform
 | Mission | `mission_manager_node` | Serves `/mission/set_mode` (`SetMissionMode`), latches `/mission/mode` (`MissionMode`, transient local); always starts disarmed |
 | Platform | `quadrotor_dynamics` (Gazebo plugin, `libquadrotor_dynamics_plugin.so`) | Rotor/aero/wind model + onboard flight controller; `/cmd_vel` in, `/odom` + TF out |
 | Platform | `drone_teleop_keyboard.py` | Keyboard teleop: `/cmd_vel` + `/drone/arm` |
+| Tooling | `mission_viz_node.py` | Turns the custom messages (detections, tracks, setpoints, mission status, guidance telemetry) into the RViz layers on `/viz/*`: camera FOV, raw detections, covariance ellipsoids, predicted path, trails (estimate vs ground truth), planner command, mission HUD. Watch-only, started with RViz; see `docs/RVIZ.md` |
 | Tooling | `record_intercept.py` | Prints the range, closing speed, relative speed and phase of an engagement, for checking the intercept from outside the guidance node |
 | Tooling | `intercept_metrics_node`, `intercept_metrics_report`, `run_intercept_batch.py` | The INTERCEPT scenario batch (P3.5): one CSV row per run (capture, envelope, abort, non-uav engagements), scored against the plan's Phase 3 criteria. Logic in the ROS-free `metrics::EngagementScorer` (`include/metrics/intercept_metrics.hpp`); see `docs/INTERCEPT.md` |
 
@@ -216,7 +217,7 @@ Every file uses `<node_name>: ros__parameters:` and is loaded by the launch file
 
 ### Launch files (`launch/` directory)
 
-- `interceptor_full.launch.py` — Full system (simulation + perception + mission manager + tracker + planner + safety filter + control + RViz). Args: `mission_mode:=follow|intercept` (default follow), `perception_source:=vision|groundtruth` (default groundtruth; vision launches the perception pipeline), `guidance_law:=pn|apn`, `target_behaviour:=hover|waypoints|straight|weave|curve`, `auto_arm:=true|false`, `groundtruth_seed:=0`, `interceptor_x`, `interceptor_y`, `target_x`, `target_y`
+- `interceptor_full.launch.py` — Full system (simulation + perception + mission manager + tracker + planner + safety filter + control + RViz with `mission_viz_node`). Args: `mission_mode:=follow|intercept` (default follow), `perception_source:=vision|groundtruth` (default groundtruth; vision launches the perception pipeline), `guidance_law:=pn|apn`, `target_behaviour:=hover|waypoints|straight|weave|curve`, `auto_arm:=true|false`, `groundtruth_seed:=0`, `interceptor_x`, `interceptor_y`, `target_x`, `target_y`
 - `follow.launch.py` / `intercept.launch.py` — `interceptor_full` with the mode set
 - `intercept_demo.launch.py` — The INTERCEPT demo: the Crazyflie intruder flies while the interceptor engages it with PN or augmented PN. Arms the mission automatically. Args: `guidance_law`, `target_behaviour`, `auto_arm` (default true), `groundtruth_seed`, `perception_source`
 - `intercept_scenario.launch.py` — One scripted, headless INTERCEPT run plus `intercept_metrics_node`; driven by `run_intercept_batch.py`, which writes the intruder's parameter file per run (`target_drone_params_file`). Args: `scenario`, `seed`, `output_path`, `timeout`, `guidance_law`, spawn positions, `gui`, `rviz`
@@ -251,7 +252,7 @@ interceptor_ws/
         flight/                 # flight dynamics library (no ROS)
         simulation/             # quadrotor_dynamics Gazebo plugin
         teleop/                 # drone_teleop_keyboard.py
-        tools/                  # record_intercept.py, run_intercept_batch.py
+        tools/                  # record_intercept.py, run_intercept_batch.py, mission_viz_node.py
         metrics/                # intercept metrics library (no ROS), node and report tool
       config/                   # YAML parameter files
       launch/                   # Python launch files
@@ -281,6 +282,7 @@ interceptor_ws/
 | [`docs/FOLLOW.md`](docs/FOLLOW.md) | The framing presets, the heading smoothing, the lost-track machine and the safety filter in series |
 | [`docs/SAFETY.md`](docs/SAFETY.md) | The keep-out barrier, the lag correction, the flight limits and the engagement gate |
 | [`docs/FLIGHT_DYNAMICS.md`](docs/FLIGHT_DYNAMICS.md) | The flight model, the onboard flight controller, the wind and the teleop |
+| [`docs/RVIZ.md`](docs/RVIZ.md) | The RViz view: the displays per pipeline layer, `mission_viz_node` and the saved views |
 | [`docs/AGENT_PROMPTS.md`](docs/AGENT_PROMPTS.md) | The task prompts for coding agents |
 
 ## Code Style
