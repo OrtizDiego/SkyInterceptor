@@ -1,9 +1,12 @@
 #include <gtest/gtest.h>
 #include <Eigen/Dense>
 
+#include <algorithm>
 #include <cmath>
+#include <iostream>
 #include <limits>
 #include <random>
+#include <string>
 #include <vector>
 
 #include "safety/safety_filter.hpp"
@@ -633,6 +636,70 @@ TEST(SafetyFilterTest, TheEStopLatches)
   EXPECT_FALSE(result.feasible);
 }
 
+/// A setpoint that points the nose somewhere else than the drone's own heading, with
+/// a bearing-rate feed-forward, the way the planners send it.
+FilterSetpoint turningSetpoint(const Eigen::Vector3d & velocity)
+{
+  FilterSetpoint setpoint = velocitySetpoint(velocity);
+  setpoint.yaw = 1.2;
+  setpoint.yaw_rate = 0.4;
+  return setpoint;
+}
+
+/// A hold stops the drone but keeps the heading on the planner's yaw setpoint and its
+/// feed-forward, so the camera stays on the target: a boxed-in drone, a closed
+/// engagement gate and an abort all hold the velocity, not the heading.
+TEST(SafetyFilterTest, AHoldKeepsTheYawTrackingThePlanner)
+{
+  FilterState state = stateAt(0.0, 0.0);
+  state.yaw = -0.5;
+  const FilterSetpoint setpoint = turningSetpoint(Eigen::Vector3d(10.0, 0.0, 0.0));
+
+  SafetyFilter boxed_filter(testParams());
+  const FilterResult boxed =
+    run(boxed_filter, setpoint, state, {person(1, 3.0, 0.0), person(2, -3.0, 0.0)});
+  SafetyFilter gate_filter(testParams());
+  const FilterResult gate = gate_filter.filter(
+    setpoint, state, {}, {}, FilterMode::INTERCEPT, 10.0, 0.0, 0.0, false, false);
+  SafetyFilter abort_filter(testParams());
+  const FilterResult aborted = abort_filter.filter(
+    setpoint, state, {}, {}, FilterMode::INTERCEPT, 10.0, 0.0, 0.0, false, true,
+    "a bystander came too close");
+
+  for (const FilterResult & result : {boxed, gate, aborted}) {
+    EXPECT_FALSE(result.feasible) << result.reason;
+    EXPECT_EQ(result.velocity.norm(), 0.0) << result.reason;
+    EXPECT_DOUBLE_EQ(result.yaw, setpoint.yaw) << result.reason;
+    EXPECT_DOUBLE_EQ(result.yaw_rate, setpoint.yaw_rate) << result.reason;
+  }
+  EXPECT_TRUE(aborted.aborted);
+}
+
+/// The e-stop, stale odometry and a stale setpoint freeze the heading as well: the
+/// operator asked for everything to stop, or the yaw is not to be trusted. An abort
+/// caused by the e-stop freezes it too.
+TEST(SafetyFilterTest, TheEStopAndStaleInputsFreezeTheYaw)
+{
+  FilterState state = stateAt(0.0, 0.0);
+  state.yaw = -0.5;
+  const FilterSetpoint setpoint = turningSetpoint(Eigen::Vector3d(10.0, 0.0, 0.0));
+
+  SafetyFilter filter(testParams());
+  const std::vector<FilterResult> results = {
+    filter.filter(setpoint, state, {}, {}, FilterMode::FOLLOW, 10.0, 0.0, 0.0, true, true),
+    filter.filter(setpoint, state, {}, {}, FilterMode::FOLLOW, 10.0, 0.0, 1.0, false, true),
+    filter.filter(setpoint, state, {}, {}, FilterMode::FOLLOW, 10.0, 1.0, 0.0, false, true),
+    filter.filter(
+      setpoint, state, {}, {}, FilterMode::INTERCEPT, 10.0, 0.0, 0.0, true, true,
+      "the e-stop was pulled"),
+  };
+  for (const FilterResult & result : results) {
+    EXPECT_EQ(result.velocity.norm(), 0.0) << result.reason;
+    EXPECT_DOUBLE_EQ(result.yaw, state.yaw) << result.reason;
+    EXPECT_DOUBLE_EQ(result.yaw_rate, 0.0) << result.reason;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // The barrier itself
 // ---------------------------------------------------------------------------
@@ -748,7 +815,195 @@ TEST(SafetyFilterTest, RandomizedPropertyTheDistanceNeverDropsBelowTheLimit)
     << "the drone came within " << minimum_distance << " m of the person";
 }
 
-/// The same property, from a state where the drone is already closing fast: the
+/// What the random scenes of the relaxation property measured.
+struct SceneOutcome
+{
+  int relaxed_scenes = 0;
+  int held_scenes = 0;
+  int breached_scenes = 0;  // a person got inside a limit, with or without a hold
+  int silent_breaches = 0;  // ... in a scene in which the filter never held
+  double worst_silent_breach = 0.0;  // m, how deep the worst silent breach went
+  double worst_obstacle = std::numeric_limits<double>::infinity();  // m, the margin
+};
+
+/// Random scenes with several people (most of them running at the drone at up to
+/// 5 m/s), trees and benches, and a planner that flies into the keep-outs at up to
+/// 15 m/s. The plant is the lag, saturated the way the trajectory controller saturates
+/// (30 m/s horizontal, 5 m/s vertical) and limited to 10 m/s^2, so a command the
+/// airframe cannot fly is not flown.
+///
+/// The planner's command is horizontal, so the drone stays below the height where the
+/// horizontal rule tapers off, and the horizontal distance is checked wherever the
+/// plan's flat rule is in force (docs/SAFETY.md says why the taper zone is not).
+SceneOutcome runRandomScenes(const SafetyFilterParams & params, unsigned seed, int scenes)
+{
+  constexpr double kSigma = 0.15;
+  constexpr double kTolerance = 0.05;
+  constexpr double kDt = 0.02;
+
+  std::mt19937 rng(seed);
+  std::uniform_real_distribution<double> unit(0.0, 1.0);
+  const auto uniform = [&](double low, double high) {return low + (high - low) * unit(rng);};
+
+  SceneOutcome outcome;
+  for (int scene = 0; scene < scenes; ++scene) {
+    SafetyFilter filter(params);
+
+    std::vector<Obstacle> obstacles;
+    const int trees = 1 + static_cast<int>(unit(rng) * 3);
+    for (int i = 0; i < trees; ++i) {
+      obstacles.push_back(
+        {"tree" + std::to_string(i), uniform(-15.0, 15.0), uniform(-15.0, 15.0),
+          uniform(1.0, 4.0), uniform(5.0, 10.0)});
+    }
+    const int benches = static_cast<int>(unit(rng) * 3);
+    for (int i = 0; i < benches; ++i) {
+      obstacles.push_back(
+        {"bench" + std::to_string(i), uniform(-15.0, 15.0), uniform(-15.0, 15.0), 1.0, 0.5});
+    }
+    const auto obstacleMargin = [&](const Eigen::Vector3d & point) {
+        double margin = std::numeric_limits<double>::infinity();
+        for (const Obstacle & obstacle : obstacles) {
+          margin = std::min(
+            margin, obstacleDistance(obstacle, point).distance - params.drone_radius -
+            params.d_obstacle_min);
+        }
+        return margin;
+      };
+
+    // The drone starts at least 1 m outside every obstacle keep-out.
+    LagPlant plant;
+    do {
+      plant.state = stateAt(uniform(-12.0, 12.0), uniform(-12.0, 12.0), uniform(2.0, 6.0));
+    } while (obstacleMargin(plant.state.position) < 1.0);
+    plant.state.velocity = Eigen::Vector3d(uniform(-3.0, 3.0), uniform(-3.0, 3.0), 0.0);
+
+    // People, outside the keep-out, most of them running at the drone.
+    std::vector<KeepOutTarget> people;
+    const int count = 1 + static_cast<int>(unit(rng) * 4);
+    for (int i = 0; i < count; ++i) {
+      const double angle = uniform(0.0, 2.0 * kPi);
+      const double range = uniform(9.0, 25.0);
+      KeepOutTarget walker = person(
+        i + 1, plant.state.position.x() + range * std::cos(angle),
+        plant.state.position.y() + range * std::sin(angle), 1.0);
+      walker.position_sigma = kSigma;
+      if (unit(rng) < 0.6) {
+        Eigen::Vector3d aim = plant.state.position +
+          Eigen::Vector3d(uniform(-2.0, 2.0), uniform(-2.0, 2.0), 0.0);
+        aim.z() = 1.0;
+        walker.velocity = (aim - walker.position).normalized() * uniform(1.0, 5.0);
+      } else {
+        walker.velocity = Eigen::Vector3d(uniform(-1.5, 1.5), uniform(-1.5, 1.5), 0.0);
+      }
+      people.push_back(walker);
+    }
+
+    // The planner flies at the first person or at the first tree.
+    const bool at_tree = unit(rng) < 0.5;
+    const double speed = uniform(3.0, 15.0);
+
+    bool relaxed = false;
+    bool held = false;
+    double deepest = 0.0;  // m, how far inside a person's limit the drone got
+    for (int step = 0; step < 400; ++step) {
+      const double t = 10.0 + kDt * step;
+      const Eigen::Vector3d aim = at_tree ?
+        Eigen::Vector3d(obstacles[0].x, obstacles[0].y, 0.0) : people[0].position;
+      Eigen::Vector3d direction = aim - plant.state.position;
+      direction.z() = 0.0;
+      const FilterResult result = filter.filter(
+        velocitySetpoint(direction.normalized() * speed), plant.state, people, obstacles,
+        FilterMode::FOLLOW, t, 0.0, 0.0, false, true);
+      relaxed = relaxed || result.reason.find("rate relaxed") != std::string::npos;
+      held = held || !result.feasible;
+
+      // The trajectory controller's saturation, and the airframe's acceleration.
+      Eigen::Vector3d command = result.velocity;
+      const double horizontal = command.head<2>().norm();
+      if (horizontal > 30.0) {
+        command.head<2>() *= 30.0 / horizontal;
+      }
+      command.z() = std::clamp(command.z(), -5.0, 5.0);
+      Eigen::Vector3d change =
+        (command - plant.state.velocity) * (1.0 - std::exp(-kDt / plant.tau));
+      if (change.norm() > 10.0 * kDt) {
+        change *= 10.0 * kDt / change.norm();
+      }
+      plant.state.velocity += change;
+      plant.state.position += plant.state.velocity * kDt;
+      for (KeepOutTarget & walker : people) {
+        walker.position += walker.velocity * kDt;
+      }
+
+      outcome.worst_obstacle =
+        std::min(outcome.worst_obstacle, obstacleMargin(plant.state.position));
+      for (const KeepOutTarget & walker : people) {
+        const Eigen::Vector3d delta = plant.state.position - walker.position;
+        const double limit = params.d_min_3d + params.uncertainty_gain * kSigma +
+          params.drone_radius;
+        deepest = std::max(deepest, limit - delta.norm());
+        if (delta.z() <= params.keepout_horizontal_altitude) {
+          deepest = std::max(deepest, limit - delta.head<2>().norm());
+        }
+      }
+    }
+    const bool breached = deepest > kTolerance;
+    outcome.relaxed_scenes += relaxed ? 1 : 0;
+    outcome.held_scenes += held ? 1 : 0;
+    outcome.breached_scenes += breached ? 1 : 0;
+    if (breached && !held) {
+      ++outcome.silent_breaches;
+      outcome.worst_silent_breach = std::max(outcome.worst_silent_breach, deepest);
+    }
+  }
+  return outcome;
+}
+
+/// The property with the relaxation in play, on the same random scenes with and
+/// without it:
+///
+/// - the distance to a static obstacle never drops below d_obstacle_min: nothing can
+///   force it, and a relaxed barrier keeps psi >= 0, so the drone can always brake
+///   before the keep-out. The first version of the relaxation dropped the barrier,
+///   and broke an obstacle keep-out in 1 of these 1000-scene sweeps (by 0.11 m) and
+///   in 11 of 3000 with an unsaturated plant;
+/// - the relaxation lets fewer people in than holding does, and holds less;
+/// - a person let in while the filter reported a feasible command (a silent breach)
+///   is no more frequent, and no deeper beyond 0.1 m, than without the relaxation.
+///   A keep-out that needs more than the airframe can fly is reported as infeasible.
+///   Silent breaches are not zero, with or without the relaxation: the barrier
+///   assumes the lag plant can follow any command, and the 10 m/s^2 airframe cannot
+///   always (over seeds 7-16, holding alone had one of 0.51 m, and broke an obstacle
+///   keep-out by 0.07 m once).
+TEST(SafetyFilterTest, RandomizedPropertyTheRelaxationNeverBreaksADistance)
+{
+  SafetyFilterParams params;
+  params.drone_radius = 0.3;
+  SafetyFilterParams holding = params;
+  holding.relax_min_margin = std::numeric_limits<double>::infinity();
+
+  const SceneOutcome relaxing = runRandomScenes(params, 7, 300);
+  const SceneOutcome without = runRandomScenes(holding, 7, 300);
+
+  EXPECT_GE(relaxing.worst_obstacle, -0.05)
+    << "the drone came " << -relaxing.worst_obstacle << " m inside an obstacle keep-out";
+  EXPECT_LE(relaxing.breached_scenes, without.breached_scenes);
+  EXPECT_LT(relaxing.held_scenes, without.held_scenes);
+  EXPECT_LE(relaxing.silent_breaches, without.silent_breaches + 1);
+  EXPECT_LE(relaxing.worst_silent_breach, std::max(0.1, without.worst_silent_breach))
+    << "a person was let in " << relaxing.worst_silent_breach << " m without a hold";
+  // The test is only worth something if the relaxation was in play.
+  EXPECT_GT(relaxing.relaxed_scenes, 30);
+  std::cout << "of 300 scenes, relaxing / holding: relaxed " << relaxing.relaxed_scenes <<
+    ", held " << relaxing.held_scenes << " / " << without.held_scenes << ", breached " <<
+    relaxing.breached_scenes << " / " << without.breached_scenes << ", silent " <<
+    relaxing.silent_breaches << " (" << relaxing.worst_silent_breach << " m) / " <<
+    without.silent_breaches << " (" << without.worst_silent_breach << " m), worst obstacle " <<
+    relaxing.worst_obstacle << " / " << without.worst_obstacle << " m\n";
+}
+
+/// The single-person property, from a state where the drone is already closing fast: the
 /// barrier has to slow it down before the margin runs out.
 TEST(SafetyFilterTest, TheDistanceHoldsWhenTheDroneIsAlreadyClosingFast)
 {

@@ -89,6 +89,10 @@ public:
     params.cbf_alpha = declare_parameter("safety.cbf_alpha", defaults.cbf_alpha);
     params.relax_min_margin =
       declare_parameter("safety.relax_min_margin", defaults.relax_min_margin);
+    params.relaxed_barrier_rate =
+      declare_parameter("safety.relaxed_barrier_rate", defaults.relaxed_barrier_rate);
+    params.max_airframe_speed =
+      declare_parameter("safety.max_airframe_speed", defaults.max_airframe_speed);
     params.velocity_lag_tau =
       declare_parameter("safety.velocity_lag_tau", defaults.velocity_lag_tau);
     params.barrier_omega = declare_parameter("safety.barrier_omega", defaults.barrier_omega);
