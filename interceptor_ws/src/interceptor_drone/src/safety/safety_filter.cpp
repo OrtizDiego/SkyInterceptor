@@ -280,6 +280,15 @@ FilterResult SafetyFilter::hold(const FilterState & state, const std::string & r
   return result;
 }
 
+FilterResult SafetyFilter::hold(
+  const FilterState & state, const FilterSetpoint & setpoint, const std::string & reason)
+{
+  FilterResult result = hold(state, reason);
+  result.yaw = setpoint.yaw;
+  result.yaw_rate = setpoint.yaw_rate;
+  return result;
+}
+
 FilterResult SafetyFilter::filter(
   const FilterSetpoint & setpoint, const FilterState & state,
   const std::vector<KeepOutTarget> & targets, const std::vector<Obstacle> & obstacles,
@@ -297,11 +306,21 @@ FilterResult SafetyFilter::filter(
   const bool forgot = collectTargets(targets, time_s, keep_outs);
 
   // --- The conditions that stop the drone dead -----------------------------
+  // Every hold stops the drone; whether it also freezes the heading depends on why.
+  // The e-stop, stale odometry and a stale setpoint freeze it: the operator asked for
+  // everything to stop, or the yaw in the setpoint (or the heading it is compared
+  // with) is not to be trusted. Every other hold keeps the heading tracking the
+  // planner's fresh yaw setpoint, so the camera stays on the target: the controller
+  // flies a world-frame velocity loop, and turning does not move the drone.
   if (!abort_reason.empty()) {
     // The engagement was aborted: the filter has the final say on the setpoint,
     // so the abort is enforced here. The drone brakes to a hover and the reason
-    // says why. The abort is latched by the engagement gate, so it stays.
-    FilterResult aborted = hold(state, "abort: " + abort_reason);
+    // says why. The abort is latched by the engagement gate, so it stays. An abort
+    // caused by the e-stop freezes the heading like the e-stop itself.
+    const bool track_yaw = !estop_latched && odom_age_s <= params_.odom_timeout &&
+      setpoint_age_s <= params_.setpoint_timeout;
+    FilterResult aborted = track_yaw ?
+      hold(state, setpoint, "abort: " + abort_reason) : hold(state, "abort: " + abort_reason);
     aborted.aborted = true;
     return aborted;
   }
@@ -322,7 +341,7 @@ FilterResult SafetyFilter::filter(
   bool climb_only = false;
   if (mode == FilterMode::INTERCEPT && !engage_allowed) {
     if (!climb_allowed) {
-      return hold(state, "engagement gate closed");
+      return hold(state, setpoint, "engagement gate closed");
     }
     climb_only = true;
   }
@@ -330,7 +349,7 @@ FilterResult SafetyFilter::filter(
     // A keep-out was forgotten: the drone may be closer to that person than it thinks.
     // Hold for this cycle rather than continuing on a command that assumes the
     // keep-out is gone.
-    return hold(state, "keep-out forgotten (track lost)");
+    return hold(state, setpoint, "keep-out forgotten (track lost)");
   }
 
   // --- The planner's command, as a velocity -------------------------------
@@ -371,6 +390,7 @@ FilterResult SafetyFilter::filter(
     double c_cmd_max = 0.0;   // the largest closing speed that may be commanded [m/s]
     std::string name;
     double margin = 0.0;      // h: how far the drone is outside this keep-out [m]
+    double closing = 0.0;     // c: the achieved closing speed [m/s]
   };
   std::vector<Barrier> barriers;
 
@@ -384,7 +404,7 @@ FilterResult SafetyFilter::filter(
       // The drone is exactly on top of the track: the direction is undefined, so the
       // barrier is not well posed. Hold: the safest answer when the geometry is
       // degenerate.
-      return hold(state, "on top of track " + std::to_string(target.track_id));
+      return hold(state, setpoint, "on top of track " + std::to_string(target.track_id));
     }
     // n points from the target to the drone.
     const Eigen::Vector3d normal3 = delta3 / distance3;
@@ -404,7 +424,8 @@ FilterResult SafetyFilter::filter(
       h3, closing3, target_los3, params_.cbf_alpha,
       params_.barrier_omega, params_.velocity_lag_tau);
     barriers.push_back(
-      {normal3, target_los3, c_cmd_max3, "track " + std::to_string(target.track_id), h3});
+      {normal3, target_los3, c_cmd_max3, "track " + std::to_string(target.track_id), h3,
+        closing3});
 
     // The horizontal barrier: the plan's flat standoff. It is only in force while
     // the drone is at most keepout_horizontal_altitude above the person; above
@@ -433,7 +454,7 @@ FilterResult SafetyFilter::filter(
       params_.barrier_omega, params_.velocity_lag_tau);
     barriers.push_back(
       {normal2, target_los2, c_cmd_max2,
-        "track " + std::to_string(target.track_id) + " (horizontal)", h2});
+        "track " + std::to_string(target.track_id) + " (horizontal)", h2, closing2});
   }
 
   for (const Obstacle & obstacle : obstacles) {
@@ -444,7 +465,7 @@ FilterResult SafetyFilter::filter(
     const bool level = obstacle.height <= 0.0 || state.position.z() <= obstacle.height;
     if (delta.norm() < 1e-6 && level) {
       // On the obstacle's axis, inside it: the way out is undefined.
-      return hold(state, "inside obstacle " + obstacle.name);
+      return hold(state, setpoint, "inside obstacle " + obstacle.name);
     }
     const ObstacleDistance geometry = obstacleDistance(obstacle, state.position);
     const double h = geometry.distance - params_.d_obstacle_min - params_.drone_radius;
@@ -454,7 +475,8 @@ FilterResult SafetyFilter::filter(
     const double closing = -geometry.normal.dot(state.velocity);
     const double c_cmd_max = maxClosingSpeed(
       h, closing, 0.0, params_.cbf_alpha, params_.barrier_omega, params_.velocity_lag_tau);
-    barriers.push_back({geometry.normal, 0.0, c_cmd_max, "obstacle " + obstacle.name, h});
+    barriers.push_back(
+      {geometry.normal, 0.0, c_cmd_max, "obstacle " + obstacle.name, h, closing});
   }
 
   // --- Project onto the barriers -------------------------------------------
@@ -514,11 +536,24 @@ FilterResult SafetyFilter::filter(
       // Holding then lets the jogger run into the drone. So the rate limits of
       // the least urgent barriers - the ones with the largest distance margin -
       // are relaxed one at a time, most comfortable first, until the rest can be
-      // satisfied. Only barriers with at least relax_min_margin of distance left
-      // are eligible: their distance is not at stake this cycle (at 15 m/s and
-      // 50 Hz the drone covers 0.3 m), and the next cycle re-evaluates them. A
-      // distance is never relaxed, only the rate at which a distant keep-out is
-      // approached.
+      // satisfied.
+      //
+      // Relaxing a barrier does not drop it. The barrier is a cascade: psi =
+      // w*h - c >= 0 is kept invariant at the rate w (psi_dot >= -w*psi), and
+      // psi >= 0 keeps h >= 0. A relaxed barrier keeps the same psi >= 0, at the
+      // faster rate relaxed_barrier_rate instead of w: the drone may approach the
+      // keep-out faster, but never so fast that it could no longer stop before it
+      // (with the lag model). Dropping the barrier instead, as the first version
+      // did, let the drone reach a relaxed keep-out at a speed it could not brake
+      // from once the barrier was enforced again. Eligible are the barriers with
+      // at least relax_min_margin of distance left and psi > 0 (a barrier with
+      // psi <= 0 is not looser relaxed). A distance is never relaxed, only the
+      // rate at which a keep-out is approached.
+      const double omega = params_.barrier_omega;
+      const double tau = params_.velocity_lag_tau;
+      const auto psi = [omega](const Barrier & barrier) {
+          return omega * barrier.margin - barrier.closing;
+        };
       std::vector<size_t> order(barriers.size());
       for (size_t i = 0; i < order.size(); ++i) {
         order[i] = i;
@@ -526,20 +561,22 @@ FilterResult SafetyFilter::filter(
       std::sort(
         order.begin(), order.end(),
         [&barriers](size_t a, size_t b) {return barriers[a].margin > barriers[b].margin;});
-      std::vector<bool> dropped(barriers.size(), false);
       bool feasible = false;
+      std::vector<HalfSpace> kept = half_spaces;
       for (size_t index : order) {
-        if (barriers[index].margin < params_.relax_min_margin) {
+        const Barrier & barrier = barriers[index];
+        if (barrier.margin < params_.relax_min_margin) {
           break;  // the rest are too close to relax
         }
-        dropped[index] = true;
-        relaxed += (relaxed.empty() ? "" : ", ") + barriers[index].name;
-        std::vector<HalfSpace> kept;
-        for (size_t i = 0; i < barriers.size(); ++i) {
-          if (!dropped[i]) {
-            kept.push_back(half_spaces[i]);
-          }
+        if (psi(barrier) <= 0.0) {
+          continue;
         }
+        // psi_dot >= -k * psi with c_dot = (c_cmd - c) / tau gives
+        // c_cmd <= c * (1 - w*tau) + k * tau * psi.
+        const double c_relaxed = barrier.closing * (1.0 - omega * tau) +
+          params_.relaxed_barrier_rate * tau * psi(barrier);
+        kept[index].bound = barrier.target_los - c_relaxed;
+        relaxed += (relaxed.empty() ? "" : ", ") + barrier.name;
         if (projectOntoHalfSpaces(velocity, withLimits(kept), projected)) {
           half_spaces = kept;
           feasible = true;
@@ -549,7 +586,8 @@ FilterResult SafetyFilter::filter(
       if (!feasible) {
         // Every barrier that could be relaxed was, and the rest still conflict:
         // the drone is boxed in. Hover and say so.
-        return hold(state, "conflicting keep-out constraints (" + first_violation + ")");
+        return hold(
+          state, setpoint, "conflicting keep-out constraints (" + first_violation + ")");
       }
     }
     velocity = projected;
@@ -626,6 +664,14 @@ FilterResult SafetyFilter::filter(
     } else {
       result.safety_active = true;
       result.reason += " (speed cap relaxed: the keep-out needs it)";
+      if (final_horizontal > params_.max_airframe_speed) {
+        // The keep-out asks for more than the airframe can fly. The command still
+        // goes out (escaping as fast as the drone can beats hovering), but it is not
+        // a feasible command, and the filter says so: the distance is no longer
+        // guaranteed.
+        result.feasible = false;
+        result.reason += " (beyond the airframe)";
+      }
     }
   }
   velocity.z() = std::clamp(velocity.z(), -params_.max_vertical_speed, params_.max_vertical_speed);
@@ -635,7 +681,7 @@ FilterResult SafetyFilter::filter(
   // the vertical speed cap can slow it down. A distance is never relaxed to
   // make a command feasible, so the drone holds instead.
   if (!satisfied(velocity)) {
-    return hold(state, "the flight limits conflict with the keep-out");
+    return hold(state, setpoint, "the flight limits conflict with the keep-out");
   }
 
   result.velocity = velocity;

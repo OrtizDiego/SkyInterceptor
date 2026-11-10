@@ -220,7 +220,11 @@ struct SafetyFilterParams
   double cbf_alpha = 1.0;           // 1/s, the rate at which the barrier is enforced
   // When the barriers conflict, the rate limit of a barrier with at least this much
   // distance margin may be relaxed, least urgent first, before the drone holds [m].
-  double relax_min_margin = 2.0;
+  double relax_min_margin = 1.0;
+  // The rate a relaxed barrier keeps psi = w*h - c >= 0 at, instead of
+  // barrier_omega [1/s]. Larger is looser; psi >= 0, and so the distance, is kept
+  // at any rate.
+  double relaxed_barrier_rate = 6.0;
   // The assumed time constant of the autopilot's velocity loop [s]. The measured
   // value on the X500 flight model is 0.34 s; the default is deliberately larger,
   // so the filter assumes a slower vehicle than it is.
@@ -240,6 +244,9 @@ struct SafetyFilterParams
   double speed_cap_follow = 15.0;   // m/s
   double speed_cap_intercept = 30.0;  // m/s
   double max_vertical_speed = 5.0;  // m/s
+  // The fastest the airframe flies: the trajectory controller's max_horizontal_velocity.
+  // A keep-out that needs more is reported as infeasible [m/s].
+  double max_airframe_speed = 30.0;
 
   // --- Timeouts -----------------------------------------------------------
   double setpoint_timeout = 0.3;  // s, no fresh setpoint: brake to hover
@@ -332,8 +339,17 @@ public:
     bool estop_latched, bool engage_allowed = true, const std::string & abort_reason = "",
     bool climb_allowed = false);
 
-  /// A hover command: everything the filter can do, undone.
+  /// A hover command with the heading frozen: everything the filter can do, undone. For
+  /// the holds where the planner's yaw is not to be trusted or not wanted: the e-stop,
+  /// stale odometry and a stale setpoint.
   FilterResult hold(const FilterState & state, const std::string & reason);
+
+  /// A hover command that keeps the heading tracking the planner's yaw setpoint and its
+  /// yaw-rate feed-forward. A hold is about the velocity: the controller flies a
+  /// world-frame velocity loop, so the heading does not move the drone, and turning
+  /// keeps the camera on the target while the drone waits.
+  FilterResult hold(
+    const FilterState & state, const FilterSetpoint & setpoint, const std::string & reason);
 
   /// Forgets the cached tracks and the integrator state. Call on a mission mode change.
   void reset();

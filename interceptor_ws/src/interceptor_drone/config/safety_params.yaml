@@ -47,9 +47,12 @@
       cbf_alpha: 1.0                # 1/s, the rate at which the barrier is enforced
       # When the barriers conflict, the rate limit of a barrier with at least this
       # much distance margin may be relaxed, least urgent first, before the drone
-      # holds. At 15 m/s and 50 Hz the drone covers 0.3 m per cycle, so 2 m leaves
-      # several cycles before a relaxed keep-out could be reached.
-      relax_min_margin: 2.0         # m
+      # holds. A relaxed barrier still keeps psi = omega*h - c >= 0 (the drone can
+      # always brake before the keep-out), only at relaxed_barrier_rate instead of
+      # barrier_omega, so the margin is a second layer, not the safety argument
+      # (docs/SAFETY.md has the sweep behind 1 m).
+      relax_min_margin: 1.0         # m
+      relaxed_barrier_rate: 6.0     # 1/s
       # The lag correction. The autopilot's velocity loop has a time constant of
       # 0.34 s (measured on the X500 flight model), and the drone's actual motion
       # lags the command, so the barrier has to be relative degree 2 on the
@@ -65,6 +68,7 @@
       geofence_margin: 1.0          # m, the boundary is enforced this far before it
       speed_cap: {follow: 15.0, intercept: 30.0}
       max_vertical_speed: 5.0       # m/s
+      max_airframe_speed: 30.0      # m/s, the controller's max_horizontal_velocity
 
       # --- The timeouts -----------------------------------------------------
       setpoint_timeout: 0.3         # s, no fresh setpoint: brake to hover

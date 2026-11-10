@@ -25,6 +25,7 @@ planner ──► /setpoint/raw ──► safety_filter_node ──► /setpoint
 | **Limits** | Speed cap per mode, altitude floor and ceiling, geofence box |
 | **Timeouts** | A stale setpoint or stale odometry brakes the drone to a hover |
 | **E-stop** | `/mission/estop` latches: the filter holds until it is released |
+| **Heading during a hold** | A hold stops the *velocity*. The heading keeps tracking the planner's yaw setpoint and its bearing-rate feed-forward, so the camera stays on the target while the drone waits: the controller flies a world-frame velocity loop, so turning does not move the drone. The e-stop, stale odometry and a stale setpoint (and an abort caused by the e-stop) freeze the heading instead: the operator asked for everything to stop, or the yaw is not to be trusted |
 | **Engagement gate** | In INTERCEPT mode the filter refuses an engagement that is not cleared, so a planner bug cannot bypass it |
 
 It always works on velocity: a position setpoint is turned into one first, with the
@@ -184,7 +185,9 @@ All in `config/safety_params.yaml`:
 | `velocity_lag_tau` | 0.5 s | the assumed velocity-loop time constant (measured 0.34 s) |
 | `barrier_omega` | 3.0 /s | the natural frequency of the lag correction |
 | `coast_timeout` | 2.0 s | how long a disappeared track keeps its keep-out |
-| `relax_min_margin` | 2.0 m | the distance margin a barrier needs for its rate to be relaxed in a conflict |
+| `relax_min_margin` | 1.0 m | the distance margin a barrier needs for its rate to be relaxed in a conflict |
+| `relaxed_barrier_rate` | 6.0 /s | the rate a relaxed barrier keeps `ψ = ω·h − c ≥ 0` at, instead of `barrier_omega` |
+| `max_airframe_speed` | 30 m/s | the controller's `max_horizontal_velocity`; a keep-out that needs more is reported infeasible |
 | `speed_cap` | 15 / 30 m/s | FOLLOW / INTERCEPT |
 | `obstacles` | the trees and benches | flat `x, y, radius, height` quadruples |
 
@@ -231,17 +234,80 @@ with plenty of room: a jogger running at the drone demands an escape faster than
 tree's to α·h). Holding then lets the jogger run into the drone. So the rate limits of the
 least urgent barriers — the largest distance margin first — are relaxed one at a time until
 the rest can be satisfied, and the reason says which ("rate relaxed for obstacle oak_1").
-Only a barrier with at least `relax_min_margin` (2 m) of distance left is eligible: its
-distance is not at stake this cycle (at 15 m/s and 50 Hz the drone covers 0.3 m), and the
-next cycle enforces it again. **A distance is never relaxed, only the rate at which a
-distant keep-out is approached.** Only when nothing is eligible — the drone really is
-boxed in — does the filter command hover, and say so.
+**A distance is never relaxed, only the rate at which a keep-out is approached.** Only
+when nothing is eligible — the drone really is boxed in — does the filter command hover,
+and say so.
+
+### What "relaxing the rate" means
+
+The relative degree 2 barrier is a cascade. With `ψ = ω·h − c` (the margin, scaled, minus
+the closing speed), the condition `c_cmd ≤ c·(1 − 2ω·τ) + ω²·τ·h` is exactly
+`ψ̇ ≥ −ω·ψ`: ψ stays non-negative, and `ψ ≥ 0` means `ḣ ≥ −ω·h`, so h stays non-negative.
+`ψ ≥ 0` is the statement "the drone can still brake before the keep-out".
+
+A relaxed barrier keeps `ψ ≥ 0` but lets it fall at `relaxed_barrier_rate` (6 /s) instead
+of ω (3 /s), and drops the plan's `α·h` bound and the yield:
+
+    c_cmd ≤ c·(1 − ω·τ) + k_relaxed·τ·ψ
+
+so the drone may approach the keep-out faster, never so fast that it can no longer stop
+before it. A barrier with `ψ ≤ 0` is not eligible (relaxing it would make it stricter).
+
+The first version (#40) **dropped** the relaxed barrier for the cycle. That let the drone
+reach a relaxed keep-out at a speed it could not brake from once the barrier was enforced
+again: in a ROS-free sweep of 3000 random scenes (people running at the drone at up to
+5 m/s, trees and benches, a planner flying into the keep-outs at up to 15 m/s, the
+0.34 s lag plant) it broke an obstacle keep-out in 11 scenes, by up to 5.6 m. With the
+plant saturated like the controller (30 m/s) and limited to 10 m/s², it still broke one
+in 1000 scenes (by 0.11 m). The ψ-preserving relaxation broke none in either sweep.
+
+### The threshold: 1 m, not 2 m
+
+With ψ kept, the distance margin is no longer the safety argument, only a second layer.
+Over the same 1000 scenes (saturated, 10 m/s² plant), 1 m and 2 m both broke no obstacle;
+1 m held in 0.5 % of the cycles against 0.8 %, and let a person within the limit in 20
+scenes against 23. No relaxation at all held in 10.6 % of the cycles and let a person in
+in 102. So the threshold is 1 m, as originally asked.
+
+`relaxed_barrier_rate` is 6 /s, not more: at 10 /s the relaxed barrier asked for braking
+the 10 m/s² airframe could not give, and broke an obstacle keep-out by 0.29 m on one of
+ten seeds of the property test below; at 6 /s (and at 3) it broke none.
+
+### What the property test checks
+
+`RandomizedPropertyTheRelaxationNeverBreaksADistance` runs 300 such scenes with the
+relaxation and the same 300 without it (saturated, 10 m/s² plant; the planner's command
+is horizontal). With the relaxation the obstacle keep-outs hold, fewer scenes let a
+person in and fewer scenes hold (seed 7: 15 against 59 breached, 54 against 82 held), and
+a *silent* breach — a person let in while the filter reported a feasible command — is no
+more frequent and no deeper (beyond 0.1 m) than without it. It passes on seeds 7-16.
+
+Silent breaches are not zero, with or without the relaxation: the barrier assumes the lag
+plant follows any command, and an acceleration-limited airframe cannot. Over seeds 7-16
+holding alone had one silent breach of 0.51 m and broke an obstacle keep-out by 0.07 m
+once. The worst cases are a person running at the drone where the escape the barrier
+demands is hundreds of m/s: the filter now reports a keep-out that needs more than
+`max_airframe_speed` as **infeasible** ("beyond the airframe"), while still sending the
+fastest escape. Before, the post-projection speed cap was dropped for the keep-out and
+the command went out as feasible however large it was (up to 4.7·10⁴ m/s in the sweep).
+
+Two known gaps, both present without the relaxation and not changed here:
+
+- **The horizontal rule's taper zone.** The horizontal barrier ignores that its standoff
+  grows as the drone descends (its gradient has no z term), and the standoff appears with
+  a 0.3 m step (the uncertainty term) at the top of the taper. A drone descending almost
+  over a person 9-10 m above it enters the horizontal keep-out by up to 0.6 m while the
+  3D distance stays ≥ 2 m clear. Adding the z term alone helped below 5 m but made the
+  step worse, so it needs its own change.
+- **The commands are not bounded by the airframe** (see above); a barrier aware of the
+  acceleration limit would be the real fix.
 
 A known limitation: a barrier constrains the rate along its own normal, so it cannot see
 a sideways escape. With a jogger, the drone and the tree's centre exactly in line, the drone
 escapes towards the tree until the tree is too close to relax, then holds, and the jogger
 gets to 4.7 m (limit 5.0) in the closed-loop test. With the jogger 0.5 m or more off that
-line the drone gets out of the way and both distances hold.
+line the drone gets out of the way and both distances hold. The ψ-preserving relaxation
+does not change the aligned case (4.7 m, measured again).
 
 The first version projected onto the half-spaces one at a time, ten rounds, and called it
 a box when the rounds ran out. With several barriers pulling in different directions that
