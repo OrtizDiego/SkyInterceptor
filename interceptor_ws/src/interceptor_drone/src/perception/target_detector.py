@@ -18,6 +18,7 @@ C++ cv_bridge used by the depth processor and the localizer is unaffected
 by this and is left alone.
 """
 
+import os
 import time
 
 import numpy as np
@@ -38,17 +39,15 @@ IMAGE_ENCODINGS = {
     'mono8': (1, False),
 }
 
-# COCO class id -> class name, for the classes the detector can report.
-COCO_CLASS_NAMES = {
-    0: 'person',
-    1: 'bicycle',
-    2: 'car',
-    7: 'truck',
-}
-
 # Class name -> TargetDetection constant. The names are the ones the tracker
 # uses in follow.eligible_classes and intercept.eligible_classes, so the
 # detector and the tracker agree on the ids.
+#
+# The class of a detection comes from the model itself: the COCO model has
+# the 80 COCO classes, and the model that was fine-tuned for the interceptor
+# (plan 3.2) has the single class uav. The index of a class in the model is
+# not the index of the message, and this table is what maps one onto the
+# other.
 CLASS_IDS = {
     'person': TargetDetection.PERSON,
     'bicycle': TargetDetection.BICYCLE,
@@ -136,27 +135,38 @@ class TargetDetector(Node):
         wanted_classes = list(
             self.get_parameter('target_classes').get_parameter_value().string_array_value)
 
-        self.class_names = {}
         for name in wanted_classes:
             if name not in CLASS_IDS:
                 self.get_logger().warn(f"Unknown target class '{name}', ignored")
-                continue
-            self.class_names[CLASS_IDS[name]] = name
-        if not self.class_names:
+        wanted_classes = [name for name in wanted_classes if name in CLASS_IDS]
+        if not wanted_classes:
             raise ValueError('no valid target class requested')
-
-        # COCO class id -> TargetDetection constant, for the wanted classes only
-        self.target_classes = {}
-        for coco_id, name in COCO_CLASS_NAMES.items():
-            class_id = CLASS_IDS[name]
-            if class_id in self.class_names:
-                self.target_classes[coco_id] = class_id
 
         self.device = self.resolve_device(requested_device)
 
-        # Initialize YOLO
-        self.model = YOLO(model_path)
+        # The model decides which classes the detector can report: the class
+        # of a detection is the class of the model, mapped onto the constant
+        # of the message.
+        self.model = YOLO(self.resolve_model_path(model_path))
         self.model.to(self.device)
+
+        self.class_names = {}
+        self.target_classes = {}
+        for model_id, name in self.model.names.items():
+            if name not in wanted_classes:
+                continue
+            class_id = CLASS_IDS[name]
+            self.class_names[class_id] = name
+            self.target_classes[model_id] = class_id
+        missing = [name for name in wanted_classes if name not in self.class_names.values()]
+        if missing:
+            self.get_logger().warn(
+                f"The model {model_path} has no class {', '.join(missing)}: "
+                "it will not be reported")
+        if not self.target_classes:
+            raise ValueError(
+                f"the model {model_path} has none of the classes "
+                f"{', '.join(wanted_classes)}")
 
         # Subscribers
         self.subscription = self.create_subscription(
@@ -174,6 +184,29 @@ class TargetDetector(Node):
         self.get_logger().info(f"YOLOv8 initialized on {self.device}")
         self.get_logger().info(
             "Monitoring for: " + ", ".join(sorted(self.class_names.values())))
+
+    def resolve_model_path(self, path):
+        """
+        Find the model file.
+
+        A path that exists is used as it is. A bare file name is also looked
+        up in the models directory of the package, so the configuration can
+        name the model without a path and the models can be installed with
+        the package.
+        """
+        if os.path.isabs(path) or os.path.exists(path):
+            return path
+        try:
+            from ament_index_python.packages import get_package_share_directory
+            share = get_package_share_directory('interceptor_drone')
+            candidate = os.path.join(share, 'models', os.path.basename(path))
+            if os.path.exists(candidate):
+                self.get_logger().info(
+                    f"The model {path} is at {candidate}")
+                return candidate
+        except Exception:
+            pass
+        return path
 
     def resolve_device(self, requested):
         """
